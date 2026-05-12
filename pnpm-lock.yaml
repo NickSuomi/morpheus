@@ -60,6 +60,9 @@ importers:
       '@morpheus/core':
         specifier: workspace:*
         version: link:../core
+      '@morpheus/runtime':
+        specifier: workspace:*
+        version: link:../runtime
       effect:
         specifier: 3.21.2
         version: 3.21.2
