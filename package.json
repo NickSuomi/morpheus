@@ -1,0 +1,25 @@
+{
+  "name": "morpheus",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "packageManager": "pnpm@10.26.0",
+  "scripts": {
+    "build": "pnpm -r build",
+    "typecheck": "pnpm -r typecheck",
+    "typecheck:fast": "pnpm -r typecheck:fast",
+    "test": "vitest run",
+    "lint": "oxlint .",
+    "format": "oxfmt --write .",
+    "check": "pnpm lint && pnpm typecheck && pnpm test"
+  },
+  "devDependencies": {
+    "@typescript/native-preview": "7.0.0-dev.20260512.1",
+    "oxfmt": "0.49.0",
+    "oxlint": "1.64.0",
+    "tsdown": "0.22.0",
+    "typescript": "6.0.3",
+    "@types/node": "24.10.1",
+    "vitest": "4.1.6"
+  }
+}
