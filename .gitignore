@@ -3,3 +3,14 @@
 .dolt/
 *.db
 .beads-credential-key
+
+# Local planning scratch
+.scratch/
+
+# Morpheus runtime artifacts
+.morpheus/
+
+# Dependencies and build outputs
+node_modules/
+dist/
+coverage/
