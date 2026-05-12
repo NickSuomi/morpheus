@@ -23,6 +23,11 @@ Commit messages should include:
 - how it was verified
 - Beads issue refs when applicable
 
+Do not use flat one-line commits for project work. If committing from CLI, pass
+multiple `-m` blocks or use the editor so the message follows `.gitmessage`.
+Tiny typo-only commits may omit the body, but planning, architecture, and task
+tracking commits should include the structured sections.
+
 ## Agent skills
 
 ### Issue tracker
