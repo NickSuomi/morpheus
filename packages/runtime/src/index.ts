@@ -1,6 +1,11 @@
 import { existsSync, readFileSync } from "node:fs"
 import { resolve } from "node:path"
 import * as Schema from "@effect/schema/Schema"
+import type {
+  AgentStateTransitionPlan,
+  DerivedIssueState,
+  Lane
+} from "@morpheus/core"
 
 export interface RuntimeInfo {
   readonly name: "MorpheusRuntime"
@@ -8,6 +13,56 @@ export interface RuntimeInfo {
 
 export const runtimeInfo: RuntimeInfo = {
   name: "MorpheusRuntime"
+}
+
+export type ProcessResult = {
+  readonly stdout: string
+  readonly stderr: string
+  readonly exitCode: number
+}
+
+export interface ProcessRunner {
+  readonly run: (
+    command: string,
+    args: readonly string[]
+  ) => Promise<ProcessResult>
+}
+
+export type TrackedIssue = {
+  readonly id: string
+  readonly title: string
+  readonly labels: readonly string[]
+  readonly priority?: number
+  readonly createdAt?: string
+  readonly updatedAt?: string
+  readonly derivedState: DerivedIssueState
+  readonly lane: Lane
+}
+
+export type IssueTrackerApplyResult =
+  | {
+      readonly status: "applied"
+      readonly issueId: string
+      readonly addLabels: readonly string[]
+      readonly removeLabels: readonly string[]
+    }
+  | {
+      readonly status: "rejected"
+      readonly issueId: string
+      readonly reason: Exclude<AgentStateTransitionPlan["status"], "planned">
+      readonly plan: Exclude<
+        AgentStateTransitionPlan,
+        { readonly status: "planned" }
+      >
+    }
+
+export interface IssueTracker {
+  readonly listRunnableIssues: () => Promise<readonly TrackedIssue[]>
+  readonly getIssue: (issueId: string) => Promise<TrackedIssue>
+  readonly applyAgentState: (
+    issueId: string,
+    transitionPlan: AgentStateTransitionPlan
+  ) => Promise<IssueTrackerApplyResult>
 }
 
 export const MorpheusConfigSchema = Schema.Struct({

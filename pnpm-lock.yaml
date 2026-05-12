@@ -32,6 +32,9 @@ importers:
 
   packages/adapters:
     dependencies:
+      '@morpheus/core':
+        specifier: workspace:*
+        version: link:../core
       '@morpheus/runtime':
         specifier: workspace:*
         version: link:../runtime
@@ -94,6 +97,9 @@ importers:
       '@effect/schema':
         specifier: 0.75.5
         version: 0.75.5(effect@3.21.2)
+      '@morpheus/core':
+        specifier: workspace:*
+        version: link:../core
       effect:
         specifier: 3.21.2
         version: 3.21.2
