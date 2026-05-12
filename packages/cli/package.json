@@ -20,6 +20,7 @@
     "@effect/cli": "0.75.1",
     "@effect/platform-node": "0.106.0",
     "@morpheus/core": "workspace:*",
+    "@morpheus/runtime": "workspace:*",
     "effect": "3.21.2"
   },
   "devDependencies": {
