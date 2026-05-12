@@ -56,6 +56,8 @@ Runtime service contracts:
 - `WorkspaceRuntime`
 - `Clock`
 
+Effectful ports are owned by runtime. Concrete adapters must not leak vendor command shapes into use-cases.
+
 ### `packages/adapters`
 
 Concrete adapter implementations.
@@ -95,8 +97,40 @@ CLI must not duplicate runtime workflow logic.
 - Effects/resources/errors: Effect in runtime, adapters, and CLI
 - Tests: Vitest, plus `@effect/vitest` for Effect services
 - SQLite: `@effect/sql-sqlite-node`
-- Validation: schema validation at config and contract boundaries
+- Validation: Effect Schema at config and contract boundaries
 - Lint/format: `oxlint` and `oxfmt`, plus `tsc --noEmit`
+- Typecheck: prefer TypeScript 7 native `tsgo`; keep `tsc --noEmit --incremental` fallback until compatibility is proven
+
+Root package scripts:
+
+```json
+{
+  "scripts": {
+    "build": "pnpm -r build",
+    "typecheck": "pnpm -r typecheck",
+    "typecheck:fast": "pnpm -r typecheck:fast",
+    "test": "pnpm -r test",
+    "lint": "oxlint .",
+    "format": "oxfmt --write .",
+    "check": "pnpm lint && pnpm typecheck && pnpm test"
+  }
+}
+```
+
+Per-package scripts:
+
+```json
+{
+  "scripts": {
+    "build": "tsdown",
+    "typecheck": "tsc --noEmit --incremental",
+    "typecheck:fast": "tsgo --noEmit",
+    "test": "vitest run"
+  }
+}
+```
+
+Stable `tsc` typecheck is default. Fast `tsgo` is opt-in until compatibility is proven.
 
 ## Effect Scope
 
@@ -132,6 +166,15 @@ Initial shape:
     "review": { "concurrency": 1 }
   },
   "verification": { "commands": [] },
+  "retention": {
+    "completedIntermediate": {
+      "keepDays": 14,
+      "keepLast": 100
+    },
+    "failed": "manual",
+    "reviewCandidate": "until-mr-closed-or-manual",
+    "active": "never"
+  },
   "prompts": {
     "prepare": ".morpheus/prompts/prepare.md",
     "implement": ".morpheus/prompts/implement.md",
@@ -167,6 +210,24 @@ Every run state change writes an event and updates summary in one SQL transactio
 
 `run_events` answers what happened. `runs` answers what is true now.
 
+Retention/prune is in v1 and is operator-owned:
+
+- `morpheus prune --dry-run`
+- `morpheus prune --apply`
+
+Prune never deletes Beads issues, never touches GitLab MRs, and never prunes active non-terminal runs. Prune keeps a tombstone summary in `runs` while deleting detailed events and local artifacts that policy allows.
+
+Tombstone fields in `runs`:
+
+- `pruned_at`
+- `pruned_by`
+- `prune_reason`
+- `events_pruned_at`
+- `artifacts_pruned_at`
+- `artifact_bytes_deleted`
+
+Pruned runs keep stable identity and coarse metadata: run ID, issue ID, lane, status, failure kind, start/end timestamps, MR ref, and branch. Prune clears transcript and detailed artifact paths. Detailed run events are replaced by one `RunPruned` event.
+
 ## Issue State
 
 Beads labels are source of truth for issue state. Morpheus ledger mirrors what Morpheus attempted and observed.
@@ -174,6 +235,31 @@ Beads labels are source of truth for issue state. Morpheus ledger mirrors what M
 `IssueStateMachine` computes pure transition plans. `IssueTracker` applies those plans to Beads. Runtime code never directly hand-edits `agent:*` labels.
 
 Multiple active `agent:*` labels fail closed with `failureKind: state_conflict`.
+
+The Beads adapter uses the `bd` CLI through `ProcessRunner`. It must prefer `bd --json` for machine-readable output and must not read Beads' Dolt/DB internals directly.
+
+`IssueTracker` v1 methods:
+
+```txt
+listRunnableIssues()
+getIssue(issueId)
+applyAgentState(issueId, transitionPlan)
+writeContract(issueId, contract)
+readContract(issueId)
+```
+
+Agent-Ready Contract is stored in Beads issue metadata, not markdown body prose:
+
+```json
+{
+  "morpheus": {
+    "contractVersion": 1,
+    "agentReadyContract": {}
+  }
+}
+```
+
+The adapter uses `bd create/update --metadata` and `bd show --json` for this data.
 
 ## Scheduler
 
@@ -187,6 +273,8 @@ Daemon v1 uses polling ticks:
 No persistent queue in v1.
 
 Each lane has independent concurrency. Default is `1` per lane. Work ordering inside each lane: priority, then date, then issue ID.
+
+Reconciliation is internal daemon tick behavior in v1, not a public scheduler lane. It can become an explicit lane later if it gains independent scheduling needs.
 
 ## Agent Runner
 
@@ -211,8 +299,4 @@ Morpheus does not patch markdown sections. Morpheus does not use GitLab issue co
 
 ## Open Questions
 
-- Exact package manager scripts and build tool.
-- Exact schema validation library placement.
-- Exact Beads command/API surface.
-- Whether reconciliation lane is explicit in v1 or internal to daemon tick.
-- Retention/prune schema details.
+- Exact first prototype scope before re-running issue slicing.

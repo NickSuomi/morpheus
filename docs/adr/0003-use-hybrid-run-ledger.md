@@ -23,6 +23,8 @@ Every state change writes a `run_events` record and updates `runs` in one transa
 
 Run IDs use `run_<ulid>`.
 
+Implement retention/prune in v1 as an explicit operator command. Prune keeps a tombstone summary in `runs`, deletes detailed events and local artifacts allowed by policy, and never mutates Beads issues or GitLab MRs.
+
 ## Consequences
 
 `runs` supports fast `status`, `runs`, and `run <id>` summaries.
@@ -30,3 +32,5 @@ Run IDs use `run_<ulid>`.
 `run_events` preserves the full timeline for `slice <issue-id>` and forensic inspection.
 
 Tests must enforce event/summary consistency.
+
+Pruned runs remain visible enough to explain that work existed and was intentionally pruned.
