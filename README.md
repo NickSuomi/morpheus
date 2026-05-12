@@ -8,7 +8,7 @@ Product principle:
 
 ## Current Status
 
-Planning and architecture phase.
+Initial monorepo scaffold and CLI shell are in place.
 
 Read in order:
 
@@ -30,9 +30,16 @@ bd show <id>
 
 Prefix: `morph`.
 
+## Development
+
+```bash
+pnpm install
+pnpm --filter @morpheus/cli morpheus --help
+pnpm --filter @morpheus/cli morpheus --version
+pnpm check
+```
+
 ## Next Workflow
 
-1. Finish architecture grill open questions.
-2. Prototype disputed state/ledger/scheduler logic if needed.
-3. Re-run issue slicing from `docs/product/PRD.md` and `ARCHITECTURE.md`.
-4. Implement approved slices with TDD.
+1. Implement approved Beads slices with TDD.
+2. Keep package boundaries aligned with `ARCHITECTURE.md`.

@@ -1,0 +1,30 @@
+{
+  "name": "@morpheus/cli",
+  "version": "0.1.0",
+  "type": "module",
+  "bin": {
+    "morpheus": "./dist/index.mjs"
+  },
+  "exports": {
+    ".": "./dist/index.mjs"
+  },
+  "types": "./dist/index.d.mts",
+  "scripts": {
+    "build": "tsdown",
+    "typecheck": "tsc --noEmit --incremental",
+    "typecheck:fast": "tsgo --noEmit",
+    "test": "vitest run",
+    "morpheus": "node dist/index.mjs"
+  },
+  "dependencies": {
+    "@effect/cli": "0.75.1",
+    "@effect/platform-node": "0.106.0",
+    "@morpheus/core": "workspace:*",
+    "effect": "3.21.2"
+  },
+  "devDependencies": {
+    "tsdown": "0.22.0",
+    "typescript": "6.0.3",
+    "vitest": "4.1.6"
+  }
+}
