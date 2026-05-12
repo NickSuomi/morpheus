@@ -13,6 +13,7 @@
     "test": "vitest run"
   },
   "dependencies": {
+    "@morpheus/core": "workspace:*",
     "@morpheus/runtime": "workspace:*",
     "effect": "3.21.2"
   },
