@@ -2,10 +2,13 @@ import { existsSync, readFileSync } from "node:fs"
 import { resolve } from "node:path"
 import * as Schema from "@effect/schema/Schema"
 import type {
+  AgentReadyContract,
   AgentStateTransitionPlan,
   DerivedIssueState,
   Lane
 } from "@morpheus/core"
+
+export type { AgentReadyContract } from "@morpheus/core"
 
 export interface RuntimeInfo {
   readonly name: "MorpheusRuntime"
@@ -56,6 +59,43 @@ export type IssueTrackerApplyResult =
       >
     }
 
+export type IssueTrackerWriteContractResult =
+  | {
+      readonly status: "written"
+      readonly issueId: string
+    }
+  | {
+      readonly status: "malformed_metadata"
+      readonly issueId: string
+      readonly message: string
+    }
+  | {
+      readonly status: "schema_validation"
+      readonly issueId: string
+      readonly message: string
+    }
+
+export type IssueTrackerReadContractResult =
+  | {
+      readonly status: "present"
+      readonly issueId: string
+      readonly contract: AgentReadyContract
+    }
+  | {
+      readonly status: "missing"
+      readonly issueId: string
+    }
+  | {
+      readonly status: "malformed_metadata"
+      readonly issueId: string
+      readonly message: string
+    }
+  | {
+      readonly status: "schema_validation"
+      readonly issueId: string
+      readonly message: string
+    }
+
 export interface IssueTracker {
   readonly listRunnableIssues: () => Promise<readonly TrackedIssue[]>
   readonly getIssue: (issueId: string) => Promise<TrackedIssue>
@@ -63,6 +103,91 @@ export interface IssueTracker {
     issueId: string,
     transitionPlan: AgentStateTransitionPlan
   ) => Promise<IssueTrackerApplyResult>
+  readonly writeContract: (
+    issueId: string,
+    contract: AgentReadyContract
+  ) => Promise<IssueTrackerWriteContractResult>
+  readonly readContract: (
+    issueId: string
+  ) => Promise<IssueTrackerReadContractResult>
+}
+
+export const AgentReadyContractSchema = Schema.Struct({
+  category: Schema.String,
+  summary: Schema.String,
+  currentBehavior: Schema.String,
+  desiredBehavior: Schema.String,
+  keyInterfaces: Schema.Array(Schema.String),
+  acceptanceCriteria: Schema.Array(Schema.String),
+  outOfScope: Schema.Array(Schema.String),
+  verificationPlan: Schema.Array(Schema.String),
+  blockedBy: Schema.String,
+  hitlDecisions: Schema.String,
+  riskLevel: Schema.Literal("low", "medium", "high")
+})
+
+export type AgentReadyContractDecodeResult =
+  | {
+      readonly status: "valid"
+      readonly contract: AgentReadyContract
+    }
+  | {
+      readonly status: "invalid"
+      readonly message: string
+    }
+
+export type AfkReadyContractValidationResult =
+  | {
+      readonly status: "valid"
+      readonly contract: AgentReadyContract
+    }
+  | {
+      readonly status: "invalid"
+      readonly reason: "blocked_by_present" | "hitl_decisions_present"
+    }
+
+const errorMessage = (error: unknown): string =>
+  error instanceof Error ? error.message : String(error)
+
+export const decodeAgentReadyContract = (
+  value: unknown
+): AgentReadyContractDecodeResult => {
+  try {
+    return {
+      status: "valid",
+      contract: Schema.decodeUnknownSync(AgentReadyContractSchema)(
+        value
+      ) as AgentReadyContract
+    }
+  } catch (error) {
+    return {
+      status: "invalid",
+      message: errorMessage(error)
+    }
+  }
+}
+
+export const validateAfkReadyContract = (
+  contract: AgentReadyContract
+): AfkReadyContractValidationResult => {
+  if (contract.blockedBy !== "None") {
+    return {
+      status: "invalid",
+      reason: "blocked_by_present"
+    }
+  }
+
+  if (contract.hitlDecisions !== "None") {
+    return {
+      status: "invalid",
+      reason: "hitl_decisions_present"
+    }
+  }
+
+  return {
+    status: "valid",
+    contract
+  }
 }
 
 export const MorpheusConfigSchema = Schema.Struct({
@@ -152,9 +277,6 @@ const configPathFromOptions = (options: ConfigLoadOptions): string => {
 
   return resolve(options.targetRepo ?? process.cwd(), "morpheus.config.json")
 }
-
-const errorMessage = (error: unknown): string =>
-  error instanceof Error ? error.message : String(error)
 
 export const loadMorpheusConfig = (
   options: ConfigLoadOptions = {}

@@ -1,6 +1,8 @@
 import { deriveIssueState, deriveLane } from "@morpheus/core"
 import type { AgentStateTransitionPlan } from "@morpheus/core"
+import { decodeAgentReadyContract } from "@morpheus/runtime"
 import type {
+  AgentReadyContract,
   IssueTracker,
   ProcessResult,
   ProcessRunner,
@@ -26,6 +28,7 @@ type BeadsIssueJson = {
   readonly priority?: unknown
   readonly created_at?: unknown
   readonly updated_at?: unknown
+  readonly metadata?: unknown
 }
 
 export class BeadsCommandError extends Error {
@@ -89,6 +92,9 @@ const parseJsonArray = (
   return parsed
 }
 
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+  typeof value === "object" && value !== null && !Array.isArray(value)
+
 const optionalNumber = (value: unknown): number | undefined =>
   typeof value === "number" ? value : undefined
 
@@ -132,14 +138,45 @@ const issueFromJson = (issue: BeadsIssueJson): TrackedIssue => {
 const firstIssueFromJson = (
   stdout: string,
   args: readonly string[]
-): TrackedIssue => {
+): BeadsIssueJson => {
   const [issue] = parseJsonArray(stdout, "bd", args)
 
   if (issue === undefined) {
     throw new BeadsJsonParseError("bd", args, "Expected one issue")
   }
 
-  return issueFromJson(issue as BeadsIssueJson)
+  return issue as BeadsIssueJson
+}
+
+type MetadataReadResult =
+  | {
+      readonly status: "valid"
+      readonly metadata: Record<string, unknown>
+    }
+  | {
+      readonly status: "malformed_metadata"
+      readonly message: string
+    }
+
+const readMetadata = (issue: BeadsIssueJson): MetadataReadResult => {
+  if (issue.metadata === undefined) {
+    return {
+      status: "valid",
+      metadata: {}
+    }
+  }
+
+  if (isRecord(issue.metadata)) {
+    return {
+      status: "valid",
+      metadata: issue.metadata
+    }
+  }
+
+  return {
+    status: "malformed_metadata",
+    message: "Expected issue metadata to be an object"
+  }
 }
 
 const rejectPlan = (
@@ -162,12 +199,15 @@ export const createBeadsIssueTracker = ({
       issueFromJson(issue as BeadsIssueJson)
     )
   },
-  async getIssue(issueId) {
+  async getIssue(issueId: string) {
     const args = ["show", issueId, "--json"] as const
     const result = await runBd(processRunner, args)
-    return firstIssueFromJson(result.stdout, args)
+    return issueFromJson(firstIssueFromJson(result.stdout, args))
   },
-  async applyAgentState(issueId, transitionPlan) {
+  async applyAgentState(
+    issueId: string,
+    transitionPlan: AgentStateTransitionPlan
+  ) {
     if (transitionPlan.status !== "planned") {
       return rejectPlan(issueId, transitionPlan)
     }
@@ -190,6 +230,113 @@ export const createBeadsIssueTracker = ({
       issueId,
       addLabels: transitionPlan.addLabels,
       removeLabels: transitionPlan.removeLabels
+    }
+  },
+  async writeContract(issueId: string, contract: AgentReadyContract) {
+    const showArgs = ["show", issueId, "--json"] as const
+    const result = await runBd(processRunner, showArgs)
+    const issue = firstIssueFromJson(result.stdout, showArgs)
+    const metadataResult = readMetadata(issue)
+
+    if (metadataResult.status === "malformed_metadata") {
+      return {
+        status: "malformed_metadata",
+        issueId,
+        message: metadataResult.message
+      }
+    }
+
+    const decoded = decodeAgentReadyContract(contract)
+
+    if (decoded.status === "invalid") {
+      return {
+        status: "schema_validation",
+        issueId,
+        message: decoded.message
+      }
+    }
+
+    const nextMetadata = {
+      ...metadataResult.metadata,
+      morpheus: {
+        contractVersion: 1,
+        agentReadyContract: decoded.contract
+      }
+    }
+
+    await runBd(processRunner, [
+      "update",
+      issueId,
+      "--metadata",
+      JSON.stringify(nextMetadata)
+    ])
+
+    return {
+      status: "written",
+      issueId
+    }
+  },
+  async readContract(issueId: string) {
+    const args = ["show", issueId, "--json"] as const
+    const result = await runBd(processRunner, args)
+    const issue = firstIssueFromJson(result.stdout, args)
+    const metadataResult = readMetadata(issue)
+
+    if (metadataResult.status === "malformed_metadata") {
+      return {
+        status: "malformed_metadata",
+        issueId,
+        message: metadataResult.message
+      }
+    }
+
+    const metadata = metadataResult.metadata
+    const morpheus = metadata.morpheus
+
+    if (morpheus === undefined) {
+      return {
+        status: "missing",
+        issueId
+      }
+    }
+
+    if (!isRecord(morpheus)) {
+      return {
+        status: "malformed_metadata",
+        issueId,
+        message: "Expected morpheus metadata to be an object"
+      }
+    }
+
+    if (morpheus.agentReadyContract === undefined) {
+      return {
+        status: "missing",
+        issueId
+      }
+    }
+
+    if (morpheus.contractVersion !== 1) {
+      return {
+        status: "malformed_metadata",
+        issueId,
+        message: "Expected morpheus.contractVersion to be 1"
+      }
+    }
+
+    const decoded = decodeAgentReadyContract(morpheus.agentReadyContract)
+
+    if (decoded.status === "invalid") {
+      return {
+        status: "schema_validation",
+        issueId,
+        message: decoded.message
+      }
+    }
+
+    return {
+      status: "present",
+      issueId,
+      contract: decoded.contract
     }
   }
 })

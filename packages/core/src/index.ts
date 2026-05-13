@@ -45,6 +45,20 @@ export type FailureKind = (typeof failureKinds)[number]
 
 export type Lane = "preparation" | "implementation" | "review" | "none"
 
+export type AgentReadyContract = {
+  readonly category: string
+  readonly summary: string
+  readonly currentBehavior: string
+  readonly desiredBehavior: string
+  readonly keyInterfaces: readonly string[]
+  readonly acceptanceCriteria: readonly string[]
+  readonly outOfScope: readonly string[]
+  readonly verificationPlan: readonly string[]
+  readonly blockedBy: string
+  readonly hitlDecisions: string
+  readonly riskLevel: "low" | "medium" | "high"
+}
+
 export type DerivedIssueState =
   | {
       readonly status: "active"

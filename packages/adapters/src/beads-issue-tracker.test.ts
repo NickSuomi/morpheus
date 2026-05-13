@@ -32,6 +32,20 @@ const failed = (stderr: string): ProcessResult => ({
   exitCode: 1
 })
 
+const validContract = {
+  category: "task",
+  summary: "Persist contracts in Beads metadata.",
+  currentBehavior: "Morpheus reads issue prose only.",
+  desiredBehavior: "Morpheus stores typed contract metadata.",
+  keyInterfaces: ["IssueTracker.readContract", "IssueTracker.writeContract"],
+  acceptanceCriteria: ["Valid contracts round-trip through Beads metadata."],
+  outOfScope: ["GitLab MR rendering"],
+  verificationPlan: ["pnpm check"],
+  blockedBy: "None",
+  hitlDecisions: "None",
+  riskLevel: "medium"
+} as const
+
 describe("BeadsIssueTracker", () => {
   it("lists runnable issues from bd ready JSON output", async () => {
     const processRunner = new FakeProcessRunner([
@@ -188,5 +202,194 @@ describe("BeadsIssueTracker", () => {
       plan
     })
     expect(processRunner.calls).toEqual([])
+  })
+
+  it("writes contract metadata without replacing existing metadata keys", async () => {
+    const processRunner = new FakeProcessRunner([
+      ok([
+        {
+          id: "morph-kkv",
+          title: "Store Agent-Ready Contract in Beads metadata",
+          labels: ["agent:preparing"],
+          metadata: {
+            external: {
+              value: true
+            }
+          }
+        }
+      ]),
+      ok([])
+    ])
+    const tracker = createBeadsIssueTracker({ processRunner })
+
+    await expect(
+      tracker.writeContract("morph-kkv", validContract)
+    ).resolves.toEqual({
+      status: "written",
+      issueId: "morph-kkv"
+    })
+    expect(processRunner.calls).toEqual([
+      { command: "bd", args: ["show", "morph-kkv", "--json"] },
+      {
+        command: "bd",
+        args: [
+          "update",
+          "morph-kkv",
+          "--metadata",
+          JSON.stringify({
+            external: {
+              value: true
+            },
+            morpheus: {
+              contractVersion: 1,
+              agentReadyContract: validContract
+            }
+          })
+        ]
+      }
+    ])
+  })
+
+  it("reads present contract metadata", async () => {
+    const processRunner = new FakeProcessRunner([
+      ok([
+        {
+          id: "morph-kkv",
+          title: "Store Agent-Ready Contract in Beads metadata",
+          labels: ["agent:prepared"],
+          metadata: {
+            morpheus: {
+              contractVersion: 1,
+              agentReadyContract: validContract
+            }
+          }
+        }
+      ])
+    ])
+    const tracker = createBeadsIssueTracker({ processRunner })
+
+    await expect(tracker.readContract("morph-kkv")).resolves.toEqual({
+      status: "present",
+      issueId: "morph-kkv",
+      contract: validContract
+    })
+  })
+
+  it("returns missing when contract metadata is absent", async () => {
+    const processRunner = new FakeProcessRunner([
+      ok([
+        {
+          id: "morph-kkv",
+          title: "Store Agent-Ready Contract in Beads metadata",
+          labels: ["agent:preparing"],
+          metadata: {
+            external: true
+          }
+        }
+      ])
+    ])
+    const tracker = createBeadsIssueTracker({ processRunner })
+
+    await expect(tracker.readContract("morph-kkv")).resolves.toEqual({
+      status: "missing",
+      issueId: "morph-kkv"
+    })
+  })
+
+  it("returns malformed metadata for invalid Morpheus metadata shape", async () => {
+    const processRunner = new FakeProcessRunner([
+      ok([
+        {
+          id: "morph-kkv",
+          title: "Store Agent-Ready Contract in Beads metadata",
+          labels: ["agent:preparing"],
+          metadata: {
+            morpheus: {
+              contractVersion: 2,
+              agentReadyContract: validContract
+            }
+          }
+        }
+      ])
+    ])
+    const tracker = createBeadsIssueTracker({ processRunner })
+
+    await expect(tracker.readContract("morph-kkv")).resolves.toMatchObject({
+      status: "malformed_metadata",
+      issueId: "morph-kkv"
+    })
+  })
+
+  it("returns schema validation failures for invalid contract metadata", async () => {
+    const processRunner = new FakeProcessRunner([
+      ok([
+        {
+          id: "morph-kkv",
+          title: "Store Agent-Ready Contract in Beads metadata",
+          labels: ["agent:preparing"],
+          metadata: {
+            morpheus: {
+              contractVersion: 1,
+              agentReadyContract: {
+                ...validContract,
+                riskLevel: "severe"
+              }
+            }
+          }
+        }
+      ])
+    ])
+    const tracker = createBeadsIssueTracker({ processRunner })
+
+    await expect(tracker.readContract("morph-kkv")).resolves.toMatchObject({
+      status: "schema_validation",
+      issueId: "morph-kkv"
+    })
+  })
+
+  it("returns malformed metadata for non-object issue metadata", async () => {
+    const processRunner = new FakeProcessRunner([
+      ok([
+        {
+          id: "morph-kkv",
+          title: "Store Agent-Ready Contract in Beads metadata",
+          labels: ["agent:preparing"],
+          metadata: "broken"
+        }
+      ])
+    ])
+    const tracker = createBeadsIssueTracker({ processRunner })
+
+    await expect(tracker.readContract("morph-kkv")).resolves.toMatchObject({
+      status: "malformed_metadata",
+      issueId: "morph-kkv"
+    })
+  })
+
+  it("returns schema validation before writing invalid contract metadata", async () => {
+    const processRunner = new FakeProcessRunner([
+      ok([
+        {
+          id: "morph-kkv",
+          title: "Store Agent-Ready Contract in Beads metadata",
+          labels: ["agent:preparing"],
+          metadata: {}
+        }
+      ])
+    ])
+    const tracker = createBeadsIssueTracker({ processRunner })
+
+    await expect(
+      tracker.writeContract("morph-kkv", {
+        ...validContract,
+        riskLevel: "severe"
+      } as never)
+    ).resolves.toMatchObject({
+      status: "schema_validation",
+      issueId: "morph-kkv"
+    })
+    expect(processRunner.calls).toEqual([
+      { command: "bd", args: ["show", "morph-kkv", "--json"] }
+    ])
   })
 })
