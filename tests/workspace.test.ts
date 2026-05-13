@@ -18,7 +18,7 @@ describe("workspace scaffold", () => {
       test: "vitest run",
       lint: "oxlint .",
       format: "oxfmt --write .",
-      check: "pnpm lint && pnpm typecheck && pnpm test"
+      check: "pnpm lint && pnpm build && pnpm typecheck && pnpm test"
     })
   })
 
