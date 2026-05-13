@@ -43,7 +43,11 @@ export const failureKinds = [
 
 export type FailureKind = (typeof failureKinds)[number]
 
-export type Lane = "preparation" | "implementation" | "review" | "none"
+export const runnableLanes = ["preparation", "implementation", "review"] as const
+
+export type RunnableLane = (typeof runnableLanes)[number]
+
+export type Lane = RunnableLane | "none"
 
 export type AgentReadyContract = {
   readonly category: string

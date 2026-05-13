@@ -2,7 +2,7 @@ import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node
 import { dirname, join } from "node:path";
 import { SqlClient } from "@effect/sql";
 import { SqliteClient } from "@effect/sql-sqlite-node";
-import type { FailureKind, Lane } from "@morpheus/core";
+import { failureKinds, runnableLanes, type FailureKind, type RunnableLane } from "@morpheus/core";
 import {
   RunLedger,
   RunLedgerInvalidStateError,
@@ -14,6 +14,7 @@ import {
   type RunLedgerService,
   type RunStatus,
   type RunSummary,
+  runStatuses,
 } from "@morpheus/runtime";
 import { Effect, Layer } from "effect";
 import { ulid } from "ulid";
@@ -83,18 +84,71 @@ const ignoreCleanupFailure = <E, R>(
 ): Effect.Effect<void, never, R> =>
   effect.pipe(Effect.catchAll(() => Effect.void));
 
-const runSummaryFromRow = (row: RunRow): RunSummary => ({
-  id: row.id,
-  issueId: row.issue_id,
-  lane: row.lane as Lane,
-  status: row.status as RunStatus,
-  summary: row.summary,
-  startedAt: row.started_at,
-  endedAt: maybe(row.ended_at),
-  failureKind: maybe(row.failure_kind) as FailureKind | undefined,
-  transcriptPath: maybe(row.transcript_path),
-  artifactPath: maybe(row.artifact_path),
-});
+const includes = <T extends string>(values: readonly T[], value: string): value is T =>
+  values.includes(value as T);
+
+const invalidRowValueError = (
+  operation: string,
+  row: RunRow,
+  column: string,
+  value: string,
+): RunLedgerPersistenceError =>
+  new RunLedgerPersistenceError({
+    operation,
+    message: `Invalid persisted run row ${row.id} ${column}: ${value}`,
+  });
+
+const decodeLane = (
+  operation: string,
+  row: RunRow,
+): Effect.Effect<RunnableLane, RunLedgerPersistenceError> =>
+  includes(runnableLanes, row.lane)
+    ? Effect.succeed(row.lane)
+    : Effect.fail(invalidRowValueError(operation, row, "lane", row.lane));
+
+const decodeRunStatus = (
+  operation: string,
+  row: RunRow,
+): Effect.Effect<RunStatus, RunLedgerPersistenceError> =>
+  includes(runStatuses, row.status)
+    ? Effect.succeed(row.status)
+    : Effect.fail(invalidRowValueError(operation, row, "status", row.status));
+
+const decodeFailureKind = (
+  operation: string,
+  row: RunRow,
+): Effect.Effect<FailureKind | undefined, RunLedgerPersistenceError> => {
+  if (row.failure_kind === null) {
+    return Effect.succeed(undefined);
+  }
+
+  return includes(failureKinds, row.failure_kind)
+    ? Effect.succeed(row.failure_kind)
+    : Effect.fail(invalidRowValueError(operation, row, "failure_kind", row.failure_kind));
+};
+
+const runSummaryFromRow = (
+  operation: string,
+  row: RunRow,
+): Effect.Effect<RunSummary, RunLedgerPersistenceError> =>
+  Effect.gen(function* () {
+    const lane = yield* decodeLane(operation, row);
+    const status = yield* decodeRunStatus(operation, row);
+    const failureKind = yield* decodeFailureKind(operation, row);
+
+    return {
+      id: row.id,
+      issueId: row.issue_id,
+      lane,
+      status,
+      summary: row.summary,
+      startedAt: row.started_at,
+      endedAt: maybe(row.ended_at),
+      failureKind,
+      transcriptPath: maybe(row.transcript_path),
+      artifactPath: maybe(row.artifact_path),
+    };
+  });
 
 const runEventFromRow = (row: RunEventRow): RunEvent => ({
   sequence: row.sequence,
@@ -156,7 +210,10 @@ export const createSqliteRunLedger = ({
         "getRun",
         sql<RunRow>`SELECT * FROM runs WHERE id = ${runId}`,
       );
-      return rows[0] === undefined ? undefined : runSummaryFromRow(rows[0]);
+      if (rows[0] === undefined) {
+        return undefined;
+      }
+      return yield* runSummaryFromRow("getRun", rows[0]);
     });
 
     const getRunEvents = Effect.fn("SqliteRunLedger.getRunEvents")(function* (runId: string) {
@@ -358,7 +415,7 @@ export const createSqliteRunLedger = ({
             ORDER BY started_at DESC, id ASC
           `,
         );
-        return rows.map(runSummaryFromRow);
+        return yield* Effect.forEach(rows, (row) => runSummaryFromRow("listRuns", row));
       }),
 
       getRun,

@@ -45,6 +45,28 @@ const runWithLedgerAndSql = <A>(
   return Effect.runPromise(program.pipe(Effect.provide(Layer.merge(ledgerLayer, sqliteLayer))));
 };
 
+const insertRawRun = (input: {
+  readonly runId: string;
+  readonly lane: string;
+  readonly status: string;
+  readonly failureKind: string | null;
+}) =>
+  Effect.gen(function* () {
+    const sql = yield* SqlClient.SqlClient;
+    yield* sql`
+      INSERT INTO runs (id, issue_id, lane, status, summary, started_at, failure_kind)
+      VALUES (
+        ${input.runId},
+        ${"morph-corrupt"},
+        ${input.lane},
+        ${input.status},
+        ${"Corrupt persisted run"},
+        ${new Date().toISOString()},
+        ${input.failureKind}
+      )
+    `;
+  });
+
 describe("SqliteRunLedger", () => {
   it("creates a fake preparation run with an ordered start event", async () => {
     await withTempDir(async (dir) => {
@@ -396,6 +418,129 @@ describe("SqliteRunLedger", () => {
       ]);
       expect(existsSync(join(result.runDirectory, "transcript.txt"))).toBe(false);
       expect(existsSync(join(result.runDirectory, "artifact.json"))).toBe(false);
+    });
+  });
+
+  it.each(["not-a-lane", "none"])(
+    "rejects corrupt persisted run rows with invalid lane %s",
+    async (lane) => {
+    await withTempDir(async (dir) => {
+      const runId = "run_01HX0000000000000000000001";
+      const result = await runWithLedgerAndSql(
+        dir,
+        Effect.gen(function* () {
+          const ledger = yield* RunLedger;
+          yield* insertRawRun({
+            runId,
+            lane,
+            status: "running",
+            failureKind: null,
+          });
+
+          return {
+            getRun: yield* ledger.getRun(runId).pipe(Effect.either),
+            listRuns: yield* ledger.listRuns().pipe(Effect.either),
+          };
+        }),
+      );
+
+      expect(result.getRun).toMatchObject({
+        _tag: "Left",
+        left: {
+          _tag: "RunLedgerPersistenceError",
+          operation: "getRun",
+          message: expect.stringContaining("lane"),
+        },
+      });
+      expect(result.listRuns).toMatchObject({
+        _tag: "Left",
+        left: {
+          _tag: "RunLedgerPersistenceError",
+          operation: "listRuns",
+          message: expect.stringContaining("lane"),
+        },
+      });
+    });
+    },
+  );
+
+  it("rejects corrupt persisted run rows with an invalid status", async () => {
+    await withTempDir(async (dir) => {
+      const runId = "run_01HX0000000000000000000002";
+      const result = await runWithLedgerAndSql(
+        dir,
+        Effect.gen(function* () {
+          const ledger = yield* RunLedger;
+          yield* insertRawRun({
+            runId,
+            lane: "preparation",
+            status: "stuck",
+            failureKind: null,
+          });
+
+          return {
+            getRun: yield* ledger.getRun(runId).pipe(Effect.either),
+            listRuns: yield* ledger.listRuns().pipe(Effect.either),
+          };
+        }),
+      );
+
+      expect(result.getRun).toMatchObject({
+        _tag: "Left",
+        left: {
+          _tag: "RunLedgerPersistenceError",
+          operation: "getRun",
+          message: expect.stringContaining("status"),
+        },
+      });
+      expect(result.listRuns).toMatchObject({
+        _tag: "Left",
+        left: {
+          _tag: "RunLedgerPersistenceError",
+          operation: "listRuns",
+          message: expect.stringContaining("status"),
+        },
+      });
+    });
+  });
+
+  it("rejects corrupt persisted run rows with an invalid failure kind", async () => {
+    await withTempDir(async (dir) => {
+      const runId = "run_01HX0000000000000000000003";
+      const result = await runWithLedgerAndSql(
+        dir,
+        Effect.gen(function* () {
+          const ledger = yield* RunLedger;
+          yield* insertRawRun({
+            runId,
+            lane: "preparation",
+            status: "failed",
+            failureKind: "bad_failure_kind",
+          });
+
+          return {
+            getRun: yield* ledger.getRun(runId).pipe(Effect.either),
+            listRuns: yield* ledger.listRuns().pipe(Effect.either),
+          };
+        }),
+      );
+
+      expect(result.getRun).toMatchObject({
+        _tag: "Left",
+        left: {
+          _tag: "RunLedgerPersistenceError",
+          operation: "getRun",
+          message: expect.stringContaining("failure_kind"),
+        },
+      });
+      expect(result.listRuns).toMatchObject({
+        _tag: "Left",
+        left: {
+          _tag: "RunLedgerPersistenceError",
+          operation: "listRuns",
+          message: expect.stringContaining("failure_kind"),
+        },
+      });
     });
   });
 
