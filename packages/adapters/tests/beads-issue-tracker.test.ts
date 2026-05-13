@@ -230,6 +230,110 @@ describe("BeadsIssueTracker", () => {
     }
   });
 
+  it("returns typed parse failures for non-object issue rows", async () => {
+    const processRunner = fakeProcessRunner([ok(["not an issue"])]);
+
+    const result = await runEitherWithTracker(
+      processRunner.layer,
+      Effect.gen(function* () {
+        const tracker = yield* IssueTracker;
+        return yield* tracker.listRunnableIssues();
+      }),
+    );
+
+    expect(Either.isLeft(result)).toBe(true);
+    if (Either.isLeft(result)) {
+      expect(result.left).toMatchObject({
+        _tag: "IssueTrackerJsonParseError",
+        command: "bd",
+        args: ["ready", "--json"],
+        message: "Expected issue row to be an object",
+      });
+    }
+  });
+
+  it("returns typed parse failures for non-array issue labels", async () => {
+    const processRunner = fakeProcessRunner([
+      ok([
+        {
+          id: "morph-fe0",
+          title: "Read and mutate Beads issue state",
+          labels: "agent:ready",
+        },
+      ]),
+    ]);
+
+    const result = await runEitherWithTracker(
+      processRunner.layer,
+      Effect.gen(function* () {
+        const tracker = yield* IssueTracker;
+        return yield* tracker.listRunnableIssues();
+      }),
+    );
+
+    expect(Either.isLeft(result)).toBe(true);
+    if (Either.isLeft(result)) {
+      expect(result.left).toMatchObject({
+        _tag: "IssueTrackerJsonParseError",
+        command: "bd",
+        args: ["ready", "--json"],
+        message: "Expected issue labels to be an array",
+      });
+    }
+  });
+
+  it("returns typed parse failures for non-string issue labels", async () => {
+    const processRunner = fakeProcessRunner([
+      ok([
+        {
+          id: "morph-fe0",
+          title: "Read and mutate Beads issue state",
+          labels: ["agent:ready", 42],
+        },
+      ]),
+    ]);
+
+    const result = await runEitherWithTracker(
+      processRunner.layer,
+      Effect.gen(function* () {
+        const tracker = yield* IssueTracker;
+        return yield* tracker.listRunnableIssues();
+      }),
+    );
+
+    expect(Either.isLeft(result)).toBe(true);
+    if (Either.isLeft(result)) {
+      expect(result.left).toMatchObject({
+        _tag: "IssueTrackerJsonParseError",
+        command: "bd",
+        args: ["ready", "--json"],
+        message: "Expected issue labels to contain only strings",
+      });
+    }
+  });
+
+  it("returns typed parse failures for malformed bd show issue rows", async () => {
+    const processRunner = fakeProcessRunner([ok(["not an issue"])]);
+
+    const result = await runEitherWithTracker(
+      processRunner.layer,
+      Effect.gen(function* () {
+        const tracker = yield* IssueTracker;
+        return yield* tracker.getIssue("morph-fe0");
+      }),
+    );
+
+    expect(Either.isLeft(result)).toBe(true);
+    if (Either.isLeft(result)) {
+      expect(result.left).toMatchObject({
+        _tag: "IssueTrackerJsonParseError",
+        command: "bd",
+        args: ["show", "morph-fe0", "--json"],
+        message: "Expected issue row to be an object",
+      });
+    }
+  });
+
   it("applies planned state transitions through one atomic bd label set", async () => {
     const processRunner = fakeProcessRunner([ok([])]);
     const plan = planAgentStateTransition(
