@@ -11,7 +11,7 @@
     "test": "vitest run",
     "lint": "oxlint .",
     "format": "oxfmt --write .",
-    "check": "pnpm lint && pnpm typecheck && pnpm test"
+    "check": "pnpm lint && pnpm build && pnpm typecheck && pnpm test"
   },
   "devDependencies": {
     "@typescript/native-preview": "7.0.0-dev.20260512.1",
