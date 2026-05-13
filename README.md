@@ -37,7 +37,12 @@ pnpm install
 pnpm --filter @morpheus/cli morpheus --help
 pnpm --filter @morpheus/cli morpheus --version
 pnpm check
+pnpm typecheck:fast
 ```
+
+`pnpm typecheck:fast` builds package declaration outputs first, then runs
+per-package `tsgo --noEmit`. This keeps workspace package imports resolvable
+while TypeScript native workspace resolution is still being proven.
 
 ## Next Workflow
 

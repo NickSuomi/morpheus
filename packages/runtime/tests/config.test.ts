@@ -27,6 +27,21 @@ const validConfig = {
   }
 } as const
 
+const laneNames = ["preparation", "implementation", "review"] as const
+
+type LaneName = (typeof laneNames)[number]
+
+const withLaneConcurrency = (lane: LaneName, concurrency: number) => ({
+  ...validConfig,
+  lanes: {
+    ...validConfig.lanes,
+    [lane]: {
+      ...validConfig.lanes[lane],
+      concurrency
+    }
+  }
+})
+
 const withTempDir = (fn: (dir: string) => void) => {
   const dir = mkdtempSync(join(tmpdir(), "morpheus-config-"))
   try {
@@ -118,6 +133,46 @@ describe("Morpheus config", () => {
           path: configPath
         }
       })
+    })
+  })
+
+  it("accepts positive integer lane concurrency values", () => {
+    withTempDir((dir) => {
+      const config = {
+        ...validConfig,
+        lanes: {
+          preparation: { concurrency: 2 },
+          implementation: { concurrency: 3 },
+          review: { concurrency: 4 }
+        }
+      }
+      const configPath = writeConfig(dir, config)
+
+      expect(loadMorpheusConfig({ configPath })).toEqual({
+        status: "loaded",
+        path: configPath,
+        config
+      })
+    })
+  })
+
+  it.each(laneNames)("rejects invalid %s lane concurrency values", (lane) => {
+    withTempDir((dir) => {
+      for (const concurrency of [0, -1, 1.5]) {
+        const configPath = writeConfig(
+          dir,
+          withLaneConcurrency(lane, concurrency),
+          `${lane}-${concurrency}.json`
+        )
+
+        expect(loadMorpheusConfig({ configPath })).toMatchObject({
+          status: "error",
+          error: {
+            kind: "schema_validation",
+            path: configPath
+          }
+        })
+      }
     })
   })
 

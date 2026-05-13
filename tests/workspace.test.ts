@@ -14,7 +14,7 @@ describe("workspace scaffold", () => {
     expect(pkg.scripts).toMatchObject({
       build: "pnpm -r build",
       typecheck: "pnpm -r typecheck",
-      "typecheck:fast": "pnpm -r typecheck:fast",
+      "typecheck:fast": "pnpm build && pnpm -r typecheck:fast",
       test: "vitest run",
       lint: "oxlint .",
       format: "oxfmt --write .",

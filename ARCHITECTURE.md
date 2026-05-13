@@ -58,6 +58,8 @@ Runtime service contracts:
 
 Effectful ports are owned by runtime. Concrete adapters must not leak vendor command shapes into use-cases.
 
+Runtime ports are Effect service contracts. Each port is declared in `packages/runtime` as a `Context.Tag` service whose methods return `Effect` values, with typed failures for recoverable conditions. Adapters expose concrete implementations as `Layer`s, using `Layer.effect` when construction depends on another service and `Layer.succeed` for fakes in tests. Adapters map vendor, SQL, filesystem, and process failures into runtime error types. CLI commands, tests, and future daemon entry points provide adapter layers at the edge rather than wrapping runtime use-cases in Promises.
+
 ### `packages/adapters`
 
 Concrete adapter implementations.
@@ -108,7 +110,7 @@ Root package scripts:
   "scripts": {
     "build": "pnpm -r build",
     "typecheck": "pnpm -r typecheck",
-    "typecheck:fast": "pnpm -r typecheck:fast",
+    "typecheck:fast": "pnpm build && pnpm -r typecheck:fast",
     "test": "pnpm -r test",
     "lint": "oxlint .",
     "format": "oxfmt --write .",
@@ -130,7 +132,7 @@ Per-package scripts:
 }
 ```
 
-Stable `tsc` typecheck is default. Fast `tsgo` is opt-in until compatibility is proven.
+Stable `tsc` typecheck is default. Fast `tsgo` is opt-in until compatibility is proven. Root `typecheck:fast` intentionally builds package outputs first because current native compiler workspace package resolution depends on each package's emitted declaration entrypoint.
 
 ## Effect Scope
 
@@ -185,6 +187,8 @@ Initial shape:
 
 `prompts` entries are optional. Missing prompt paths use built-in defaults.
 
+Lane `concurrency` values are positive integers.
+
 Commands touching target repo require valid config before side effects begin.
 
 ## Run Ledger
@@ -209,6 +213,10 @@ Ledger model is hybrid:
 Every run state change writes an event and updates summary in one SQL transaction.
 
 `run_events` answers what happened. `runs` answers what is true now.
+
+Terminal run states are immutable: finishing a run is valid only while its current summary status is `running`; attempts to finish `succeeded` or `failed` runs return a typed invalid-state failure and must not append terminal events or rewrite summary fields.
+
+Artifact writes are ledger-coordinated: the adapter must verify the run exists before creating transcript or artifact files, then record the artifact event and path updates in SQL. If that SQL write fails, the adapter must best-effort remove files created by the failed write so `.morpheus/runs` does not accumulate orphan artifacts.
 
 Retention/prune is in v1 and is operator-owned:
 
@@ -237,6 +245,8 @@ Beads labels are source of truth for issue state. Morpheus ledger mirrors what M
 Multiple active `agent:*` labels fail closed with `failureKind: state_conflict`.
 
 The Beads adapter uses the `bd` CLI through `ProcessRunner`. It must prefer `bd --json` for machine-readable output and must not read Beads' Dolt/DB internals directly.
+
+Planned issue state transitions must be applied as one Beads label-set mutation from `AgentStateTransitionPlan.finalLabels`, preserving non-agent labels and avoiding remove-then-add gaps.
 
 `IssueTracker` v1 methods:
 
@@ -272,7 +282,7 @@ Daemon v1 uses polling ticks:
 
 No persistent queue in v1.
 
-Each lane has independent concurrency. Default is `1` per lane. Work ordering inside each lane: priority, then date, then issue ID.
+Each lane has independent positive integer concurrency. Default is `1` per lane. Work ordering inside each lane: priority, then date, then issue ID.
 
 Reconciliation is internal daemon tick behavior in v1, not a public scheduler lane. It can become an explicit lane later if it gains independent scheduling needs.
 
