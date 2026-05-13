@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { createBeadsIssueTracker } from "./index.js"
+import { createBeadsIssueTracker } from "../src/index.js"
 import type { ProcessRunner, ProcessResult } from "@morpheus/runtime"
 import { planAgentStateTransition } from "@morpheus/core"
 

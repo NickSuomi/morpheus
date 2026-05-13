@@ -5,6 +5,7 @@ import type {
   AgentReadyContract,
   AgentStateTransitionPlan,
   DerivedIssueState,
+  FailureKind,
   Lane
 } from "@morpheus/core"
 
@@ -110,6 +111,136 @@ export interface IssueTracker {
   readonly readContract: (
     issueId: string
   ) => Promise<IssueTrackerReadContractResult>
+}
+
+export type RunStatus = "running" | "succeeded" | "failed"
+
+export type RunSummary = {
+  readonly id: string
+  readonly issueId: string
+  readonly lane: Lane
+  readonly status: RunStatus
+  readonly summary: string
+  readonly startedAt: string
+  readonly endedAt?: string
+  readonly failureKind?: FailureKind
+  readonly transcriptPath?: string
+  readonly artifactPath?: string
+}
+
+export type RunEvent = {
+  readonly sequence: number
+  readonly runId: string
+  readonly type: string
+  readonly occurredAt: string
+  readonly message?: string
+}
+
+export type CreatePreparationRunInput = {
+  readonly issueId: string
+  readonly summary: string
+}
+
+export type FinishRunInput =
+  | {
+      readonly status: "succeeded"
+      readonly message?: string
+    }
+  | {
+      readonly status: "failed"
+      readonly failureKind: FailureKind
+      readonly message?: string
+    }
+
+export type WriteRunArtifactsInput = {
+  readonly transcript: string
+  readonly artifact: string
+}
+
+export type RunLogs = {
+  readonly runId: string
+  readonly transcriptPath: string
+  readonly transcript: string
+}
+
+export interface RunLedger {
+  readonly createPreparationRun: (
+    input: CreatePreparationRunInput
+  ) => Promise<RunSummary>
+  readonly finishRun: (
+    runId: string,
+    input: FinishRunInput
+  ) => Promise<RunSummary>
+  readonly writeRunArtifacts: (
+    runId: string,
+    input: WriteRunArtifactsInput
+  ) => Promise<RunSummary>
+  readonly getRunLogs: (runId: string) => Promise<RunLogs | undefined>
+  readonly listRuns: () => Promise<readonly RunSummary[]>
+  readonly getRun: (runId: string) => Promise<RunSummary | undefined>
+  readonly getRunEvents: (runId: string) => Promise<readonly RunEvent[]>
+}
+
+export const renderRunList = (runs: readonly RunSummary[]): string => {
+  if (runs.length === 0) {
+    return "No Morpheus runs"
+  }
+
+  return runs
+    .map(
+      (run) =>
+        `${run.id} ${run.issueId} ${run.lane} ${run.status} ${run.summary}`
+    )
+    .join("\n")
+}
+
+export const renderRunDetail = (
+  run: RunSummary,
+  events: readonly RunEvent[]
+): string =>
+  [
+    `Run ${run.id}`,
+    `issue: ${run.issueId}`,
+    `lane: ${run.lane}`,
+    `status: ${run.status}`,
+    `summary: ${run.summary}`,
+    `failureKind: ${run.failureKind ?? "None"}`,
+    `transcript: ${run.transcriptPath ?? "None"}`,
+    "events:",
+    ...events.map((event) =>
+      `${event.sequence}. ${event.type}${event.message === undefined ? "" : ` - ${event.message}`}`
+    )
+  ].join("\n")
+
+export const renderRunLogs = (logs: RunLogs): string => logs.transcript
+
+export const listRunsForCli = async (ledger: RunLedger): Promise<string> =>
+  renderRunList(await ledger.listRuns())
+
+export const showRunForCli = async (
+  ledger: RunLedger,
+  runId: string
+): Promise<string> => {
+  const run = await ledger.getRun(runId)
+
+  if (run === undefined) {
+    throw new Error(`Run not found: ${runId}`)
+  }
+
+  return renderRunDetail(run, await ledger.getRunEvents(runId))
+}
+
+export const showRunLogsForCli = async (
+  ledger: RunLedger,
+  runId: string
+): Promise<string> => {
+  const logs = await ledger.getRunLogs(runId)
+
+  if (logs === undefined) {
+    throw new Error(`Run logs not found: ${runId}`)
+  }
+
+  return renderRunLogs(logs)
 }
 
 export const AgentReadyContractSchema = Schema.Struct({

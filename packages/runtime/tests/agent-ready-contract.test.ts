@@ -3,7 +3,7 @@ import {
   decodeAgentReadyContract,
   validateAfkReadyContract,
   type AgentReadyContract
-} from "./index.js"
+} from "../src/index.js"
 
 const validContract: AgentReadyContract = {
   category: "task",

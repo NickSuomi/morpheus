@@ -1,11 +1,19 @@
 #!/usr/bin/env node
-import { Command, Options } from "@effect/cli"
+import { Args, Command, Options } from "@effect/cli"
 import { NodeContext, NodeRuntime } from "@effect/platform-node"
 import { Console, Effect, Option } from "effect"
-import { loadMorpheusConfig } from "@morpheus/runtime"
+import { dirname, isAbsolute, resolve } from "node:path"
+import { createSqliteRunLedger } from "@morpheus/adapters"
+import {
+  listRunsForCli,
+  loadMorpheusConfig,
+  showRunForCli,
+  showRunLogsForCli
+} from "@morpheus/runtime"
 import pkg from "../package.json" with { type: "json" }
 
 const configPath = Options.text("config").pipe(Options.optional)
+const runId = Args.text({ name: "runId" })
 
 const formatConfigSummary = (
   result: ReturnType<typeof loadMorpheusConfig>
@@ -32,6 +40,26 @@ const formatConfigSummary = (
   )
 }
 
+const ledgerFromConfig = (pathOption: Option.Option<string>) => {
+  const result = loadMorpheusConfig({
+    configPath: Option.getOrUndefined(pathOption)
+  })
+
+  if (result.status === "error") {
+    throw new Error(`${result.error.kind}: ${result.error.path}`)
+  }
+
+  const configDirectory = dirname(result.path)
+  const ledgerPath = isAbsolute(result.config.ledger.path)
+    ? result.config.ledger.path
+    : resolve(configDirectory, result.config.ledger.path)
+
+  return createSqliteRunLedger({
+    ledgerPath,
+    runsDirectory: resolve(configDirectory, ".morpheus", "runs")
+  })
+}
+
 const configShow = Command.make("show", { configPath }, ({ configPath }) =>
   formatConfigSummary(
     loadMorpheusConfig({
@@ -47,11 +75,29 @@ const config = Command.make("config", {}, () =>
   Command.withSubcommands([configShow])
 )
 
+const runs = Command.make("runs", { configPath }, ({ configPath }) =>
+  Effect.promise(async () => {
+    return listRunsForCli(ledgerFromConfig(configPath))
+  }).pipe(Effect.flatMap((output) => Console.log(output)))
+).pipe(Command.withDescription("List Morpheus runs"))
+
+const runDetail = Command.make("run", { runId, configPath }, ({ runId, configPath }) =>
+  Effect.promise(async () => {
+    return showRunForCli(ledgerFromConfig(configPath), runId)
+  }).pipe(Effect.flatMap((output) => Console.log(output)))
+).pipe(Command.withDescription("Show one Morpheus run"))
+
+const logs = Command.make("logs", { runId, configPath }, ({ runId, configPath }) =>
+  Effect.promise(async () => {
+    return showRunLogsForCli(ledgerFromConfig(configPath), runId)
+  }).pipe(Effect.flatMap((output) => Console.log(output)))
+).pipe(Command.withDescription("Show Morpheus run logs"))
+
 const command = Command.make("morpheus", {}, () =>
   Console.log("Morpheus local agent orchestration")
 ).pipe(
   Command.withDescription("Morpheus local agent orchestration"),
-  Command.withSubcommands([config])
+  Command.withSubcommands([config, runs, runDetail, logs])
 )
 
 const run = Command.run(command, {
