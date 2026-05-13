@@ -8,6 +8,7 @@ import type {
   DerivedIssueState,
   FailureKind,
   Lane,
+  RunnableLane,
 } from "@morpheus/core";
 
 export type { AgentReadyContract } from "@morpheus/core";
@@ -170,12 +171,14 @@ export class IssueTracker extends Context.Tag("@morpheus/runtime/IssueTracker")<
 
 export type IssueTrackerService = Context.Tag.Service<typeof IssueTracker>;
 
-export type RunStatus = "running" | "succeeded" | "failed";
+export const runStatuses = ["running", "succeeded", "failed"] as const;
+
+export type RunStatus = (typeof runStatuses)[number];
 
 export type RunSummary = {
   readonly id: string;
   readonly issueId: string;
-  readonly lane: Lane;
+  readonly lane: RunnableLane;
   readonly status: RunStatus;
   readonly summary: string;
   readonly startedAt: string;
