@@ -1,129 +1,136 @@
-import { deriveIssueState, deriveLane } from "@morpheus/core"
-import type { AgentStateTransitionPlan } from "@morpheus/core"
-import { decodeAgentReadyContract } from "@morpheus/runtime"
+import { deriveIssueState, deriveLane } from "@morpheus/core";
+import type { AgentStateTransitionPlan } from "@morpheus/core";
+import {
+  decodeAgentReadyContract,
+  IssueTracker,
+  IssueTrackerCommandError,
+  IssueTrackerContractSchemaError,
+  IssueTrackerJsonParseError,
+  IssueTrackerMalformedMetadataError,
+  ProcessRunner,
+} from "@morpheus/runtime";
 import type {
   AgentReadyContract,
-  IssueTracker,
   ProcessResult,
-  ProcessRunner,
-  TrackedIssue
-} from "@morpheus/runtime"
-export { createSqliteRunLedger } from "./sqlite-ledger/index.js"
-export type { SqliteRunLedgerOptions } from "./sqlite-ledger/index.js"
+  ProcessRunnerError,
+  ProcessRunnerService,
+  TrackedIssue,
+  IssueTrackerService,
+} from "@morpheus/runtime";
+import { Effect, Layer } from "effect";
+export { createSqliteRunLedger, sqliteRunLedgerLayer } from "./sqlite-ledger/index.js";
+export type { SqliteRunLedgerOptions } from "./sqlite-ledger/index.js";
 
 export interface AdapterInfo {
-  readonly name: "MorpheusAdapters"
+  readonly name: "MorpheusAdapters";
 }
 
 export const adapterInfo: AdapterInfo = {
-  name: "MorpheusAdapters"
-}
+  name: "MorpheusAdapters",
+};
 
 type BeadsIssueTrackerOptions = {
-  readonly processRunner: ProcessRunner
-}
+  readonly processRunner: ProcessRunnerService;
+};
 
 type BeadsIssueJson = {
-  readonly id?: unknown
-  readonly title?: unknown
-  readonly labels?: unknown
-  readonly priority?: unknown
-  readonly created_at?: unknown
-  readonly updated_at?: unknown
-  readonly metadata?: unknown
-}
+  readonly id?: unknown;
+  readonly title?: unknown;
+  readonly labels?: unknown;
+  readonly priority?: unknown;
+  readonly created_at?: unknown;
+  readonly updated_at?: unknown;
+  readonly metadata?: unknown;
+};
 
-export class BeadsCommandError extends Error {
-  readonly name = "BeadsCommandError"
-
-  constructor(
-    readonly command: string,
-    readonly args: readonly string[],
-    readonly exitCode: number,
-    readonly stderr: string
-  ) {
-    super(`${command} ${args.join(" ")} failed with exit code ${exitCode}`)
-  }
-}
-
-export class BeadsJsonParseError extends Error {
-  readonly name = "BeadsJsonParseError"
-
-  constructor(
-    readonly command: string,
-    readonly args: readonly string[],
-    readonly message: string
-  ) {
-    super(`Could not parse JSON from ${command} ${args.join(" ")}: ${message}`)
-  }
-}
+export {
+  IssueTrackerCommandError as BeadsCommandError,
+  IssueTrackerJsonParseError as BeadsJsonParseError,
+};
 
 const errorMessage = (error: unknown): string =>
-  error instanceof Error ? error.message : String(error)
+  error instanceof Error ? error.message : String(error);
 
-const runBd = async (
-  processRunner: ProcessRunner,
-  args: readonly string[]
-): Promise<ProcessResult> => {
-  const result = await processRunner.run("bd", args)
+const runBdEffect = (
+  processRunner: ProcessRunnerService,
+  args: readonly string[],
+): Effect.Effect<ProcessResult, ProcessRunnerError | IssueTrackerCommandError> =>
+  processRunner.run("bd", args).pipe(
+    Effect.flatMap((result) => {
+      if (result.exitCode !== 0) {
+        return Effect.fail(
+          new IssueTrackerCommandError({
+            operation: "bd",
+            command: "bd",
+            args: [...args],
+            exitCode: result.exitCode,
+            stderr: result.stderr,
+          }),
+        );
+      }
 
-  if (result.exitCode !== 0) {
-    throw new BeadsCommandError("bd", args, result.exitCode, result.stderr)
-  }
-
-  return result
-}
+      return Effect.succeed(result);
+    }),
+  );
 
 const parseJsonArray = (
   stdout: string,
   command: string,
-  args: readonly string[]
-): readonly unknown[] => {
-  let parsed: unknown
-
-  try {
-    parsed = JSON.parse(stdout)
-  } catch (error) {
-    throw new BeadsJsonParseError(command, args, errorMessage(error))
-  }
-
-  if (!Array.isArray(parsed)) {
-    throw new BeadsJsonParseError(command, args, "Expected JSON array")
-  }
-
-  return parsed
-}
+  args: readonly string[],
+): Effect.Effect<readonly unknown[], IssueTrackerJsonParseError> =>
+  Effect.try({
+    try: () => JSON.parse(stdout) as unknown,
+    catch: (error) =>
+      new IssueTrackerJsonParseError({
+        operation: "parse_json",
+        command,
+        args: [...args],
+        message: errorMessage(error),
+      }),
+  }).pipe(
+    Effect.flatMap((parsed) =>
+      Array.isArray(parsed)
+        ? Effect.succeed(parsed)
+        : Effect.fail(
+            new IssueTrackerJsonParseError({
+              operation: "parse_json",
+              command,
+              args: [...args],
+              message: "Expected JSON array",
+            }),
+          ),
+    ),
+  );
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
-  typeof value === "object" && value !== null && !Array.isArray(value)
+  typeof value === "object" && value !== null && !Array.isArray(value);
 
 const optionalNumber = (value: unknown): number | undefined =>
-  typeof value === "number" ? value : undefined
+  typeof value === "number" ? value : undefined;
 
 const optionalString = (value: unknown): string | undefined =>
-  typeof value === "string" ? value : undefined
+  typeof value === "string" ? value : undefined;
 
 const requiredString = (value: unknown, field: string): string => {
   if (typeof value !== "string") {
-    throw new Error(`Expected issue ${field} to be a string`)
+    throw new Error(`Expected issue ${field} to be a string`);
   }
 
-  return value
-}
+  return value;
+};
 
 const labelsFromIssue = (value: unknown): readonly string[] => {
   if (!Array.isArray(value)) {
-    return []
+    return [];
   }
 
-  return value.filter((label): label is string => typeof label === "string")
-}
+  return value.filter((label): label is string => typeof label === "string");
+};
 
 const issueFromJson = (issue: BeadsIssueJson): TrackedIssue => {
-  const labels = labelsFromIssue(issue.labels)
-  const derivedState = deriveIssueState(labels)
-  const lane =
-    derivedState.status === "active" ? deriveLane(derivedState.state) : "none"
+  const labels = labelsFromIssue(issue.labels);
+  const derivedState = deriveIssueState(labels);
+  const lane = derivedState.status === "active" ? deriveLane(derivedState.state) : "none";
 
   return {
     id: requiredString(issue.id, "id"),
@@ -133,212 +140,209 @@ const issueFromJson = (issue: BeadsIssueJson): TrackedIssue => {
     createdAt: optionalString(issue.created_at),
     updatedAt: optionalString(issue.updated_at),
     derivedState,
-    lane
-  }
-}
+    lane,
+  };
+};
+
+const issuesFromJson = (
+  stdout: string,
+  args: readonly string[],
+): Effect.Effect<readonly TrackedIssue[], IssueTrackerJsonParseError> =>
+  parseJsonArray(stdout, "bd", args).pipe(
+    Effect.flatMap((issues) =>
+      Effect.try({
+        try: () => issues.map((issue) => issueFromJson(issue as BeadsIssueJson)),
+        catch: (error) =>
+          new IssueTrackerJsonParseError({
+            operation: "parse_json",
+            command: "bd",
+            args: [...args],
+            message: errorMessage(error),
+          }),
+      }),
+    ),
+  );
 
 const firstIssueFromJson = (
   stdout: string,
-  args: readonly string[]
-): BeadsIssueJson => {
-  const [issue] = parseJsonArray(stdout, "bd", args)
+  args: readonly string[],
+): Effect.Effect<BeadsIssueJson, IssueTrackerJsonParseError> =>
+  parseJsonArray(stdout, "bd", args).pipe(
+    Effect.flatMap(([issue]) =>
+      issue === undefined
+        ? Effect.fail(
+            new IssueTrackerJsonParseError({
+              operation: "parse_json",
+              command: "bd",
+              args: [...args],
+              message: "Expected one issue",
+            }),
+          )
+        : Effect.succeed(issue as BeadsIssueJson),
+    ),
+  );
 
-  if (issue === undefined) {
-    throw new BeadsJsonParseError("bd", args, "Expected one issue")
-  }
-
-  return issue as BeadsIssueJson
-}
-
-type MetadataReadResult =
-  | {
-      readonly status: "valid"
-      readonly metadata: Record<string, unknown>
-    }
-  | {
-      readonly status: "malformed_metadata"
-      readonly message: string
-    }
-
-const readMetadata = (issue: BeadsIssueJson): MetadataReadResult => {
+const readMetadata = (
+  issueId: string,
+  issue: BeadsIssueJson,
+): Effect.Effect<Record<string, unknown>, IssueTrackerMalformedMetadataError> => {
   if (issue.metadata === undefined) {
-    return {
-      status: "valid",
-      metadata: {}
-    }
+    return Effect.succeed({});
   }
 
   if (isRecord(issue.metadata)) {
-    return {
-      status: "valid",
-      metadata: issue.metadata
-    }
+    return Effect.succeed(issue.metadata);
   }
 
-  return {
-    status: "malformed_metadata",
-    message: "Expected issue metadata to be an object"
-  }
-}
+  return Effect.fail(
+    new IssueTrackerMalformedMetadataError({
+      issueId,
+      message: "Expected issue metadata to be an object",
+    }),
+  );
+};
 
 const rejectPlan = (
   issueId: string,
-  plan: Exclude<AgentStateTransitionPlan, { readonly status: "planned" }>
+  plan: Exclude<AgentStateTransitionPlan, { readonly status: "planned" }>,
 ) => ({
   status: "rejected" as const,
   issueId,
   reason: plan.status,
-  plan
-})
+  plan,
+});
+
+const setLabelArgs = (labels: readonly string[]): string[] =>
+  labels.flatMap((label) => ["--set-labels", label]);
 
 export const createBeadsIssueTracker = ({
-  processRunner
-}: BeadsIssueTrackerOptions): IssueTracker => ({
-  async listRunnableIssues() {
-    const args = ["ready", "--json"] as const
-    const result = await runBd(processRunner, args)
-    return parseJsonArray(result.stdout, "bd", args).map((issue) =>
-      issueFromJson(issue as BeadsIssueJson)
-    )
-  },
-  async getIssue(issueId: string) {
-    const args = ["show", issueId, "--json"] as const
-    const result = await runBd(processRunner, args)
-    return issueFromJson(firstIssueFromJson(result.stdout, args))
-  },
-  async applyAgentState(
-    issueId: string,
-    transitionPlan: AgentStateTransitionPlan
-  ) {
-    if (transitionPlan.status !== "planned") {
-      return rejectPlan(issueId, transitionPlan)
-    }
+  processRunner,
+}: BeadsIssueTrackerOptions): IssueTrackerService => ({
+  listRunnableIssues: () =>
+    Effect.gen(function* () {
+      const args = ["ready", "--json"] as const;
+      const result = yield* runBdEffect(processRunner, args);
+      return yield* issuesFromJson(result.stdout, args);
+    }),
+  getIssue: (issueId: string) =>
+    Effect.gen(function* () {
+      const args = ["show", issueId, "--json"] as const;
+      const result = yield* runBdEffect(processRunner, args);
+      return issueFromJson(yield* firstIssueFromJson(result.stdout, args));
+    }),
+  applyAgentState: (issueId: string, transitionPlan: AgentStateTransitionPlan) =>
+    Effect.gen(function* () {
+      if (transitionPlan.status !== "planned") {
+        return rejectPlan(issueId, transitionPlan);
+      }
 
-    for (const label of transitionPlan.removeLabels) {
-      await runBd(processRunner, [
+      yield* runBdEffect(processRunner, [
         "update",
         issueId,
-        "--remove-label",
-        label
-      ])
-    }
+        ...setLabelArgs(transitionPlan.finalLabels),
+      ]);
 
-    for (const label of transitionPlan.addLabels) {
-      await runBd(processRunner, ["update", issueId, "--add-label", label])
-    }
-
-    return {
-      status: "applied",
-      issueId,
-      addLabels: transitionPlan.addLabels,
-      removeLabels: transitionPlan.removeLabels
-    }
-  },
-  async writeContract(issueId: string, contract: AgentReadyContract) {
-    const showArgs = ["show", issueId, "--json"] as const
-    const result = await runBd(processRunner, showArgs)
-    const issue = firstIssueFromJson(result.stdout, showArgs)
-    const metadataResult = readMetadata(issue)
-
-    if (metadataResult.status === "malformed_metadata") {
       return {
-        status: "malformed_metadata",
+        status: "applied",
         issueId,
-        message: metadataResult.message
+        addLabels: transitionPlan.addLabels,
+        removeLabels: transitionPlan.removeLabels,
+      };
+    }),
+  writeContract: (issueId: string, contract: AgentReadyContract) =>
+    Effect.gen(function* () {
+      const showArgs = ["show", issueId, "--json"] as const;
+      const result = yield* runBdEffect(processRunner, showArgs);
+      const issue = yield* firstIssueFromJson(result.stdout, showArgs);
+      const metadata = yield* readMetadata(issueId, issue);
+
+      const decoded = decodeAgentReadyContract(contract);
+
+      if (decoded.status === "invalid") {
+        return yield* new IssueTrackerContractSchemaError({
+          issueId,
+          message: decoded.message,
+        });
       }
-    }
 
-    const decoded = decodeAgentReadyContract(contract)
+      const nextMetadata = {
+        ...metadata,
+        morpheus: {
+          contractVersion: 1,
+          agentReadyContract: decoded.contract,
+        },
+      };
 
-    if (decoded.status === "invalid") {
-      return {
-        status: "schema_validation",
+      yield* runBdEffect(processRunner, [
+        "update",
         issueId,
-        message: decoded.message
-      }
-    }
+        "--metadata",
+        JSON.stringify(nextMetadata),
+      ]);
 
-    const nextMetadata = {
-      ...metadataResult.metadata,
-      morpheus: {
-        contractVersion: 1,
-        agentReadyContract: decoded.contract
-      }
-    }
-
-    await runBd(processRunner, [
-      "update",
-      issueId,
-      "--metadata",
-      JSON.stringify(nextMetadata)
-    ])
-
-    return {
-      status: "written",
-      issueId
-    }
-  },
-  async readContract(issueId: string) {
-    const args = ["show", issueId, "--json"] as const
-    const result = await runBd(processRunner, args)
-    const issue = firstIssueFromJson(result.stdout, args)
-    const metadataResult = readMetadata(issue)
-
-    if (metadataResult.status === "malformed_metadata") {
       return {
-        status: "malformed_metadata",
+        status: "written",
         issueId,
-        message: metadataResult.message
+      };
+    }),
+  readContract: (issueId: string) =>
+    Effect.gen(function* () {
+      const args = ["show", issueId, "--json"] as const;
+      const result = yield* runBdEffect(processRunner, args);
+      const issue = yield* firstIssueFromJson(result.stdout, args);
+      const metadata = yield* readMetadata(issueId, issue);
+
+      const morpheus = metadata.morpheus;
+
+      if (morpheus === undefined) {
+        return {
+          status: "missing",
+          issueId,
+        };
       }
-    }
 
-    const metadata = metadataResult.metadata
-    const morpheus = metadata.morpheus
-
-    if (morpheus === undefined) {
-      return {
-        status: "missing",
-        issueId
+      if (!isRecord(morpheus)) {
+        return yield* new IssueTrackerMalformedMetadataError({
+          issueId,
+          message: "Expected morpheus metadata to be an object",
+        });
       }
-    }
 
-    if (!isRecord(morpheus)) {
+      if (morpheus.agentReadyContract === undefined) {
+        return {
+          status: "missing",
+          issueId,
+        };
+      }
+
+      if (morpheus.contractVersion !== 1) {
+        return yield* new IssueTrackerMalformedMetadataError({
+          issueId,
+          message: "Expected morpheus.contractVersion to be 1",
+        });
+      }
+
+      const decoded = decodeAgentReadyContract(morpheus.agentReadyContract);
+
+      if (decoded.status === "invalid") {
+        return yield* new IssueTrackerContractSchemaError({
+          issueId,
+          message: decoded.message,
+        });
+      }
+
       return {
-        status: "malformed_metadata",
+        status: "present",
         issueId,
-        message: "Expected morpheus metadata to be an object"
-      }
-    }
+        contract: decoded.contract,
+      };
+    }),
+});
 
-    if (morpheus.agentReadyContract === undefined) {
-      return {
-        status: "missing",
-        issueId
-      }
-    }
-
-    if (morpheus.contractVersion !== 1) {
-      return {
-        status: "malformed_metadata",
-        issueId,
-        message: "Expected morpheus.contractVersion to be 1"
-      }
-    }
-
-    const decoded = decodeAgentReadyContract(morpheus.agentReadyContract)
-
-    if (decoded.status === "invalid") {
-      return {
-        status: "schema_validation",
-        issueId,
-        message: decoded.message
-      }
-    }
-
-    return {
-      status: "present",
-      issueId,
-      contract: decoded.contract
-    }
-  }
-})
+export const beadsIssueTrackerLayer: Layer.Layer<IssueTracker, never, ProcessRunner> = Layer.effect(
+  IssueTracker,
+  Effect.gen(function* () {
+    const processRunner = yield* ProcessRunner;
+    return createBeadsIssueTracker({ processRunner });
+  }),
+);
