@@ -120,11 +120,19 @@ const requiredString = (value: unknown, field: string): string => {
 };
 
 const labelsFromIssue = (value: unknown): readonly string[] => {
-  if (!Array.isArray(value)) {
+  if (value === undefined) {
     return [];
   }
 
-  return value.filter((label): label is string => typeof label === "string");
+  if (!Array.isArray(value)) {
+    throw new Error("Expected issue labels to be an array");
+  }
+
+  if (!value.every((label): label is string => typeof label === "string")) {
+    throw new Error("Expected issue labels to contain only strings");
+  }
+
+  return value;
 };
 
 const issueFromJson = (issue: BeadsIssueJson): TrackedIssue => {
@@ -144,6 +152,14 @@ const issueFromJson = (issue: BeadsIssueJson): TrackedIssue => {
   };
 };
 
+const issueJsonFromUnknown = (issue: unknown): BeadsIssueJson => {
+  if (!isRecord(issue)) {
+    throw new Error("Expected issue row to be an object");
+  }
+
+  return issue;
+};
+
 const issuesFromJson = (
   stdout: string,
   args: readonly string[],
@@ -151,7 +167,7 @@ const issuesFromJson = (
   parseJsonArray(stdout, "bd", args).pipe(
     Effect.flatMap((issues) =>
       Effect.try({
-        try: () => issues.map((issue) => issueFromJson(issue as BeadsIssueJson)),
+        try: () => issues.map((issue) => issueFromJson(issueJsonFromUnknown(issue))),
         catch: (error) =>
           new IssueTrackerJsonParseError({
             operation: "parse_json",
@@ -178,7 +194,35 @@ const firstIssueFromJson = (
               message: "Expected one issue",
             }),
           )
-        : Effect.succeed(issue as BeadsIssueJson),
+        : Effect.try({
+            try: () => issueJsonFromUnknown(issue),
+            catch: (error) =>
+              new IssueTrackerJsonParseError({
+                operation: "parse_json",
+                command: "bd",
+                args: [...args],
+                message: errorMessage(error),
+              }),
+        }),
+    ),
+  );
+
+const trackedIssueFromJson = (
+  stdout: string,
+  args: readonly string[],
+): Effect.Effect<TrackedIssue, IssueTrackerJsonParseError> =>
+  firstIssueFromJson(stdout, args).pipe(
+    Effect.flatMap((issue) =>
+      Effect.try({
+        try: () => issueFromJson(issue),
+        catch: (error) =>
+          new IssueTrackerJsonParseError({
+            operation: "parse_json",
+            command: "bd",
+            args: [...args],
+            message: errorMessage(error),
+          }),
+      }),
     ),
   );
 
@@ -228,7 +272,7 @@ export const createBeadsIssueTracker = ({
     Effect.gen(function* () {
       const args = ["show", issueId, "--json"] as const;
       const result = yield* runBdEffect(processRunner, args);
-      return issueFromJson(yield* firstIssueFromJson(result.stdout, args));
+      return yield* trackedIssueFromJson(result.stdout, args);
     }),
   applyAgentState: (issueId: string, transitionPlan: AgentStateTransitionPlan) =>
     Effect.gen(function* () {
