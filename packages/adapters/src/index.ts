@@ -8,6 +8,8 @@ import type {
   ProcessRunner,
   TrackedIssue
 } from "@morpheus/runtime"
+export { createSqliteRunLedger } from "./sqlite-ledger/index.js"
+export type { SqliteRunLedgerOptions } from "./sqlite-ledger/index.js"
 
 export interface AdapterInfo {
   readonly name: "MorpheusAdapters"

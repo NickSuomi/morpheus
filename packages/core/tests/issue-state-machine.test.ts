@@ -5,7 +5,7 @@ import {
   deriveIssueState,
   deriveLane,
   planAgentStateTransition
-} from "./index.js"
+} from "../src/index.js"
 
 const validTransitions: ReadonlyArray<{
   readonly from: AgentState
