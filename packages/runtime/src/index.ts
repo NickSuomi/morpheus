@@ -459,9 +459,9 @@ export const MorpheusConfigSchema = Schema.Struct({
   }),
   prompts: Schema.optional(
     Schema.Struct({
-      prepare: Schema.String,
-      implement: Schema.String,
-      review: Schema.String,
+      prepare: Schema.optional(Schema.String),
+      implement: Schema.optional(Schema.String),
+      review: Schema.optional(Schema.String),
     }),
   ),
 });

@@ -176,31 +176,92 @@ describe("Morpheus config", () => {
     })
   })
 
-  it("allows optional prompt paths to be present or absent", () => {
+  it("allows prompts to be omitted", () => {
     withTempDir((dir) => {
-      const withPromptsPath = writeConfig(dir, {
+      const configPath = writeConfig(dir, validConfig)
+
+      expect(loadMorpheusConfig({ configPath })).toEqual({
+        status: "loaded",
+        path: configPath,
+        config: validConfig
+      })
+    })
+  })
+
+  it.each([
+    ["prepare", { prepare: ".morpheus/prompts/prepare.md" }],
+    ["implement", { implement: ".morpheus/prompts/implement.md" }],
+    ["review", { review: ".morpheus/prompts/review.md" }]
+  ] as const)("allows a single %s prompt override", (_name, prompts) => {
+    withTempDir((dir) => {
+      const config = {
+        ...validConfig,
+        prompts
+      }
+      const configPath = writeConfig(dir, config)
+
+      expect(loadMorpheusConfig({ configPath })).toEqual({
+        status: "loaded",
+        path: configPath,
+        config
+      })
+    })
+  })
+
+  it("allows mixed partial prompt overrides", () => {
+    withTempDir((dir) => {
+      const config = {
+        ...validConfig,
+        prompts: {
+          prepare: ".morpheus/prompts/prepare.md",
+          review: ".morpheus/prompts/review.md"
+        }
+      }
+      const configPath = writeConfig(dir, config)
+
+      expect(loadMorpheusConfig({ configPath })).toEqual({
+        status: "loaded",
+        path: configPath,
+        config
+      })
+    })
+  })
+
+  it("allows a full prompt override config", () => {
+    withTempDir((dir) => {
+      const config = {
         ...validConfig,
         prompts: {
           prepare: ".morpheus/prompts/prepare.md",
           implement: ".morpheus/prompts/implement.md",
           review: ".morpheus/prompts/review.md"
         }
-      })
-      const withoutPromptsPath = writeConfig(dir, validConfig, "without-prompts.json")
+      }
+      const configPath = writeConfig(dir, config)
 
-      expect(loadMorpheusConfig({ configPath: withPromptsPath })).toMatchObject({
+      expect(loadMorpheusConfig({ configPath })).toEqual({
         status: "loaded",
-        config: {
-          prompts: {
-            prepare: ".morpheus/prompts/prepare.md",
-            implement: ".morpheus/prompts/implement.md",
-            review: ".morpheus/prompts/review.md"
-          }
+        path: configPath,
+        config
+      })
+    })
+  })
+
+  it("rejects a non-string prompt override path", () => {
+    withTempDir((dir) => {
+      const configPath = writeConfig(dir, {
+        ...validConfig,
+        prompts: {
+          prepare: 123
         }
       })
-      expect(loadMorpheusConfig({ configPath: withoutPromptsPath })).toMatchObject({
-        status: "loaded",
-        config: validConfig
+
+      expect(loadMorpheusConfig({ configPath })).toMatchObject({
+        status: "error",
+        error: {
+          kind: "schema_validation",
+          path: configPath
+        }
       })
     })
   })
