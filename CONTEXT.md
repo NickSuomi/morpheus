@@ -40,8 +40,8 @@ Curated GitLab MR description rendered by Morpheus. It includes contract, eviden
 
 ### Adapter
 
-Concrete implementation of an effectful runtime port, such as Beads, GitLab via `glab`, SQLite, Sandcastle, process execution, or workspace operations.
+Concrete implementation of an effectful runtime port, such as Beads, GitLab via `glab`, SQLite, `SandcastleAgentRunner`, process execution, or workspace operations.
 
 ### Fake Agent Runner
 
-Local deterministic runner used in early slices to exercise orchestration without Docker, Sandcastle, or real agents.
+Local deterministic runner used in early slices to exercise orchestration without Docker, external sandbox runtime, or real agents.
