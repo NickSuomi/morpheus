@@ -111,10 +111,10 @@ Root package scripts:
     "build": "pnpm -r build",
     "typecheck": "pnpm -r typecheck",
     "typecheck:fast": "pnpm build && pnpm -r typecheck:fast",
-    "test": "pnpm -r test",
+    "test": "vitest run",
     "lint": "oxlint .",
     "format": "oxfmt --write .",
-    "check": "pnpm lint && pnpm typecheck && pnpm test"
+    "check": "pnpm lint && pnpm build && pnpm typecheck && pnpm test"
   }
 }
 ```
@@ -132,7 +132,7 @@ Per-package scripts:
 }
 ```
 
-Stable `tsc` typecheck is default. Fast `tsgo` is opt-in until compatibility is proven. Root `typecheck:fast` intentionally builds package outputs first because current native compiler workspace package resolution depends on each package's emitted declaration entrypoint.
+Stable `tsc` typecheck is default. Fast `tsgo` is opt-in until compatibility is proven. Root `check` runs lint, then build, then typecheck, then tests. Root `typecheck:fast` intentionally builds package outputs first because current native compiler workspace package resolution depends on each package's emitted declaration entrypoint.
 
 ## Effect Scope
 

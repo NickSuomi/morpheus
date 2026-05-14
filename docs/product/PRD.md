@@ -2,11 +2,11 @@
 
 ## Problem Statement
 
-Current repo-local Sandcastle workflow grew from automation scripts into its own agent orchestration product. It now mixes daemon scheduling, issue state, sandbox execution, review, merge behavior, logs, prompts, and repo-specific app code inside `private-target-repo`.
+Current repo-local agent workflow grew from automation scripts into its own agent orchestration product. It now mixes daemon scheduling, issue state, sandbox execution, review, merge behavior, logs, prompts, and repo-specific app code inside `private-target-repo`.
 
 This causes three problems:
 
-1. Repo pollution: Morpheus/Sandcastle runtime code lives inside app repo, even though it is not app domain logic.
+1. Repo pollution: agent orchestration runtime code lives inside app repo, even though it is not app domain logic.
 2. AI-slop risk: agent work can look process-compliant while missing durable intent, acceptance criteria, verification, risk evidence, or human merge ownership.
 3. Poor observability: once lanes become parallel, there is no single place to answer what is running, for which issue, in which sandbox, what happened before, where logs are, and why a run failed.
 
@@ -66,7 +66,7 @@ Target repo owns:
 
 - Project name is **Morpheus**.
 - Project path is `/Users/nicksuomi/sandbox/morpheus`.
-- Current `private-target-repo` Sandcastle implementation is reference material, not the long-term product location.
+- Current `private-target-repo` repo-local agent implementation is reference material, not the long-term product location.
 - Public naming should use Morpheus vocabulary, not Sandcastle vocabulary.
 - Allowed Sandcastle name use: `SandcastleAgentRunner` as adapter around `@ai-hero/sandcastle`.
 - Morpheus should expose deep modules: `IssueStateMachine`, `LaneScheduler`, `RunLedger`, `ReviewArtifact`, `AgentRunner`, `IssueTracker`, `MergeRequestClient`, and `WorkspaceRuntime`.
@@ -77,6 +77,9 @@ Target repo owns:
 - Valid transitions are `agent:ready` -> `agent:preparing`, `agent:preparing` -> `agent:prepared`, `agent:preparing` -> `agent:blocked`, `agent:preparing` -> `agent:failed`, `agent:prepared` -> `agent:running`, `agent:running` -> `agent:reviewing`, `agent:running` -> `agent:blocked`, `agent:running` -> `agent:failed`, `agent:reviewing` -> `agent:review-candidate`, `agent:reviewing` -> `agent:blocked`, `agent:reviewing` -> `agent:failed`, `agent:blocked` -> `agent:ready` by human/operator requeue, and `agent:failed` -> `agent:ready` by human/operator requeue.
 - `agent:review-candidate` has no Morpheus auto-merge transition.
 - Events are `StartPreparation`, `PreparationReady`, `PreparationBlocked`, `PreparationFailed`, `StartImplementation`, `ImplementationReadyForReview`, `ImplementationBlocked`, `ImplementationFailed`, `StartReview`, `ReviewPassed`, `ReviewBlocked`, `ReviewFailed`, `HumanRequeued`, and `HumanRetryFailed`.
+- `agent:running` remains the state that makes review-lane work runnable in the current scheduler model.
+- `ImplementationReadyForReview` is the Beads transition from `agent:running` to `agent:reviewing`; it records that implementation output moved into review ownership.
+- `StartReview` is review-lane runtime vocabulary for starting reviewer execution while handling `agent:running` work. It is not a second Beads state transition unless a later review-lane design explicitly adds a runtime event for that purpose.
 - `agent:ready` means daemon may start preparation, not that a contract already exists.
 - Agent-Ready Contract is produced by Morpheus preparation, then runtime validates it.
 - Agent-Ready Contract fields are `category`, `summary`, `currentBehavior`, `desiredBehavior`, `keyInterfaces`, `acceptanceCriteria`, `outOfScope`, `verificationPlan`, `blockedBy`, `hitlDecisions`, and `riskLevel`.
@@ -183,7 +186,7 @@ Target repo owns:
 - Uploading raw transcripts to GitLab.
 - Full dashboard UI.
 - Metrics backend/alerting.
-- Backward compatibility with old repo-local Sandcastle runs.
+- Backward compatibility with old repo-local agent runs.
 - Redaction system for transcripts.
 - Parallel execution beyond interfaces/concurrency config defaulting to `1`.
 - Replacing Beads as issue state source.
@@ -193,7 +196,7 @@ Target repo owns:
 
 ## Further Notes
 
-- Current `private-target-repo` `.sandcastle` runtime is reference implementation only.
+- Current `private-target-repo` repo-local runtime is reference implementation only.
 - Public docs and CLI should use Morpheus vocabulary.
 - “Sandcastle” is permitted only as adapter name where it describes usage of `@ai-hero/sandcastle`.
 - Initial target repo is `private-target-repo`.
