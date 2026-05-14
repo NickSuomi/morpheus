@@ -335,7 +335,16 @@ describe("BeadsIssueTracker", () => {
   });
 
   it("applies planned state transitions through one atomic bd label set", async () => {
-    const processRunner = fakeProcessRunner([ok([])]);
+    const processRunner = fakeProcessRunner([
+      ok([
+        {
+          id: "morph-fe0",
+          title: "Read and mutate Beads issue state",
+          labels: ["bug", "ready-for-agent", "agent:ready"],
+        },
+      ]),
+      ok([]),
+    ]);
     const plan = planAgentStateTransition(
       ["bug", "ready-for-agent", "agent:ready"],
       "StartPreparation",
@@ -358,6 +367,10 @@ describe("BeadsIssueTracker", () => {
     expect(processRunner.calls).toEqual([
       {
         command: "bd",
+        args: ["show", "morph-fe0", "--json"],
+      },
+      {
+        command: "bd",
         args: [
           "update",
           "morph-fe0",
@@ -373,7 +386,16 @@ describe("BeadsIssueTracker", () => {
   });
 
   it("does not remove an agent label before a failed planned transition", async () => {
-    const processRunner = fakeProcessRunner([failed("set labels failed")]);
+    const processRunner = fakeProcessRunner([
+      ok([
+        {
+          id: "morph-fe0",
+          title: "Read and mutate Beads issue state",
+          labels: ["agent:ready"],
+        },
+      ]),
+      failed("set labels failed"),
+    ]);
     const plan = planAgentStateTransition(["agent:ready"], "StartPreparation");
 
     const result = await runEitherWithTracker(
@@ -393,6 +415,10 @@ describe("BeadsIssueTracker", () => {
       });
     }
     expect(processRunner.calls).toEqual([
+      {
+        command: "bd",
+        args: ["show", "morph-fe0", "--json"],
+      },
       {
         command: "bd",
         args: ["update", "morph-fe0", "--set-labels", "agent:preparing"],
@@ -421,6 +447,46 @@ describe("BeadsIssueTracker", () => {
       plan,
     });
     expect(processRunner.calls).toEqual([]);
+  });
+
+  it("replans state transitions from current labels before setting labels", async () => {
+    const processRunner = fakeProcessRunner([
+      ok([
+        {
+          id: "morph-fe0",
+          title: "Read and mutate Beads issue state",
+          labels: ["human-added", "agent:preparing"],
+        },
+      ]),
+      ok([]),
+    ]);
+    const stalePlan = planAgentStateTransition(["agent:preparing"], "PreparationReady");
+
+    const result = await runWithTracker(
+      processRunner.layer,
+      Effect.gen(function* () {
+        const tracker = yield* IssueTracker;
+        return yield* tracker.applyAgentState("morph-fe0", stalePlan);
+      }),
+    );
+
+    expect(result).toEqual({
+      status: "applied",
+      issueId: "morph-fe0",
+      addLabels: ["agent:prepared"],
+      removeLabels: ["agent:preparing"],
+    });
+    expect(processRunner.calls.at(-1)).toEqual({
+      command: "bd",
+      args: [
+        "update",
+        "morph-fe0",
+        "--set-labels",
+        "human-added",
+        "--set-labels",
+        "agent:prepared",
+      ],
+    });
   });
 
   it("writes contract metadata without replacing existing metadata keys", async () => {

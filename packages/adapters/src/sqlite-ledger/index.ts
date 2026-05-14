@@ -264,7 +264,9 @@ export const createSqliteRunLedger = ({
       ) {
         const endedAt = new Date().toISOString();
         const eventType =
-          input.status === "succeeded" ? "PreparationSucceeded" : "PreparationFailed";
+          input.status === "succeeded"
+            ? "PreparationSucceeded"
+            : (input.terminalEvent ?? "PreparationFailed");
         const failureKind = input.status === "failed" ? input.failureKind : null;
         yield* sql
           .withTransaction(

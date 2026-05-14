@@ -1,6 +1,8 @@
-import { deriveIssueState, deriveLane } from "@morpheus/core";
+import { execFile } from "node:child_process";
+import { deriveIssueState, deriveLane, planAgentStateTransition } from "@morpheus/core";
 import type { AgentStateTransitionPlan } from "@morpheus/core";
 import {
+  AgentRunner,
   decodeAgentReadyContract,
   IssueTracker,
   IssueTrackerCommandError,
@@ -8,11 +10,12 @@ import {
   IssueTrackerJsonParseError,
   IssueTrackerMalformedMetadataError,
   ProcessRunner,
+  ProcessRunnerError,
 } from "@morpheus/runtime";
 import type {
   AgentReadyContract,
+  AgentRunnerService,
   ProcessResult,
-  ProcessRunnerError,
   ProcessRunnerService,
   TrackedIssue,
   IssueTrackerService,
@@ -27,6 +30,10 @@ export interface AdapterInfo {
 
 export const adapterInfo: AdapterInfo = {
   name: "MorpheusAdapters",
+};
+
+type NodeProcessRunnerOptions = {
+  readonly cwd: string;
 };
 
 type BeadsIssueTrackerOptions = {
@@ -203,7 +210,7 @@ const firstIssueFromJson = (
                 args: [...args],
                 message: errorMessage(error),
               }),
-        }),
+          }),
     ),
   );
 
@@ -259,6 +266,156 @@ const rejectPlan = (
 const setLabelArgs = (labels: readonly string[]): string[] =>
   labels.flatMap((label) => ["--set-labels", label]);
 
+export const createNodeProcessRunner = ({
+  cwd,
+}: NodeProcessRunnerOptions): ProcessRunnerService => ({
+  run: (command, args) =>
+    Effect.async<ProcessResult, ProcessRunnerError>((resume) => {
+      execFile(
+        command,
+        [...args],
+        {
+          cwd,
+          encoding: "utf8",
+          maxBuffer: 10 * 1024 * 1024,
+        },
+        (error, stdout, stderr) => {
+          if (error !== null && typeof error.code !== "number") {
+            resume(
+              Effect.fail(
+                new ProcessRunnerError({
+                  command,
+                  args: [...args],
+                  message: errorMessage(error),
+                }),
+              ),
+            );
+            return;
+          }
+
+          const exitCode = error === null ? 0 : typeof error.code === "number" ? error.code : 1;
+          resume(
+            Effect.succeed({
+              stdout,
+              stderr,
+              exitCode,
+            }),
+          );
+        },
+      );
+    }),
+});
+
+export const nodeProcessRunnerLayer = (
+  options: NodeProcessRunnerOptions,
+): Layer.Layer<ProcessRunner> => Layer.succeed(ProcessRunner, createNodeProcessRunner(options));
+
+export type FakeAgentRunnerScenario =
+  | "prepared"
+  | "blocked"
+  | "failed"
+  | "invalid_contract"
+  | "blocked_contract";
+
+type FakeAgentRunnerOptions = {
+  readonly scenario?: FakeAgentRunnerScenario;
+};
+
+const fakeContract = (issue: TrackedIssue): AgentReadyContract => ({
+  category: "task",
+  summary: issue.title,
+  currentBehavior: "Current behavior is described by the source Beads issue.",
+  desiredBehavior: "Morpheus should prepare the issue into a validated Agent-Ready Contract.",
+  keyInterfaces: ["IssueTracker", "RunLedger", "AgentRunner"],
+  acceptanceCriteria: [
+    "Preparation records run evidence.",
+    "Valid preparation writes an Agent-Ready Contract.",
+  ],
+  outOfScope: ["Implementation", "review", "merge request creation"],
+  verificationPlan: ["pnpm check"],
+  blockedBy: "None",
+  hitlDecisions: "None",
+  riskLevel: "medium",
+});
+
+const fakeTranscript = (issue: TrackedIssue, status: string): string =>
+  [`FakeAgentRunner preparation`, `issue: ${issue.id}`, `status: ${status}`].join("\n");
+
+export const createFakeAgentRunner = ({
+  scenario = "prepared",
+}: FakeAgentRunnerOptions = {}): AgentRunnerService => ({
+  prepareIssue: ({ issue }) => {
+    if (scenario === "blocked") {
+      return Effect.succeed({
+        status: "blocked",
+        reason: "Fake preparation needs more product context.",
+        transcript: fakeTranscript(issue, "blocked"),
+        artifact: {
+          scenario,
+          reason: "Fake preparation needs more product context.",
+        },
+      });
+    }
+
+    if (scenario === "failed") {
+      return Effect.succeed({
+        status: "failed",
+        failureKind: "runtime_error",
+        message: "Fake preparation failed before producing a contract.",
+        transcript: fakeTranscript(issue, "failed"),
+        artifact: {
+          scenario,
+          message: "Fake preparation failed before producing a contract.",
+        },
+      });
+    }
+
+    if (scenario === "invalid_contract") {
+      const { desiredBehavior: _desiredBehavior, ...contract } = fakeContract(issue);
+      return Effect.succeed({
+        status: "prepared",
+        contract,
+        transcript: fakeTranscript(issue, "invalid_contract"),
+        artifact: {
+          scenario,
+          contract,
+        },
+      });
+    }
+
+    if (scenario === "blocked_contract") {
+      const contract = {
+        ...fakeContract(issue),
+        blockedBy: "Needs product decision.",
+      };
+      return Effect.succeed({
+        status: "prepared",
+        contract,
+        transcript: fakeTranscript(issue, "blocked_contract"),
+        artifact: {
+          scenario,
+          contract,
+        },
+      });
+    }
+
+    const contract = fakeContract(issue);
+    return Effect.succeed({
+      status: "prepared",
+      contract,
+      transcript: fakeTranscript(issue, "prepared"),
+      artifact: {
+        scenario,
+        contract,
+      },
+    });
+  },
+});
+
+export const fakeAgentRunnerLayer = (
+  options: FakeAgentRunnerOptions = {},
+): Layer.Layer<AgentRunner> => Layer.succeed(AgentRunner, createFakeAgentRunner(options));
+
 export const createBeadsIssueTracker = ({
   processRunner,
 }: BeadsIssueTrackerOptions): IssueTrackerService => ({
@@ -280,17 +437,26 @@ export const createBeadsIssueTracker = ({
         return rejectPlan(issueId, transitionPlan);
       }
 
+      const showArgs = ["show", issueId, "--json"] as const;
+      const result = yield* runBdEffect(processRunner, showArgs);
+      const currentIssue = yield* trackedIssueFromJson(result.stdout, showArgs);
+      const currentPlan = planAgentStateTransition(currentIssue.labels, transitionPlan.event);
+
+      if (currentPlan.status !== "planned") {
+        return rejectPlan(issueId, currentPlan);
+      }
+
       yield* runBdEffect(processRunner, [
         "update",
         issueId,
-        ...setLabelArgs(transitionPlan.finalLabels),
+        ...setLabelArgs(currentPlan.finalLabels),
       ]);
 
       return {
         status: "applied",
         issueId,
-        addLabels: transitionPlan.addLabels,
-        removeLabels: transitionPlan.removeLabels,
+        addLabels: currentPlan.addLabels,
+        removeLabels: currentPlan.removeLabels,
       };
     }),
   writeContract: (issueId: string, contract: AgentReadyContract) =>

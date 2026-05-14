@@ -3,10 +3,18 @@ import { Args, Command, Options } from "@effect/cli";
 import { NodeContext, NodeRuntime } from "@effect/platform-node";
 import { Console, Effect, Layer, Option } from "effect";
 import { dirname, isAbsolute, resolve } from "node:path";
-import { sqliteRunLedgerLayer } from "@morpheus/adapters";
 import {
+  beadsIssueTrackerLayer,
+  fakeAgentRunnerLayer,
+  nodeProcessRunnerLayer,
+  sqliteRunLedgerLayer,
+} from "@morpheus/adapters";
+import {
+  AgentRunner,
+  IssueTracker,
   listRunsForCli,
   loadMorpheusConfig,
+  prepareIssueForCli,
   RunLedger,
   showRunForCli,
   showRunLogsForCli,
@@ -16,6 +24,37 @@ import pkg from "../package.json" with { type: "json" };
 
 const configPath = Options.text("config").pipe(Options.optional);
 const runId = Args.text({ name: "runId" });
+const issueId = Args.text({ name: "issueId" });
+
+type LoadedCliConfig = {
+  readonly configDirectory: string;
+  readonly targetRepo: string;
+  readonly ledgerPath: string;
+};
+
+const loadCliConfig = (pathOption: Option.Option<string>): LoadedCliConfig => {
+  const result = loadMorpheusConfig({
+    configPath: Option.getOrUndefined(pathOption),
+  });
+
+  if (result.status === "error") {
+    throw new Error(`${result.error.kind}: ${result.error.path}`);
+  }
+
+  const configDirectory = dirname(result.path);
+  const targetRepo = isAbsolute(result.config.targetRepo)
+    ? result.config.targetRepo
+    : resolve(configDirectory, result.config.targetRepo);
+  const ledgerPath = isAbsolute(result.config.ledger.path)
+    ? result.config.ledger.path
+    : resolve(configDirectory, result.config.ledger.path);
+
+  return {
+    configDirectory,
+    targetRepo,
+    ledgerPath,
+  };
+};
 
 const formatConfigSummary = (
   result: ReturnType<typeof loadMorpheusConfig>,
@@ -44,22 +83,11 @@ const ledgerLayerFromConfig = (
   pathOption: Option.Option<string>,
 ): Effect.Effect<Layer.Layer<RunLedger, RunLedgerPersistenceError>, Error> =>
   Effect.sync(() => {
-    const result = loadMorpheusConfig({
-      configPath: Option.getOrUndefined(pathOption),
-    });
-
-    if (result.status === "error") {
-      throw new Error(`${result.error.kind}: ${result.error.path}`);
-    }
-
-    const configDirectory = dirname(result.path);
-    const ledgerPath = isAbsolute(result.config.ledger.path)
-      ? result.config.ledger.path
-      : resolve(configDirectory, result.config.ledger.path);
+    const config = loadCliConfig(pathOption);
 
     return sqliteRunLedgerLayer({
-      ledgerPath,
-      runsDirectory: resolve(configDirectory, ".morpheus", "runs"),
+      ledgerPath: config.ledgerPath,
+      runsDirectory: resolve(config.configDirectory, ".morpheus", "runs"),
     });
   });
 
@@ -70,6 +98,35 @@ const provideLedger = <A, E>(
   Effect.flatMap(ledgerLayerFromConfig(pathOption), (ledgerLayer) =>
     Effect.provide(program, ledgerLayer),
   );
+
+const prepareLayerFromConfig = (
+  pathOption: Option.Option<string>,
+): Effect.Effect<
+  Layer.Layer<RunLedger | IssueTracker | AgentRunner, RunLedgerPersistenceError>,
+  Error
+> =>
+  Effect.sync(() => {
+    const config = loadCliConfig(pathOption);
+    const processRunnerLayer = nodeProcessRunnerLayer({
+      cwd: config.targetRepo,
+    });
+    const issueTrackerLayer = beadsIssueTrackerLayer.pipe(Layer.provide(processRunnerLayer));
+
+    return Layer.mergeAll(
+      sqliteRunLedgerLayer({
+        ledgerPath: config.ledgerPath,
+        runsDirectory: resolve(config.configDirectory, ".morpheus", "runs"),
+      }),
+      issueTrackerLayer,
+      fakeAgentRunnerLayer(),
+    );
+  });
+
+const providePreparation = <A, E>(
+  pathOption: Option.Option<string>,
+  program: Effect.Effect<A, E, RunLedger | IssueTracker | AgentRunner>,
+): Effect.Effect<A, E | RunLedgerPersistenceError | Error> =>
+  Effect.flatMap(prepareLayerFromConfig(pathOption), (layer) => Effect.provide(program, layer));
 
 const configShow = Command.make("show", { configPath }, ({ configPath }) =>
   formatConfigSummary(
@@ -100,11 +157,17 @@ const logs = Command.make("logs", { runId, configPath }, ({ runId, configPath })
   ),
 ).pipe(Command.withDescription("Show Morpheus run logs"));
 
+const prepare = Command.make("prepare", { issueId, configPath }, ({ issueId, configPath }) =>
+  providePreparation(configPath, prepareIssueForCli(issueId)).pipe(
+    Effect.flatMap((output) => Console.log(output)),
+  ),
+).pipe(Command.withDescription("Prepare one Beads issue"));
+
 const command = Command.make("morpheus", {}, () =>
   Console.log("Morpheus local agent orchestration"),
 ).pipe(
   Command.withDescription("Morpheus local agent orchestration"),
-  Command.withSubcommands([config, runs, runDetail, logs]),
+  Command.withSubcommands([config, runs, runDetail, logs, prepare]),
 );
 
 const run = Command.run(command, {

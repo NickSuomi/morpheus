@@ -59,7 +59,7 @@ describe("AgentReadyContract", () => {
       })
     ).toEqual({
       status: "invalid",
-      reason: "blocked_by_present"
+      message: "blockedBy must be None: Needs product decision"
     })
 
     expect(
@@ -69,7 +69,7 @@ describe("AgentReadyContract", () => {
       })
     ).toEqual({
       status: "invalid",
-      reason: "hitl_decisions_present"
+      message: "hitlDecisions must be None: Pick target API"
     })
   })
 })

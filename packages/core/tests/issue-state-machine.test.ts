@@ -117,6 +117,7 @@ describe("IssueStateMachine", () => {
 
     expect(result).toEqual({
       status: "planned",
+      event: "StartPreparation",
       from: "agent:ready",
       to: "agent:preparing",
       addLabels: ["agent:preparing"],
@@ -145,6 +146,7 @@ describe("IssueStateMachine", () => {
 
       expect(result).toEqual({
         status: "planned",
+        event,
         from,
         to,
         addLabels: [to],

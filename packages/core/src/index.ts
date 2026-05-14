@@ -80,6 +80,7 @@ export type DerivedIssueState =
 export type AgentStateTransitionPlan =
   | {
       readonly status: "planned"
+      readonly event: AgentEvent
       readonly from: AgentState
       readonly to: AgentState
       readonly addLabels: readonly AgentState[]
@@ -202,6 +203,7 @@ export const planAgentStateTransition = (
 
   return {
     status: "planned",
+    event,
     from: state.state,
     to,
     addLabels: [to],

@@ -118,6 +118,7 @@ describe("SqliteRunLedger", () => {
           const updated = yield* ledger.finishRun(run.id, {
             status: "failed",
             failureKind: "agent_contract_error",
+            terminalEvent: "PreparationBlocked",
             message: "Fake preparation could not produce a valid contract.",
           });
           return {
@@ -139,7 +140,7 @@ describe("SqliteRunLedger", () => {
         },
         {
           sequence: 2,
-          type: "PreparationFailed",
+          type: "PreparationBlocked",
           message: "Fake preparation could not produce a valid contract.",
         },
       ]);
