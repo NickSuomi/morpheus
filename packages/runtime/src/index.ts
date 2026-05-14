@@ -1,7 +1,8 @@
 import { existsSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import * as Schema from "@effect/schema/Schema";
-import { Context, Effect, Schema as EffectSchema } from "effect";
+import { planAgentStateTransition } from "@morpheus/core";
+import { Context, Effect, Either, Schema as EffectSchema } from "effect";
 import type {
   AgentReadyContract,
   AgentStateTransitionPlan,
@@ -144,7 +145,10 @@ export class IssueTracker extends Context.Tag("@morpheus/runtime/IssueTracker")<
     readonly applyAgentState: (
       issueId: string,
       transitionPlan: AgentStateTransitionPlan,
-    ) => Effect.Effect<IssueTrackerApplyResult, ProcessRunnerError | IssueTrackerCommandError>;
+    ) => Effect.Effect<
+      IssueTrackerApplyResult,
+      ProcessRunnerError | IssueTrackerCommandError | IssueTrackerJsonParseError
+    >;
     readonly writeContract: (
       issueId: string,
       contract: AgentReadyContract,
@@ -170,6 +174,49 @@ export class IssueTracker extends Context.Tag("@morpheus/runtime/IssueTracker")<
 >() {}
 
 export type IssueTrackerService = Context.Tag.Service<typeof IssueTracker>;
+
+export type PreparationAgentInput = {
+  readonly issue: TrackedIssue;
+};
+
+export type PreparationAgentResult =
+  | {
+      readonly status: "prepared";
+      readonly contract: unknown;
+      readonly transcript: string;
+      readonly artifact: unknown;
+    }
+  | {
+      readonly status: "blocked";
+      readonly reason: string;
+      readonly transcript: string;
+      readonly artifact: unknown;
+    }
+  | {
+      readonly status: "failed";
+      readonly failureKind: FailureKind;
+      readonly message: string;
+      readonly transcript: string;
+      readonly artifact: unknown;
+    };
+
+export class AgentRunnerError extends EffectSchema.TaggedError<AgentRunnerError>(
+  "AgentRunnerError",
+)("AgentRunnerError", {
+  operation: EffectSchema.String,
+  message: EffectSchema.String,
+}) {}
+
+export class AgentRunner extends Context.Tag("@morpheus/runtime/AgentRunner")<
+  AgentRunner,
+  {
+    readonly prepareIssue: (
+      input: PreparationAgentInput,
+    ) => Effect.Effect<PreparationAgentResult, AgentRunnerError>;
+  }
+>() {}
+
+export type AgentRunnerService = Context.Tag.Service<typeof AgentRunner>;
 
 export const runStatuses = ["running", "succeeded", "failed"] as const;
 
@@ -209,6 +256,7 @@ export type FinishRunInput =
   | {
       readonly status: "failed";
       readonly failureKind: FailureKind;
+      readonly terminalEvent?: "PreparationFailed" | "PreparationBlocked";
       readonly message?: string;
     };
 
@@ -344,6 +392,528 @@ export const showRunLogsForCli = (
     return renderRunLogs(yield* ledger.getRunLogs(runId));
   });
 
+export type PrepareIssueResult =
+  | {
+      readonly status: "prepared";
+      readonly issueId: string;
+      readonly run: RunSummary;
+      readonly contract: AgentReadyContract;
+    }
+  | {
+      readonly status: "blocked";
+      readonly issueId: string;
+      readonly run: RunSummary;
+      readonly reason: string;
+    }
+  | {
+      readonly status: "failed";
+      readonly issueId: string;
+      readonly run?: RunSummary;
+      readonly failureKind: FailureKind;
+      readonly message: string;
+    }
+  | {
+      readonly status: "state_rejected";
+      readonly issueId: string;
+      readonly reason: Extract<IssueTrackerApplyResult, { readonly status: "rejected" }>["reason"];
+      readonly failureKind: FailureKind;
+    };
+
+const artifactToString = (artifact: unknown): Effect.Effect<string, RunLedgerPersistenceError> =>
+  Effect.try({
+    try: () => JSON.stringify(artifact, null, 2),
+    catch: (error) =>
+      new RunLedgerPersistenceError({
+        operation: "serializeRunArtifact",
+        message: errorMessage(error),
+      }),
+  });
+
+const terminalPlanFromPreparing = (
+  labels: readonly string[],
+  event: "PreparationReady" | "PreparationBlocked" | "PreparationFailed",
+): AgentStateTransitionPlan => planAgentStateTransition(labels, event);
+
+const finishFailed = (
+  ledger: RunLedgerService,
+  runId: string,
+  failureKind: FailureKind,
+  message: string,
+  terminalEvent: "PreparationFailed" | "PreparationBlocked" = "PreparationFailed",
+): Effect.Effect<RunSummary, RunLedgerError> =>
+  ledger.finishRun(runId, {
+    status: "failed",
+    failureKind,
+    terminalEvent,
+    message,
+  });
+
+const applyTerminalTransition = (
+  tracker: IssueTrackerService,
+  issueId: string,
+  event: "PreparationReady" | "PreparationBlocked" | "PreparationFailed",
+): Effect.Effect<IssueTrackerApplyResult, IssueTrackerError> =>
+  Effect.gen(function* () {
+    const currentIssue = yield* tracker.getIssue(issueId);
+    return yield* tracker.applyAgentState(
+      issueId,
+      terminalPlanFromPreparing(currentIssue.labels, event),
+    );
+  });
+
+const failedPreparationResult = (
+  issueId: string,
+  run: RunSummary,
+  failureKind: FailureKind,
+  message: string,
+): Extract<PrepareIssueResult, { readonly status: "failed" }> => ({
+  status: "failed",
+  issueId,
+  run,
+  failureKind,
+  message,
+});
+
+const blockedPreparationResult = (
+  issueId: string,
+  run: RunSummary,
+  reason: string,
+): Extract<PrepareIssueResult, { readonly status: "blocked" }> => ({
+  status: "blocked",
+  issueId,
+  run,
+  reason,
+});
+
+const finishHandledFailure = (
+  ledger: RunLedgerService,
+  runId: string,
+  failureKind: FailureKind,
+  message: string,
+  terminalEvent?: "PreparationFailed" | "PreparationBlocked",
+): Effect.Effect<RunSummary, RunLedgerError> =>
+  finishFailed(ledger, runId, failureKind, message, terminalEvent);
+
+const failRunAfterArtifactWriteFailure = (
+  ledger: RunLedgerService,
+  tracker: IssueTrackerService,
+  issueId: string,
+  runId: string,
+  writeError: RunLedgerError,
+): Effect.Effect<Extract<PrepareIssueResult, { readonly status: "failed" }>, RunLedgerError> =>
+  Effect.gen(function* () {
+    const message = `Preparation artifact write failed: ${errorMessage(writeError)}`;
+    yield* Effect.either(applyTerminalTransition(tracker, issueId, "PreparationFailed"));
+    const terminalRun = yield* finishHandledFailure(ledger, runId, "runtime_error", message);
+    return failedPreparationResult(issueId, terminalRun, "runtime_error", message);
+  });
+
+const writeArtifactsOrFailRun = (
+  ledger: RunLedgerService,
+  tracker: IssueTrackerService,
+  issueId: string,
+  runId: string,
+  input: {
+    readonly transcript: string;
+    readonly artifact: unknown;
+  },
+): Effect.Effect<
+  | { readonly status: "written" }
+  | {
+      readonly status: "failed";
+      readonly result: Extract<PrepareIssueResult, { readonly status: "failed" }>;
+    },
+  RunLedgerError
+> =>
+  Effect.gen(function* () {
+    const artifactResult = yield* Effect.either(artifactToString(input.artifact));
+    if (Either.isLeft(artifactResult)) {
+      return {
+        status: "failed",
+        result: yield* failRunAfterArtifactWriteFailure(
+          ledger,
+          tracker,
+          issueId,
+          runId,
+          artifactResult.left,
+        ),
+      };
+    }
+
+    const writeResult = yield* Effect.either(
+      ledger.writeRunArtifacts(runId, {
+        transcript: input.transcript,
+        artifact: artifactResult.right,
+      }),
+    );
+    if (Either.isLeft(writeResult)) {
+      return {
+        status: "failed",
+        result: yield* failRunAfterArtifactWriteFailure(
+          ledger,
+          tracker,
+          issueId,
+          runId,
+          writeResult.left,
+        ),
+      };
+    }
+
+    return { status: "written" };
+  });
+
+const terminalFailureKind = (
+  terminalResult: Either.Either<IssueTrackerApplyResult, IssueTrackerError>,
+  appliedFailureKind: FailureKind,
+): FailureKind => {
+  if (Either.isLeft(terminalResult)) {
+    return "runtime_error";
+  }
+
+  return terminalResult.right.status === "applied" ? appliedFailureKind : "state_conflict";
+};
+
+const terminalFailureMessage = (
+  terminalResult: Either.Either<IssueTrackerApplyResult, IssueTrackerError>,
+  successMessage: string,
+  rejectedMessage: string,
+): string => {
+  if (Either.isLeft(terminalResult)) {
+    return `${rejectedMessage}: ${errorMessage(terminalResult.left)}`;
+  }
+
+  return terminalResult.right.status === "applied" ? successMessage : rejectedMessage;
+};
+
+const terminalEventWhenApplied = (
+  terminalResult: Either.Either<IssueTrackerApplyResult, IssueTrackerError>,
+  terminalEvent: "PreparationFailed" | "PreparationBlocked",
+): "PreparationFailed" | "PreparationBlocked" =>
+  Either.isRight(terminalResult) && terminalResult.right.status === "applied"
+    ? terminalEvent
+    : "PreparationFailed";
+
+export const prepareIssue = (
+  issueId: string,
+): Effect.Effect<
+  PrepareIssueResult,
+  IssueTrackerError | RunLedgerError | AgentRunnerError,
+  IssueTracker | RunLedger | AgentRunner
+> =>
+  Effect.gen(function* () {
+    const tracker = yield* IssueTracker;
+    const ledger = yield* RunLedger;
+    const runner = yield* AgentRunner;
+
+    const issue = yield* tracker.getIssue(issueId);
+    const startPlan = planAgentStateTransition(issue.labels, "StartPreparation");
+    if (startPlan.status !== "planned") {
+      return {
+        status: "state_rejected",
+        issueId,
+        reason: startPlan.status,
+        failureKind: startPlan.status === "conflict" ? "state_conflict" : "runtime_error",
+      };
+    }
+
+    const run = yield* ledger.createPreparationRun({
+      issueId,
+      summary: issue.title,
+    });
+
+    const startResult = yield* Effect.either(tracker.applyAgentState(issueId, startPlan));
+    if (Either.isLeft(startResult) || startResult.right.status === "rejected") {
+      const failureKind = terminalFailureKind(startResult, "state_conflict");
+      const message = terminalFailureMessage(
+        startResult,
+        "Preparation start rejected.",
+        "Preparation start rejected.",
+      );
+      const terminalRun = yield* finishHandledFailure(ledger, run.id, failureKind, message);
+
+      return failedPreparationResult(
+        issueId,
+        terminalRun,
+        terminalRun.failureKind ?? failureKind,
+        message,
+      );
+    }
+
+    const resultEither = yield* Effect.either(runner.prepareIssue({ issue }));
+    if (Either.isLeft(resultEither)) {
+      const message = `Agent runner failed during preparation: ${resultEither.left.message}`;
+      const artifacts = yield* writeArtifactsOrFailRun(ledger, tracker, issueId, run.id, {
+        transcript: message,
+        artifact: {
+          status: "failed",
+          failureKind: "runtime_error",
+          message,
+        },
+      });
+      if (artifacts.status === "failed") {
+        return artifacts.result;
+      }
+
+      const terminal = yield* Effect.either(
+        applyTerminalTransition(tracker, issueId, "PreparationFailed"),
+      );
+      const terminalRun = yield* finishHandledFailure(
+        ledger,
+        run.id,
+        terminalFailureKind(terminal, "runtime_error"),
+        terminalFailureMessage(terminal, message, "Preparation failed transition rejected"),
+      );
+
+      return {
+        status: "failed",
+        issueId,
+        run: terminalRun,
+        failureKind: terminalRun.failureKind ?? terminalFailureKind(terminal, "runtime_error"),
+        message,
+      };
+    }
+
+    const result = resultEither.right;
+
+    if (result.status === "blocked") {
+      const artifacts = yield* writeArtifactsOrFailRun(ledger, tracker, issueId, run.id, {
+        transcript: result.transcript,
+        artifact: result.artifact,
+      });
+      if (artifacts.status === "failed") {
+        return artifacts.result;
+      }
+
+      const terminal = yield* Effect.either(
+        applyTerminalTransition(tracker, issueId, "PreparationBlocked"),
+      );
+      const message = `Preparation blocked: ${result.reason}`;
+      const terminalRun = yield* finishHandledFailure(
+        ledger,
+        run.id,
+        terminalFailureKind(terminal, "agent_contract_error"),
+        terminalFailureMessage(terminal, message, "Preparation blocked transition rejected"),
+        terminalEventWhenApplied(terminal, "PreparationBlocked"),
+      );
+
+      if (terminalRun.failureKind !== "agent_contract_error") {
+        return failedPreparationResult(
+          issueId,
+          terminalRun,
+          terminalRun.failureKind ?? "state_conflict",
+          "Preparation blocked transition rejected.",
+        );
+      }
+
+      return blockedPreparationResult(issueId, terminalRun, result.reason);
+    }
+
+    if (result.status === "failed") {
+      const artifacts = yield* writeArtifactsOrFailRun(ledger, tracker, issueId, run.id, {
+        transcript: result.transcript,
+        artifact: result.artifact,
+      });
+      if (artifacts.status === "failed") {
+        return artifacts.result;
+      }
+
+      const terminal = yield* Effect.either(
+        applyTerminalTransition(tracker, issueId, "PreparationFailed"),
+      );
+      const terminalRun = yield* finishHandledFailure(
+        ledger,
+        run.id,
+        terminalFailureKind(terminal, result.failureKind),
+        terminalFailureMessage(terminal, result.message, "Preparation failed transition rejected"),
+      );
+
+      return failedPreparationResult(
+        issueId,
+        terminalRun,
+        terminalRun.failureKind ?? result.failureKind,
+        result.message,
+      );
+    }
+
+    const artifacts = yield* writeArtifactsOrFailRun(ledger, tracker, issueId, run.id, {
+      transcript: result.transcript,
+      artifact: result.artifact,
+    });
+    if (artifacts.status === "failed") {
+      return artifacts.result;
+    }
+
+    const decoded = decodeAgentReadyContract(result.contract);
+    if (decoded.status === "invalid") {
+      const message = `Invalid Agent-Ready Contract: ${decoded.message}`;
+      const terminal = yield* Effect.either(
+        applyTerminalTransition(tracker, issueId, "PreparationFailed"),
+      );
+      const terminalRun = yield* finishHandledFailure(
+        ledger,
+        run.id,
+        terminalFailureKind(terminal, "agent_contract_error"),
+        terminalFailureMessage(terminal, message, "Preparation failed transition rejected"),
+      );
+
+      return failedPreparationResult(
+        issueId,
+        terminalRun,
+        terminalRun.failureKind ?? terminalFailureKind(terminal, "agent_contract_error"),
+        message,
+      );
+    }
+
+    const afk = validateAfkReadyContract(decoded.contract);
+    if (afk.status === "invalid") {
+      const reason = afk.message;
+      const terminal = yield* Effect.either(
+        applyTerminalTransition(tracker, issueId, "PreparationBlocked"),
+      );
+      const terminalRun = yield* finishHandledFailure(
+        ledger,
+        run.id,
+        terminalFailureKind(terminal, "agent_contract_error"),
+        terminalFailureMessage(
+          terminal,
+          `Preparation blocked: ${reason}`,
+          "Preparation blocked transition rejected",
+        ),
+        terminalEventWhenApplied(terminal, "PreparationBlocked"),
+      );
+
+      if (terminalRun.failureKind !== "agent_contract_error") {
+        return failedPreparationResult(
+          issueId,
+          terminalRun,
+          terminalRun.failureKind ?? "state_conflict",
+          "Preparation blocked transition rejected.",
+        );
+      }
+
+      return blockedPreparationResult(issueId, terminalRun, reason);
+    }
+
+    const readyIssue = yield* tracker.getIssue(issueId);
+    const readyPlan = terminalPlanFromPreparing(readyIssue.labels, "PreparationReady");
+    if (readyPlan.status !== "planned") {
+      const message = "Preparation ready transition rejected.";
+      const terminalRun = yield* finishHandledFailure(ledger, run.id, "state_conflict", message);
+
+      return failedPreparationResult(issueId, terminalRun, "state_conflict", message);
+    }
+
+    const writeContractResult = yield* Effect.either(tracker.writeContract(issueId, afk.contract));
+    if (Either.isLeft(writeContractResult)) {
+      const terminal = yield* Effect.either(
+        applyTerminalTransition(tracker, issueId, "PreparationFailed"),
+      );
+      const message = terminalFailureMessage(
+        terminal,
+        `Agent-Ready Contract write failed: ${errorMessage(writeContractResult.left)}`,
+        `Agent-Ready Contract write failed: ${errorMessage(writeContractResult.left)}`,
+      );
+      const terminalRun = yield* finishHandledFailure(
+        ledger,
+        run.id,
+        terminalFailureKind(terminal, "runtime_error"),
+        message,
+      );
+
+      return failedPreparationResult(
+        issueId,
+        terminalRun,
+        terminalRun.failureKind ?? terminalFailureKind(terminal, "runtime_error"),
+        message,
+      );
+    }
+
+    const terminal = yield* Effect.either(
+      applyTerminalTransition(tracker, issueId, "PreparationReady"),
+    );
+
+    if (Either.isLeft(terminal) || terminal.right.status === "rejected") {
+      const message = terminalFailureMessage(
+        terminal,
+        "Preparation ready transition rejected.",
+        "Preparation ready transition rejected.",
+      );
+      const terminalRun = yield* finishHandledFailure(
+        ledger,
+        run.id,
+        terminalFailureKind(terminal, "state_conflict"),
+        message,
+      );
+
+      return failedPreparationResult(
+        issueId,
+        terminalRun,
+        terminalRun.failureKind ?? "state_conflict",
+        message,
+      );
+    }
+
+    const terminalRun = yield* ledger.finishRun(run.id, {
+      status: "succeeded",
+      message: "Agent-Ready Contract written.",
+    });
+
+    return {
+      status: "prepared",
+      issueId,
+      run: terminalRun,
+      contract: afk.contract,
+    };
+  });
+
+export const renderPrepareIssueResult = (result: PrepareIssueResult): string => {
+  if (result.status === "prepared") {
+    return [
+      `Prepared ${result.issueId}`,
+      `run: ${result.run.id}`,
+      `contract: written`,
+      `transcript: ${result.run.transcriptPath ?? "None"}`,
+      `artifact: ${result.run.artifactPath ?? "None"}`,
+    ].join("\n");
+  }
+
+  if (result.status === "blocked") {
+    return [
+      `Blocked ${result.issueId}`,
+      `run: ${result.run.id}`,
+      `reason: ${result.reason}`,
+      `failureKind: ${result.run.failureKind ?? "agent_contract_error"}`,
+      `transcript: ${result.run.transcriptPath ?? "None"}`,
+      `artifact: ${result.run.artifactPath ?? "None"}`,
+    ].join("\n");
+  }
+
+  if (result.status === "state_rejected") {
+    return [
+      `State rejected ${result.issueId}`,
+      `reason: ${result.reason}`,
+      `failureKind: ${result.failureKind}`,
+    ].join("\n");
+  }
+
+  return [
+    `Failed ${result.issueId}`,
+    `run: ${result.run?.id ?? "None"}`,
+    `failureKind: ${result.failureKind}`,
+    `message: ${result.message}`,
+    `transcript: ${result.run?.transcriptPath ?? "None"}`,
+    `artifact: ${result.run?.artifactPath ?? "None"}`,
+  ].join("\n");
+};
+
+export const prepareIssueForCli = (
+  issueId: string,
+): Effect.Effect<
+  string,
+  IssueTrackerError | RunLedgerError | AgentRunnerError,
+  IssueTracker | RunLedger | AgentRunner
+> => prepareIssue(issueId).pipe(Effect.map(renderPrepareIssueResult));
+
 export const AgentReadyContractSchema = Schema.Struct({
   category: Schema.String,
   summary: Schema.String,
@@ -375,7 +945,7 @@ export type AfkReadyContractValidationResult =
     }
   | {
       readonly status: "invalid";
-      readonly reason: "blocked_by_present" | "hitl_decisions_present";
+      readonly message: string;
     };
 
 const errorMessage = (error: unknown): string =>
@@ -398,17 +968,49 @@ export const decodeAgentReadyContract = (value: unknown): AgentReadyContractDeco
 export const validateAfkReadyContract = (
   contract: AgentReadyContract,
 ): AfkReadyContractValidationResult => {
+  const requiredTextEntries = [
+    ["category", contract.category],
+    ["summary", contract.summary],
+    ["currentBehavior", contract.currentBehavior],
+    ["desiredBehavior", contract.desiredBehavior],
+    ["blockedBy", contract.blockedBy],
+    ["hitlDecisions", contract.hitlDecisions],
+  ] as const;
+  const emptyTextEntry = requiredTextEntries.find(([, value]) => value.trim().length === 0);
+  if (emptyTextEntry !== undefined) {
+    return {
+      status: "invalid",
+      message: `${emptyTextEntry[0]} must not be empty`,
+    };
+  }
+
+  const requiredListEntries = [
+    ["keyInterfaces", contract.keyInterfaces],
+    ["acceptanceCriteria", contract.acceptanceCriteria],
+    ["outOfScope", contract.outOfScope],
+    ["verificationPlan", contract.verificationPlan],
+  ] as const;
+  const emptyListEntry = requiredListEntries.find(
+    ([, values]) => values.length === 0 || values.some((value) => value.trim().length === 0),
+  );
+  if (emptyListEntry !== undefined) {
+    return {
+      status: "invalid",
+      message: `${emptyListEntry[0]} must contain non-empty entries`,
+    };
+  }
+
   if (contract.blockedBy !== "None") {
     return {
       status: "invalid",
-      reason: "blocked_by_present",
+      message: `blockedBy must be None: ${contract.blockedBy}`,
     };
   }
 
   if (contract.hitlDecisions !== "None") {
     return {
       status: "invalid",
-      reason: "hitl_decisions_present",
+      message: `hitlDecisions must be None: ${contract.hitlDecisions}`,
     };
   }
 
