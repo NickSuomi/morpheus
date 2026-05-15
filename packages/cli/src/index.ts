@@ -6,6 +6,8 @@ import { dirname, isAbsolute, resolve } from "node:path";
 import {
   beadsIssueTrackerLayer,
   fakeAgentRunnerLayer,
+  gitWorkspaceRuntimeLayer,
+  glabMergeRequestClientLayer,
   nodeProcessRunnerLayer,
   sqliteRunLedgerLayer,
 } from "@morpheus/adapters";
@@ -14,11 +16,14 @@ import {
   IssueTracker,
   listRunsForCli,
   loadMorpheusConfig,
+  MergeRequestClient,
   prepareIssueForCli,
   RunLedger,
   showRunForCli,
   showRunLogsForCli,
+  startImplementationForCli,
   type RunLedgerPersistenceError,
+  WorkspaceRuntime,
 } from "@morpheus/runtime";
 import pkg from "../package.json" with { type: "json" };
 
@@ -128,6 +133,40 @@ const providePreparation = <A, E>(
 ): Effect.Effect<A, E | RunLedgerPersistenceError | Error> =>
   Effect.flatMap(prepareLayerFromConfig(pathOption), (layer) => Effect.provide(program, layer));
 
+const implementationLayerFromConfig = (
+  pathOption: Option.Option<string>,
+): Effect.Effect<
+  Layer.Layer<
+    RunLedger | IssueTracker | WorkspaceRuntime | MergeRequestClient,
+    RunLedgerPersistenceError
+  >,
+  Error
+> =>
+  Effect.sync(() => {
+    const config = loadCliConfig(pathOption);
+    const processRunnerLayer = nodeProcessRunnerLayer({
+      cwd: config.targetRepo,
+    });
+
+    return Layer.mergeAll(
+      sqliteRunLedgerLayer({
+        ledgerPath: config.ledgerPath,
+        runsDirectory: resolve(config.configDirectory, ".morpheus", "runs"),
+      }),
+      beadsIssueTrackerLayer.pipe(Layer.provide(processRunnerLayer)),
+      gitWorkspaceRuntimeLayer.pipe(Layer.provide(processRunnerLayer)),
+      glabMergeRequestClientLayer.pipe(Layer.provide(processRunnerLayer)),
+    );
+  });
+
+const provideImplementation = <A, E>(
+  pathOption: Option.Option<string>,
+  program: Effect.Effect<A, E, RunLedger | IssueTracker | WorkspaceRuntime | MergeRequestClient>,
+): Effect.Effect<A, E | RunLedgerPersistenceError | Error> =>
+  Effect.flatMap(implementationLayerFromConfig(pathOption), (layer) =>
+    Effect.provide(program, layer),
+  );
+
 const configShow = Command.make("show", { configPath }, ({ configPath }) =>
   formatConfigSummary(
     loadMorpheusConfig({
@@ -163,11 +202,17 @@ const prepare = Command.make("prepare", { issueId, configPath }, ({ issueId, con
   ),
 ).pipe(Command.withDescription("Prepare one Beads issue"));
 
+const implement = Command.make("implement", { issueId, configPath }, ({ issueId, configPath }) =>
+  provideImplementation(configPath, startImplementationForCli(issueId)).pipe(
+    Effect.flatMap((output) => Console.log(output)),
+  ),
+).pipe(Command.withDescription("Create workspace branch and Draft MR for one prepared issue"));
+
 const command = Command.make("morpheus", {}, () =>
   Console.log("Morpheus local agent orchestration"),
 ).pipe(
   Command.withDescription("Morpheus local agent orchestration"),
-  Command.withSubcommands([config, runs, runDetail, logs, prepare]),
+  Command.withSubcommands([config, runs, runDetail, logs, prepare, implement]),
 );
 
 const run = Command.run(command, {

@@ -1,4 +1,5 @@
 import { execFile } from "node:child_process";
+import { dirname, join } from "node:path";
 import { deriveIssueState, deriveLane, planAgentStateTransition } from "@morpheus/core";
 import type { AgentStateTransitionPlan } from "@morpheus/core";
 import {
@@ -9,16 +10,22 @@ import {
   IssueTrackerContractSchemaError,
   IssueTrackerJsonParseError,
   IssueTrackerMalformedMetadataError,
+  MergeRequestClient,
+  MergeRequestClientError,
   ProcessRunner,
   ProcessRunnerError,
+  WorkspaceRuntime,
+  WorkspaceRuntimeError,
 } from "@morpheus/runtime";
 import type {
   AgentReadyContract,
   AgentRunnerService,
+  MergeRequestClientService,
   ProcessResult,
   ProcessRunnerService,
   TrackedIssue,
   IssueTrackerService,
+  WorkspaceRuntimeService,
 } from "@morpheus/runtime";
 import { Effect, Layer } from "effect";
 export { createSqliteRunLedger, sqliteRunLedgerLayer } from "./sqlite-ledger/index.js";
@@ -40,6 +47,14 @@ type BeadsIssueTrackerOptions = {
   readonly processRunner: ProcessRunnerService;
 };
 
+type GitWorkspaceRuntimeOptions = {
+  readonly processRunner: ProcessRunnerService;
+};
+
+type GlabMergeRequestClientOptions = {
+  readonly processRunner: ProcessRunnerService;
+};
+
 type BeadsIssueJson = {
   readonly id?: unknown;
   readonly title?: unknown;
@@ -53,6 +68,7 @@ type BeadsIssueJson = {
 export {
   IssueTrackerCommandError as BeadsCommandError,
   IssueTrackerJsonParseError as BeadsJsonParseError,
+  MergeRequestClientError as GlabMergeRequestClientError,
 };
 
 const errorMessage = (error: unknown): string =>
@@ -72,6 +88,78 @@ const runBdEffect = (
             args: [...args],
             exitCode: result.exitCode,
             stderr: result.stderr,
+          }),
+        );
+      }
+
+      return Effect.succeed(result);
+    }),
+  );
+
+const runGitEffect = (
+  processRunner: ProcessRunnerService,
+  args: readonly string[],
+): Effect.Effect<ProcessResult, WorkspaceRuntimeError> =>
+  processRunner.run("git", args).pipe(
+    Effect.mapError(
+      (error) =>
+        new WorkspaceRuntimeError({
+          operation: "git",
+          message: error.message,
+        }),
+    ),
+    Effect.flatMap((result) => {
+      if (result.exitCode !== 0) {
+        return Effect.fail(
+          new WorkspaceRuntimeError({
+            operation: "git",
+            message: result.stderr,
+          }),
+        );
+      }
+
+      return Effect.succeed(result);
+    }),
+  );
+
+const operatorAccessPatterns = [
+  "authentication",
+  "authenticate",
+  "unauthorized",
+  "forbidden",
+  "permission",
+  "access denied",
+  "not logged in",
+  "login required",
+] as const;
+
+const classifyGlabFailureKind = (stderr: string): "operator_access" | "runtime_error" => {
+  const normalized = stderr.toLowerCase();
+  return operatorAccessPatterns.some((pattern) => normalized.includes(pattern))
+    ? "operator_access"
+    : "runtime_error";
+};
+
+const runGlabEffect = (
+  processRunner: ProcessRunnerService,
+  args: readonly string[],
+): Effect.Effect<ProcessResult, MergeRequestClientError> =>
+  processRunner.run("glab", args).pipe(
+    Effect.mapError(
+      (error) =>
+        new MergeRequestClientError({
+          operation: "createDraftMergeRequest",
+          failureKind: "runtime_error",
+          message: error.message,
+        }),
+    ),
+    Effect.flatMap((result) => {
+      if (result.exitCode !== 0) {
+        return Effect.fail(
+          new MergeRequestClientError({
+            operation: "createDraftMergeRequest",
+            failureKind: classifyGlabFailureKind(result.stderr),
+            message: result.stderr,
           }),
         );
       }
@@ -554,5 +642,136 @@ export const beadsIssueTrackerLayer: Layer.Layer<IssueTracker, never, ProcessRun
   Effect.gen(function* () {
     const processRunner = yield* ProcessRunner;
     return createBeadsIssueTracker({ processRunner });
+  }),
+);
+
+const branchSafeIssueId = (issueId: string): string =>
+  issueId.replaceAll(/[^A-Za-z0-9._-]/g, "-");
+
+const branchSafeRunId = (runId: string): string => runId.replaceAll(/[^A-Za-z0-9._-]/g, "-");
+
+export const createGitWorkspaceRuntime = ({
+  processRunner,
+}: GitWorkspaceRuntimeOptions): WorkspaceRuntimeService => ({
+  prepareImplementationWorkspace: ({ issueId, runId }) =>
+    Effect.gen(function* () {
+      const root = (
+        yield* runGitEffect(processRunner, ["rev-parse", "--show-toplevel"])
+      ).stdout.trim();
+      const targetBranch =
+        (yield* runGitEffect(processRunner, ["branch", "--show-current"])).stdout.trim() || "main";
+      const branch = `morpheus/${branchSafeIssueId(issueId)}-${branchSafeRunId(runId)}`;
+      const remote = "origin";
+      const worktreePath = join(dirname(root), `.morpheus-worktree-${branchSafeRunId(runId)}`);
+      yield* runGitEffect(processRunner, ["worktree", "add", "-b", branch, worktreePath, targetBranch]);
+      yield* runGitEffect(processRunner, ["push", "--set-upstream", remote, branch]);
+
+      return {
+        workspacePath: root,
+        worktreePath,
+        branch,
+        targetBranch,
+        remote,
+      };
+    }),
+});
+
+export const gitWorkspaceRuntimeLayer: Layer.Layer<WorkspaceRuntime, never, ProcessRunner> =
+  Layer.effect(
+    WorkspaceRuntime,
+    Effect.gen(function* () {
+      const processRunner = yield* ProcessRunner;
+      return createGitWorkspaceRuntime({ processRunner });
+    }),
+  );
+
+const parseMergeRequestReference = (stdout: string): MergeRequestClientError | string => {
+  const trimmed = stdout.trim();
+  if (trimmed.length === 0) {
+    return new MergeRequestClientError({
+      operation: "parseDraftMergeRequest",
+      failureKind: "runtime_error",
+      message: "glab returned empty MR output",
+    });
+  }
+
+  try {
+    const parsed = JSON.parse(trimmed) as unknown;
+    if (isRecord(parsed)) {
+      const reference =
+        optionalString(parsed.reference) ??
+        optionalString(parsed.web_url) ??
+        optionalString(parsed.url) ??
+        optionalString(parsed.iid);
+      if (reference !== undefined) {
+        return reference;
+      }
+    }
+  } catch {
+    return trimmed.split("\n").at(-1) ?? trimmed;
+  }
+
+  return new MergeRequestClientError({
+    operation: "parseDraftMergeRequest",
+    failureKind: "runtime_error",
+    message: "glab MR output did not include a reference",
+  });
+};
+
+const parseMergeRequestUrl = (stdout: string): string | undefined => {
+  try {
+    const parsed = JSON.parse(stdout.trim()) as unknown;
+    if (isRecord(parsed)) {
+      return optionalString(parsed.web_url) ?? optionalString(parsed.url);
+    }
+  } catch {
+    return stdout
+      .split(/\s+/)
+      .find((part) => part.startsWith("http://") || part.startsWith("https://"));
+  }
+
+  return undefined;
+};
+
+export const createGlabMergeRequestClient = ({
+  processRunner,
+}: GlabMergeRequestClientOptions): MergeRequestClientService => ({
+  createDraftMergeRequest: (input) =>
+    Effect.gen(function* () {
+      const result = yield* runGlabEffect(processRunner, [
+        "mr",
+        "create",
+        "--draft",
+        "--source-branch",
+        input.sourceBranch,
+        "--target-branch",
+        input.targetBranch,
+        "--title",
+        input.title,
+        "--description",
+        input.description,
+        "--yes",
+      ]);
+      const reference = parseMergeRequestReference(result.stdout);
+      if (reference instanceof MergeRequestClientError) {
+        return yield* Effect.fail(reference);
+      }
+
+      return {
+        reference,
+        url: parseMergeRequestUrl(result.stdout),
+      };
+    }),
+});
+
+export const glabMergeRequestClientLayer: Layer.Layer<
+  MergeRequestClient,
+  never,
+  ProcessRunner
+> = Layer.effect(
+  MergeRequestClient,
+  Effect.gen(function* () {
+    const processRunner = yield* ProcessRunner;
+    return createGlabMergeRequestClient({ processRunner });
   }),
 );

@@ -35,6 +35,11 @@ type RunRow = {
   readonly failure_kind: string | null;
   readonly transcript_path: string | null;
   readonly artifact_path: string | null;
+  readonly workspace_path: string | null;
+  readonly worktree_path: string | null;
+  readonly branch: string | null;
+  readonly merge_request_ref: string | null;
+  readonly merge_request_url: string | null;
 };
 
 type RunEventRow = {
@@ -51,6 +56,10 @@ type SequenceRow = {
 
 type RunStatusRow = {
   readonly status: string;
+};
+
+type TableInfoRow = {
+  readonly name: string;
 };
 
 const maybe = <T>(value: T | null): T | undefined => (value === null ? undefined : value);
@@ -147,6 +156,11 @@ const runSummaryFromRow = (
       failureKind,
       transcriptPath: maybe(row.transcript_path),
       artifactPath: maybe(row.artifact_path),
+      workspacePath: maybe(row.workspace_path),
+      worktreePath: maybe(row.worktree_path),
+      branch: maybe(row.branch),
+      mergeRequestRef: maybe(row.merge_request_ref),
+      mergeRequestUrl: maybe(row.merge_request_url),
     };
   });
 
@@ -173,7 +187,12 @@ const setupSchema = Effect.fn("SqliteRunLedger.setupSchema")(function* () {
       ended_at TEXT,
       failure_kind TEXT,
       transcript_path TEXT,
-      artifact_path TEXT
+      artifact_path TEXT,
+      workspace_path TEXT,
+      worktree_path TEXT,
+      branch TEXT,
+      merge_request_ref TEXT,
+      merge_request_url TEXT
     );
   `);
   yield* sql.unsafe(`
@@ -187,6 +206,23 @@ const setupSchema = Effect.fn("SqliteRunLedger.setupSchema")(function* () {
       FOREIGN KEY (run_id) REFERENCES runs(id)
     );
   `);
+  const columns = yield* sql<TableInfoRow>`PRAGMA table_info(runs)`;
+  const columnNames = new Set(columns.map((column) => column.name));
+  if (!columnNames.has("workspace_path")) {
+    yield* sql.unsafe(`ALTER TABLE runs ADD COLUMN workspace_path TEXT`);
+  }
+  if (!columnNames.has("worktree_path")) {
+    yield* sql.unsafe(`ALTER TABLE runs ADD COLUMN worktree_path TEXT`);
+  }
+  if (!columnNames.has("branch")) {
+    yield* sql.unsafe(`ALTER TABLE runs ADD COLUMN branch TEXT`);
+  }
+  if (!columnNames.has("merge_request_ref")) {
+    yield* sql.unsafe(`ALTER TABLE runs ADD COLUMN merge_request_ref TEXT`);
+  }
+  if (!columnNames.has("merge_request_url")) {
+    yield* sql.unsafe(`ALTER TABLE runs ADD COLUMN merge_request_url TEXT`);
+  }
 });
 
 export const createSqliteRunLedger = ({
@@ -228,32 +264,170 @@ export const createSqliteRunLedger = ({
       return rows.map(runEventFromRow);
     });
 
+    const createRun = Effect.fn("SqliteRunLedger.createRun")(function* (input: {
+      readonly issueId: string;
+      readonly lane: "preparation" | "implementation";
+      readonly summary: string;
+      readonly eventType: string;
+    }) {
+      const runId = createRunId();
+      const now = new Date().toISOString();
+      yield* mapPersistenceError(
+        "createRun",
+        sql.withTransaction(
+          Effect.gen(function* () {
+            yield* sql`
+              INSERT INTO runs (id, issue_id, lane, status, summary, started_at)
+              VALUES (${runId}, ${input.issueId}, ${input.lane}, ${"running"}, ${input.summary}, ${now})
+            `;
+            yield* sql`
+              INSERT INTO run_events (run_id, sequence, type, occurred_at)
+              VALUES (${runId}, ${1}, ${input.eventType}, ${now})
+            `;
+          }),
+        ),
+      );
+
+      const run = yield* getRun(runId);
+      if (run === undefined) {
+        return yield* new RunLedgerPersistenceError({
+          operation: "createRun",
+          message: `Run was not created: ${runId}`,
+        });
+      }
+      return run;
+    });
+
     return {
       createPreparationRun: Effect.fn("SqliteRunLedger.createPreparationRun")(function* (input) {
-        const runId = createRunId();
+        return yield* createRun({
+          issueId: input.issueId,
+          lane: "preparation",
+          summary: input.summary,
+          eventType: "PreparationStarted",
+        });
+      }),
+
+      createImplementationRun: Effect.fn("SqliteRunLedger.createImplementationRun")(function* (
+        input,
+      ) {
+        return yield* createRun({
+          issueId: input.issueId,
+          lane: "implementation",
+          summary: input.summary,
+          eventType: "ImplementationStarted",
+        });
+      }),
+
+      recordImplementationWorkspace: Effect.fn(
+        "SqliteRunLedger.recordImplementationWorkspace",
+      )(function* (runId, input) {
         const now = new Date().toISOString();
-        yield* mapPersistenceError(
-          "createPreparationRun",
-          sql.withTransaction(
+        yield* sql
+          .withTransaction(
             Effect.gen(function* () {
+              const [runStatusRow] = yield* sql<RunStatusRow>`
+                  SELECT status
+                  FROM runs
+                  WHERE id = ${runId}
+                `;
+
+              if (runStatusRow === undefined) {
+                return yield* new RunLedgerNotFoundError({ runId });
+              }
+              if (runStatusRow.status !== "running") {
+                return yield* new RunLedgerInvalidStateError({
+                  runId,
+                  status: runStatusRow.status,
+                  operation: "recordImplementationWorkspace",
+                });
+              }
+
+              const [sequenceRow] = yield* sql<SequenceRow>`
+                  SELECT COALESCE(MAX(sequence), 0) + 1 AS sequence
+                  FROM run_events
+                  WHERE run_id = ${runId}
+                `;
               yield* sql`
-                INSERT INTO runs (id, issue_id, lane, status, summary, started_at)
-                VALUES (${runId}, ${input.issueId}, ${"preparation"}, ${"running"}, ${input.summary}, ${now})
-              `;
+                  INSERT INTO run_events (run_id, sequence, type, occurred_at, message)
+                  VALUES (${runId}, ${sequenceRow?.sequence ?? 1}, ${"ImplementationWorkspacePrepared"}, ${now}, ${input.branch})
+                `;
               yield* sql`
-                INSERT INTO run_events (run_id, sequence, type, occurred_at)
-                VALUES (${runId}, ${1}, ${"PreparationStarted"}, ${now})
-              `;
+                  UPDATE runs
+                  SET workspace_path = ${input.workspacePath},
+                      worktree_path = ${input.worktreePath ?? null},
+                      branch = ${input.branch}
+                  WHERE id = ${runId}
+                `;
             }),
-          ),
-        );
+          )
+          .pipe(
+            Effect.mapError((error) =>
+              error instanceof RunLedgerInvalidStateError ||
+              error instanceof RunLedgerNotFoundError
+                ? error
+                : persistenceError("recordImplementationWorkspace", error),
+            ),
+          );
 
         const run = yield* getRun(runId);
         if (run === undefined) {
-          return yield* new RunLedgerPersistenceError({
-            operation: "createPreparationRun",
-            message: `Run was not created: ${runId}`,
-          });
+          return yield* new RunLedgerNotFoundError({ runId });
+        }
+        return run;
+      }),
+
+      recordMergeRequest: Effect.fn("SqliteRunLedger.recordMergeRequest")(function* (runId, input) {
+        const now = new Date().toISOString();
+        yield* sql
+          .withTransaction(
+            Effect.gen(function* () {
+              const [runStatusRow] = yield* sql<RunStatusRow>`
+                SELECT status
+                FROM runs
+                WHERE id = ${runId}
+              `;
+
+              if (runStatusRow === undefined) {
+                return yield* new RunLedgerNotFoundError({ runId });
+              }
+              if (runStatusRow.status !== "running") {
+                return yield* new RunLedgerInvalidStateError({
+                  runId,
+                  status: runStatusRow.status,
+                  operation: "recordMergeRequest",
+                });
+              }
+
+              const [sequenceRow] = yield* sql<SequenceRow>`
+                SELECT COALESCE(MAX(sequence), 0) + 1 AS sequence
+                FROM run_events
+                WHERE run_id = ${runId}
+              `;
+              yield* sql`
+                INSERT INTO run_events (run_id, sequence, type, occurred_at, message)
+                VALUES (${runId}, ${sequenceRow?.sequence ?? 1}, ${"DraftMergeRequestCreated"}, ${now}, ${input.reference})
+              `;
+              yield* sql`
+                UPDATE runs
+                SET merge_request_ref = ${input.reference},
+                    merge_request_url = ${input.url ?? null}
+                WHERE id = ${runId}
+              `;
+            }),
+          )
+          .pipe(
+            Effect.mapError((error) =>
+              error instanceof RunLedgerInvalidStateError ||
+              error instanceof RunLedgerNotFoundError
+                ? error
+                : persistenceError("recordMergeRequest", error),
+            ),
+          );
+
+        const run = yield* getRun(runId);
+        if (run === undefined) {
+          return yield* new RunLedgerNotFoundError({ runId });
         }
         return run;
       }),
@@ -264,9 +438,8 @@ export const createSqliteRunLedger = ({
       ) {
         const endedAt = new Date().toISOString();
         const eventType =
-          input.status === "succeeded"
-            ? "PreparationSucceeded"
-            : (input.terminalEvent ?? "PreparationFailed");
+          input.terminalEvent ??
+          (input.status === "succeeded" ? "PreparationSucceeded" : "PreparationFailed");
         const failureKind = input.status === "failed" ? input.failureKind : null;
         yield* sql
           .withTransaction(

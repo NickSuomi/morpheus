@@ -177,6 +177,35 @@ const fakeRunLedger = (
       };
       return Effect.succeed(run);
     },
+    createImplementationRun: (input) => {
+      calls.push("createImplementationRun");
+      run = {
+        ...run,
+        issueId: input.issueId,
+        lane: "implementation",
+        summary: input.summary,
+      };
+      return Effect.succeed(run);
+    },
+    recordImplementationWorkspace: (_runId, input) => {
+      calls.push("recordImplementationWorkspace");
+      run = {
+        ...run,
+        workspacePath: input.workspacePath,
+        worktreePath: input.worktreePath,
+        branch: input.branch,
+      };
+      return Effect.succeed(run);
+    },
+    recordMergeRequest: (_runId, input) => {
+      calls.push("recordMergeRequest");
+      run = {
+        ...run,
+        mergeRequestRef: input.reference,
+        mergeRequestUrl: input.url,
+      };
+      return Effect.succeed(run);
+    },
     writeRunArtifacts: (_runId, input) => {
       calls.push("writeRunArtifacts");
       if (options.failWriteArtifacts === true) {

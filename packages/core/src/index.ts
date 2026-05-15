@@ -63,6 +63,39 @@ export type AgentReadyContract = {
   readonly riskLevel: "low" | "medium" | "high"
 }
 
+export type DraftReviewArtifactInput = {
+  readonly issueId: string
+  readonly contract: AgentReadyContract
+}
+
+export const renderDraftReviewArtifact = ({
+  issueId,
+  contract
+}: DraftReviewArtifactInput): string =>
+  [
+    "# Morpheus Draft Implementation MR",
+    "",
+    `Issue: ${issueId}`,
+    "",
+    "## Agent-Ready Contract",
+    "",
+    `Category: ${contract.category}`,
+    "",
+    contract.summary,
+    "",
+    "## Acceptance Criteria",
+    "",
+    ...contract.acceptanceCriteria.map((criterion) => `- ${criterion}`),
+    "",
+    "## Verification Plan",
+    "",
+    ...contract.verificationPlan.map((command) => `- ${command}`),
+    "",
+    "## Status",
+    "",
+    "Draft MR created before implementer agent execution."
+  ].join("\n")
+
 export type DerivedIssueState =
   | {
       readonly status: "active"
@@ -114,7 +147,8 @@ const transitionTargets: Readonly<Record<AgentState, Partial<Record<AgentEvent, 
     PreparationFailed: "agent:failed"
   },
   "agent:prepared": {
-    StartImplementation: "agent:running"
+    StartImplementation: "agent:running",
+    ImplementationFailed: "agent:failed"
   },
   "agent:running": {
     ImplementationReadyForReview: "agent:reviewing",

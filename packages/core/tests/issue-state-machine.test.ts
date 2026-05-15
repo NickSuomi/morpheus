@@ -38,6 +38,11 @@ const validTransitions: ReadonlyArray<{
     to: "agent:running"
   },
   {
+    from: "agent:prepared",
+    event: "ImplementationFailed",
+    to: "agent:failed"
+  },
+  {
     from: "agent:running",
     event: "ImplementationReadyForReview",
     to: "agent:reviewing"
