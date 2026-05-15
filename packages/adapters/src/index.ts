@@ -142,13 +142,14 @@ const classifyGlabFailureKind = (stderr: string): "operator_access" | "runtime_e
 
 const runGlabEffect = (
   processRunner: ProcessRunnerService,
+  operation: string,
   args: readonly string[],
 ): Effect.Effect<ProcessResult, MergeRequestClientError> =>
   processRunner.run("glab", args).pipe(
     Effect.mapError(
       (error) =>
         new MergeRequestClientError({
-          operation: "createDraftMergeRequest",
+          operation,
           failureKind: "runtime_error",
           message: error.message,
         }),
@@ -157,7 +158,7 @@ const runGlabEffect = (
       if (result.exitCode !== 0) {
         return Effect.fail(
           new MergeRequestClientError({
-            operation: "createDraftMergeRequest",
+            operation,
             failureKind: classifyGlabFailureKind(result.stderr),
             message: result.stderr,
           }),
@@ -738,20 +739,24 @@ export const createGlabMergeRequestClient = ({
 }: GlabMergeRequestClientOptions): MergeRequestClientService => ({
   createDraftMergeRequest: (input) =>
     Effect.gen(function* () {
-      const result = yield* runGlabEffect(processRunner, [
-        "mr",
-        "create",
-        "--draft",
-        "--source-branch",
-        input.sourceBranch,
-        "--target-branch",
-        input.targetBranch,
-        "--title",
-        input.title,
-        "--description",
-        input.description,
-        "--yes",
-      ]);
+      const result = yield* runGlabEffect(
+        processRunner,
+        "createDraftMergeRequest",
+        [
+          "mr",
+          "create",
+          "--draft",
+          "--source-branch",
+          input.sourceBranch,
+          "--target-branch",
+          input.targetBranch,
+          "--title",
+          input.title,
+          "--description",
+          input.description,
+          "--yes",
+        ],
+      );
       const reference = parseMergeRequestReference(result.stdout);
       if (reference instanceof MergeRequestClientError) {
         return yield* Effect.fail(reference);
@@ -759,6 +764,22 @@ export const createGlabMergeRequestClient = ({
 
       return {
         reference,
+        url: parseMergeRequestUrl(result.stdout),
+      };
+    }),
+  updateDescription: (input) =>
+    Effect.gen(function* () {
+      const result = yield* runGlabEffect(processRunner, "updateMergeRequestDescription", [
+        "mr",
+        "update",
+        input.reference,
+        "--description",
+        input.description,
+        "--yes",
+      ]);
+
+      return {
+        reference: input.reference,
         url: parseMergeRequestUrl(result.stdout),
       };
     }),

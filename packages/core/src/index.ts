@@ -68,10 +68,36 @@ export type DraftReviewArtifactInput = {
   readonly contract: AgentReadyContract
 }
 
-export const renderDraftReviewArtifact = ({
+export type ReviewFinding = {
+  readonly severity: "info" | "warning" | "error"
+  readonly summary: string
+}
+
+export type ReviewArtifactInput = {
+  readonly issueId: string
+  readonly contract: AgentReadyContract
+  readonly implementationEvidence: readonly string[]
+  readonly verificationEvidence: readonly string[]
+  readonly reviewFindings: readonly ReviewFinding[]
+  readonly humanChecklist: readonly string[]
+}
+
+const bulletList = (items: readonly string[], fallback: string): readonly string[] =>
+  items.length === 0 ? [`- ${fallback}`] : items.map((item) => `- ${item}`)
+
+const findingList = (findings: readonly ReviewFinding[]): readonly string[] =>
+  findings.length === 0
+    ? ["- No review findings recorded yet."]
+    : findings.map((finding) => `- [${finding.severity}] ${finding.summary}`)
+
+export const renderReviewArtifact = ({
   issueId,
-  contract
-}: DraftReviewArtifactInput): string =>
+  contract,
+  implementationEvidence,
+  verificationEvidence,
+  reviewFindings,
+  humanChecklist
+}: ReviewArtifactInput): string =>
   [
     "# Morpheus Draft Implementation MR",
     "",
@@ -91,10 +117,43 @@ export const renderDraftReviewArtifact = ({
     "",
     ...contract.verificationPlan.map((command) => `- ${command}`),
     "",
+    "## Implementation Evidence",
+    "",
+    ...bulletList(implementationEvidence, "Pending implementation evidence."),
+    "",
+    "## Verification Evidence",
+    "",
+    ...bulletList(verificationEvidence, "Pending verification evidence."),
+    "",
+    "## Risk",
+    "",
+    `Risk level: ${contract.riskLevel}`,
+    "",
+    "## Review Findings",
+    "",
+    ...findingList(reviewFindings),
+    "",
+    "## Human Checklist",
+    "",
+    ...bulletList(humanChecklist, "Review implementation evidence before marking ready."),
+    "",
     "## Status",
     "",
     "Draft MR created before implementer agent execution."
   ].join("\n")
+
+export const renderDraftReviewArtifact = ({
+  issueId,
+  contract
+}: DraftReviewArtifactInput): string =>
+  renderReviewArtifact({
+    issueId,
+    contract,
+    implementationEvidence: [],
+    verificationEvidence: [],
+    reviewFindings: [],
+    humanChecklist: []
+  })
 
 export type DerivedIssueState =
   | {
