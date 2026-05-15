@@ -83,6 +83,11 @@ export type DraftMergeRequestInput = {
   readonly description: string;
 };
 
+export type UpdateMergeRequestDescriptionInput = {
+  readonly reference: string;
+  readonly description: string;
+};
+
 export type MergeRequestReference = {
   readonly reference: string;
   readonly url?: string;
@@ -101,6 +106,9 @@ export class MergeRequestClient extends Context.Tag("@morpheus/runtime/MergeRequ
   {
     readonly createDraftMergeRequest: (
       input: DraftMergeRequestInput,
+    ) => Effect.Effect<MergeRequestReference, MergeRequestClientError>;
+    readonly updateDescription: (
+      input: UpdateMergeRequestDescriptionInput,
     ) => Effect.Effect<MergeRequestReference, MergeRequestClientError>;
   }
 >() {}

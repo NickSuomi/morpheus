@@ -258,6 +258,12 @@ const fakeMergeRequestClient = (scenario: "success" | "operator_access") => {
         url: "https://gitlab.example.com/group/project/-/merge_requests/42",
       });
     },
+    updateDescription: (input) => {
+      calls.push(`update:${input.reference}`);
+      return Effect.succeed({
+        reference: input.reference,
+      });
+    },
   };
 
   return {

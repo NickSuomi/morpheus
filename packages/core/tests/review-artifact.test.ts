@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest"
-import { renderDraftReviewArtifact, type AgentReadyContract } from "../src/index.js"
+import {
+  renderDraftReviewArtifact,
+  renderReviewArtifact,
+  type AgentReadyContract
+} from "../src/index.js"
 
 const contract: AgentReadyContract = {
   category: "task",
@@ -28,5 +32,30 @@ describe("ReviewArtifact", () => {
     expect(output).toContain("- Draft MR exists before agent:running.")
     expect(output).toContain("- pnpm check")
     expect(output).toContain("Draft MR created before implementer agent execution.")
+  })
+
+  it("renders full curated MR context without raw transcript content", () => {
+    const output = renderReviewArtifact({
+      issueId: "morph-kq2",
+      contract,
+      implementationEvidence: ["Implemented ReviewArtifact renderer."],
+      verificationEvidence: ["pnpm --filter @morpheus/core test -- review-artifact.test.ts"],
+      reviewFindings: [
+        {
+          severity: "warning",
+          summary: "Follow-up review still pending."
+        }
+      ],
+      humanChecklist: ["Confirm GitLab MR description matches artifact."]
+    })
+
+    expect(output).toContain("## Implementation Evidence")
+    expect(output).toContain("- Implemented ReviewArtifact renderer.")
+    expect(output).toContain("## Verification Evidence")
+    expect(output).toContain("- pnpm --filter @morpheus/core test -- review-artifact.test.ts")
+    expect(output).toContain("Risk level: medium")
+    expect(output).toContain("- [warning] Follow-up review still pending.")
+    expect(output).toContain("- Confirm GitLab MR description matches artifact.")
+    expect(output).not.toContain("raw transcript")
   })
 })

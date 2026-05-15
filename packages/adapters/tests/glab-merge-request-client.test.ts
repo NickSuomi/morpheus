@@ -199,4 +199,41 @@ describe("GlabMergeRequestClient", () => {
       });
     }
   });
+
+  it("updates the full MR description through ProcessRunner-owned glab", async () => {
+    const processRunner = fakeProcessRunner([
+      ok({
+        web_url: "https://gitlab.example.com/group/project/-/merge_requests/42",
+      }),
+    ]);
+
+    const result = await runWithMergeRequests(
+      processRunner.layer,
+      Effect.gen(function* () {
+        const mergeRequests = yield* MergeRequestClient;
+        return yield* mergeRequests.updateDescription({
+          reference: "!42",
+          description: "# Full curated ReviewArtifact",
+        });
+      }),
+    );
+
+    expect(result).toEqual({
+      reference: "!42",
+      url: "https://gitlab.example.com/group/project/-/merge_requests/42",
+    });
+    expect(processRunner.calls).toEqual([
+      {
+        command: "glab",
+        args: [
+          "mr",
+          "update",
+          "!42",
+          "--description",
+          "# Full curated ReviewArtifact",
+          "--yes",
+        ],
+      },
+    ]);
+  });
 });
