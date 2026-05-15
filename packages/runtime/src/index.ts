@@ -1,7 +1,7 @@
 import { existsSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import * as Schema from "@effect/schema/Schema";
-import { planAgentStateTransition } from "@morpheus/core";
+import { planAgentStateTransition, renderDraftReviewArtifact } from "@morpheus/core";
 import { Context, Effect, Either, Schema as EffectSchema } from "effect";
 import type {
   AgentReadyContract,
@@ -47,6 +47,65 @@ export class ProcessRunner extends Context.Tag("@morpheus/runtime/ProcessRunner"
 >() {}
 
 export type ProcessRunnerService = Context.Tag.Service<typeof ProcessRunner>;
+
+export type PreparedImplementationWorkspace = {
+  readonly workspacePath: string;
+  readonly worktreePath?: string;
+  readonly branch: string;
+  readonly targetBranch: string;
+  readonly remote: string;
+};
+
+export class WorkspaceRuntimeError extends EffectSchema.TaggedError<WorkspaceRuntimeError>(
+  "WorkspaceRuntimeError",
+)("WorkspaceRuntimeError", {
+  operation: EffectSchema.String,
+  message: EffectSchema.String,
+}) {}
+
+export class WorkspaceRuntime extends Context.Tag("@morpheus/runtime/WorkspaceRuntime")<
+  WorkspaceRuntime,
+  {
+    readonly prepareImplementationWorkspace: (input: {
+      readonly issueId: string;
+      readonly runId: string;
+    }) => Effect.Effect<PreparedImplementationWorkspace, WorkspaceRuntimeError>;
+  }
+>() {}
+
+export type WorkspaceRuntimeService = Context.Tag.Service<typeof WorkspaceRuntime>;
+
+export type DraftMergeRequestInput = {
+  readonly issueId: string;
+  readonly title: string;
+  readonly sourceBranch: string;
+  readonly targetBranch: string;
+  readonly description: string;
+};
+
+export type MergeRequestReference = {
+  readonly reference: string;
+  readonly url?: string;
+};
+
+export class MergeRequestClientError extends EffectSchema.TaggedError<MergeRequestClientError>(
+  "MergeRequestClientError",
+)("MergeRequestClientError", {
+  operation: EffectSchema.String,
+  failureKind: EffectSchema.Literal("operator_access", "runtime_error"),
+  message: EffectSchema.String,
+}) {}
+
+export class MergeRequestClient extends Context.Tag("@morpheus/runtime/MergeRequestClient")<
+  MergeRequestClient,
+  {
+    readonly createDraftMergeRequest: (
+      input: DraftMergeRequestInput,
+    ) => Effect.Effect<MergeRequestReference, MergeRequestClientError>;
+  }
+>() {}
+
+export type MergeRequestClientService = Context.Tag.Service<typeof MergeRequestClient>;
 
 export type TrackedIssue = {
   readonly id: string;
@@ -233,6 +292,11 @@ export type RunSummary = {
   readonly failureKind?: FailureKind;
   readonly transcriptPath?: string;
   readonly artifactPath?: string;
+  readonly workspacePath?: string;
+  readonly worktreePath?: string;
+  readonly branch?: string;
+  readonly mergeRequestRef?: string;
+  readonly mergeRequestUrl?: string;
 };
 
 export type RunEvent = {
@@ -248,17 +312,34 @@ export type CreatePreparationRunInput = {
   readonly summary: string;
 };
 
+export type CreateImplementationRunInput = {
+  readonly issueId: string;
+  readonly summary: string;
+};
+
 export type FinishRunInput =
   | {
       readonly status: "succeeded";
+      readonly terminalEvent?: string;
       readonly message?: string;
     }
   | {
       readonly status: "failed";
       readonly failureKind: FailureKind;
-      readonly terminalEvent?: "PreparationFailed" | "PreparationBlocked";
+      readonly terminalEvent?: string;
       readonly message?: string;
     };
+
+export type RecordImplementationWorkspaceInput = {
+  readonly workspacePath: string;
+  readonly worktreePath?: string;
+  readonly branch: string;
+};
+
+export type RecordMergeRequestInput = {
+  readonly reference: string;
+  readonly url?: string;
+};
 
 export type WriteRunArtifactsInput = {
   readonly transcript: string;
@@ -310,6 +391,23 @@ export class RunLedger extends Context.Tag("@morpheus/runtime/RunLedger")<
     readonly createPreparationRun: (
       input: CreatePreparationRunInput,
     ) => Effect.Effect<RunSummary, RunLedgerPersistenceError>;
+    readonly createImplementationRun: (
+      input: CreateImplementationRunInput,
+    ) => Effect.Effect<RunSummary, RunLedgerPersistenceError>;
+    readonly recordImplementationWorkspace: (
+      runId: string,
+      input: RecordImplementationWorkspaceInput,
+    ) => Effect.Effect<
+      RunSummary,
+      RunLedgerInvalidStateError | RunLedgerNotFoundError | RunLedgerPersistenceError
+    >;
+    readonly recordMergeRequest: (
+      runId: string,
+      input: RecordMergeRequestInput,
+    ) => Effect.Effect<
+      RunSummary,
+      RunLedgerInvalidStateError | RunLedgerNotFoundError | RunLedgerPersistenceError
+    >;
     readonly finishRun: (
       runId: string,
       input: FinishRunInput,
@@ -354,6 +452,11 @@ export const renderRunDetail = (run: RunSummary, events: readonly RunEvent[]): s
     `status: ${run.status}`,
     `summary: ${run.summary}`,
     `failureKind: ${run.failureKind ?? "None"}`,
+    `workspace: ${run.workspacePath ?? "None"}`,
+    `worktree: ${run.worktreePath ?? "None"}`,
+    `branch: ${run.branch ?? "None"}`,
+    `mergeRequest: ${run.mergeRequestRef ?? "None"}`,
+    `mergeRequestUrl: ${run.mergeRequestUrl ?? "None"}`,
     `transcript: ${run.transcriptPath ?? "None"}`,
     "events:",
     ...events.map(
@@ -866,6 +969,227 @@ export const prepareIssue = (
     };
   });
 
+export type StartImplementationResult =
+  | {
+      readonly status: "started";
+      readonly issueId: string;
+      readonly run: RunSummary;
+      readonly workspace: PreparedImplementationWorkspace;
+      readonly mergeRequest: MergeRequestReference;
+    }
+  | {
+      readonly status: "failed";
+      readonly issueId: string;
+      readonly run?: RunSummary;
+      readonly failureKind: FailureKind;
+      readonly message: string;
+    }
+  | {
+      readonly status: "state_rejected";
+      readonly issueId: string;
+      readonly reason: Extract<IssueTrackerApplyResult, { readonly status: "rejected" }>["reason"];
+      readonly failureKind: FailureKind;
+    };
+
+const failImplementationStart = (
+  tracker: IssueTrackerService,
+  ledger: RunLedgerService,
+  issueId: string,
+  runId: string,
+  failureKind: FailureKind,
+  message: string,
+): Effect.Effect<
+  Extract<StartImplementationResult, { readonly status: "failed" }>,
+  RunLedgerError
+> =>
+  Effect.gen(function* () {
+    const terminal = yield* Effect.either(
+      Effect.gen(function* () {
+        const currentIssue = yield* tracker.getIssue(issueId);
+        return yield* tracker.applyAgentState(
+          issueId,
+          planAgentStateTransition(currentIssue.labels, "ImplementationFailed"),
+        );
+      }),
+    );
+    const terminalFailure = terminalFailureKind(terminal, failureKind);
+    const terminalMessage = terminalFailureMessage(
+      terminal,
+      message,
+      "Implementation failed transition rejected.",
+    );
+
+    const run = yield* ledger.finishRun(runId, {
+      status: "failed",
+      failureKind: terminalFailure,
+      terminalEvent: "ImplementationFailed",
+      message: terminalMessage,
+    });
+
+    return {
+      status: "failed",
+      issueId,
+      run,
+      failureKind: run.failureKind ?? terminalFailure,
+      message: terminalMessage,
+    };
+  });
+
+export const startImplementation = (
+  issueId: string,
+): Effect.Effect<
+  StartImplementationResult,
+  | IssueTrackerError
+  | RunLedgerError
+  | WorkspaceRuntimeError
+  | MergeRequestClientError,
+  IssueTracker | RunLedger | WorkspaceRuntime | MergeRequestClient
+> =>
+  Effect.gen(function* () {
+    const tracker = yield* IssueTracker;
+    const ledger = yield* RunLedger;
+    const workspaceRuntime = yield* WorkspaceRuntime;
+    const mergeRequests = yield* MergeRequestClient;
+
+    const issue = yield* tracker.getIssue(issueId);
+    const startPlan = planAgentStateTransition(issue.labels, "StartImplementation");
+    if (startPlan.status !== "planned") {
+      return {
+        status: "state_rejected",
+        issueId,
+        reason: startPlan.status,
+        failureKind: startPlan.status === "conflict" ? "state_conflict" : "runtime_error",
+      };
+    }
+
+    const run = yield* ledger.createImplementationRun({
+      issueId,
+      summary: issue.title,
+    });
+
+    const workspaceResult = yield* Effect.either(
+      workspaceRuntime.prepareImplementationWorkspace({
+        issueId,
+        runId: run.id,
+      }),
+    );
+    if (Either.isLeft(workspaceResult)) {
+      return yield* failImplementationStart(
+        tracker,
+        ledger,
+        issueId,
+        run.id,
+        "runtime_error",
+        `Workspace preparation failed: ${workspaceResult.left.message}`,
+      );
+    }
+
+    const workspace = workspaceResult.right;
+    const workspaceRunResult = yield* Effect.either(
+      ledger.recordImplementationWorkspace(run.id, {
+        workspacePath: workspace.workspacePath,
+        worktreePath: workspace.worktreePath,
+        branch: workspace.branch,
+      }),
+    );
+    if (Either.isLeft(workspaceRunResult)) {
+      return yield* failImplementationStart(
+        tracker,
+        ledger,
+        issueId,
+        run.id,
+        "runtime_error",
+        `Implementation workspace ledger update failed: ${errorMessage(workspaceRunResult.left)}`,
+      );
+    }
+
+    const contractResult = yield* Effect.either(tracker.readContract(issueId));
+    if (Either.isLeft(contractResult)) {
+      return yield* failImplementationStart(
+        tracker,
+        ledger,
+        issueId,
+        run.id,
+        "runtime_error",
+        `Agent-Ready Contract read failed: ${errorMessage(contractResult.left)}`,
+      );
+    }
+    if (contractResult.right.status === "missing") {
+      return yield* failImplementationStart(
+        tracker,
+        ledger,
+        issueId,
+        run.id,
+        "agent_contract_error",
+        "Agent-Ready Contract metadata missing.",
+      );
+    }
+    const contract = contractResult.right.contract;
+    const mergeRequestResult = yield* Effect.either(
+      mergeRequests.createDraftMergeRequest({
+        issueId,
+        title: `Draft: ${issue.title}`,
+        sourceBranch: workspace.branch,
+        targetBranch: workspace.targetBranch,
+        description: renderDraftReviewArtifact({ issueId: issue.id, contract }),
+      }),
+    );
+    if (Either.isLeft(mergeRequestResult)) {
+      return yield* failImplementationStart(
+        tracker,
+        ledger,
+        issueId,
+        run.id,
+        mergeRequestResult.left.failureKind,
+        `Draft MR creation failed: ${mergeRequestResult.left.message}`,
+      );
+    }
+
+    const mergeRequest = mergeRequestResult.right;
+    const mrRunResult = yield* Effect.either(ledger.recordMergeRequest(run.id, mergeRequest));
+    if (Either.isLeft(mrRunResult)) {
+      return yield* failImplementationStart(
+        tracker,
+        ledger,
+        issueId,
+        run.id,
+        "runtime_error",
+        `Draft MR ledger update failed: ${errorMessage(mrRunResult.left)}`,
+      );
+    }
+
+    const mrRun = mrRunResult.right;
+
+    const currentIssue = yield* tracker.getIssue(issueId);
+    const currentStartPlan = planAgentStateTransition(currentIssue.labels, "StartImplementation");
+    const startResult = yield* Effect.either(
+      tracker.applyAgentState(issueId, currentStartPlan),
+    );
+    if (Either.isLeft(startResult) || startResult.right.status === "rejected") {
+      const message = terminalFailureMessage(
+        startResult,
+        "Implementation start transition rejected.",
+        "Implementation start transition rejected.",
+      );
+      return yield* failImplementationStart(
+        tracker,
+        ledger,
+        issueId,
+        run.id,
+        "state_conflict",
+        message,
+      );
+    }
+
+    return {
+      status: "started",
+      issueId,
+      run: mrRun,
+      workspace,
+      mergeRequest,
+    };
+  });
+
 export const renderPrepareIssueResult = (result: PrepareIssueResult): string => {
   if (result.status === "prepared") {
     return [
@@ -906,6 +1230,35 @@ export const renderPrepareIssueResult = (result: PrepareIssueResult): string => 
   ].join("\n");
 };
 
+export const renderStartImplementationResult = (result: StartImplementationResult): string => {
+  if (result.status === "started") {
+    return [
+      `Started implementation ${result.issueId}`,
+      `run: ${result.run.id}`,
+      `workspace: ${result.workspace.workspacePath}`,
+      `worktree: ${result.workspace.worktreePath ?? "None"}`,
+      `branch: ${result.workspace.branch}`,
+      `mergeRequest: ${result.mergeRequest.reference}`,
+      `mergeRequestUrl: ${result.mergeRequest.url ?? "None"}`,
+    ].join("\n");
+  }
+
+  if (result.status === "state_rejected") {
+    return [
+      `State rejected ${result.issueId}`,
+      `reason: ${result.reason}`,
+      `failureKind: ${result.failureKind}`,
+    ].join("\n");
+  }
+
+  return [
+    `Failed ${result.issueId}`,
+    `run: ${result.run?.id ?? "None"}`,
+    `failureKind: ${result.failureKind}`,
+    `message: ${result.message}`,
+  ].join("\n");
+};
+
 export const prepareIssueForCli = (
   issueId: string,
 ): Effect.Effect<
@@ -913,6 +1266,14 @@ export const prepareIssueForCli = (
   IssueTrackerError | RunLedgerError | AgentRunnerError,
   IssueTracker | RunLedger | AgentRunner
 > => prepareIssue(issueId).pipe(Effect.map(renderPrepareIssueResult));
+
+export const startImplementationForCli = (
+  issueId: string,
+): Effect.Effect<
+  string,
+  IssueTrackerError | RunLedgerError | WorkspaceRuntimeError | MergeRequestClientError,
+  IssueTracker | RunLedger | WorkspaceRuntime | MergeRequestClient
+> => startImplementation(issueId).pipe(Effect.map(renderStartImplementationResult));
 
 export const AgentReadyContractSchema = Schema.Struct({
   category: Schema.String,

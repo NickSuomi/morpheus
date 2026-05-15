@@ -74,7 +74,7 @@ Target repo owns:
 - Valid issue states: `agent:ready`, `agent:preparing`, `agent:prepared`, `agent:running`, `agent:reviewing`, `agent:review-candidate`, `agent:blocked`, and `agent:failed`.
 - Exactly one active `agent:*` state is allowed.
 - Multiple active `agent:*` labels cause fail-closed behavior with `failureKind: state_conflict`.
-- Valid transitions are `agent:ready` -> `agent:preparing`, `agent:preparing` -> `agent:prepared`, `agent:preparing` -> `agent:blocked`, `agent:preparing` -> `agent:failed`, `agent:prepared` -> `agent:running`, `agent:running` -> `agent:reviewing`, `agent:running` -> `agent:blocked`, `agent:running` -> `agent:failed`, `agent:reviewing` -> `agent:review-candidate`, `agent:reviewing` -> `agent:blocked`, `agent:reviewing` -> `agent:failed`, `agent:blocked` -> `agent:ready` by human/operator requeue, and `agent:failed` -> `agent:ready` by human/operator requeue.
+- Valid transitions are `agent:ready` -> `agent:preparing`, `agent:preparing` -> `agent:prepared`, `agent:preparing` -> `agent:blocked`, `agent:preparing` -> `agent:failed`, `agent:prepared` -> `agent:running`, `agent:prepared` -> `agent:failed` when implementation setup fails before the implementer runs, `agent:running` -> `agent:reviewing`, `agent:running` -> `agent:blocked`, `agent:running` -> `agent:failed`, `agent:reviewing` -> `agent:review-candidate`, `agent:reviewing` -> `agent:blocked`, `agent:reviewing` -> `agent:failed`, `agent:blocked` -> `agent:ready` by human/operator requeue, and `agent:failed` -> `agent:ready` by human/operator requeue.
 - `agent:review-candidate` has no Morpheus auto-merge transition.
 - Events are `StartPreparation`, `PreparationReady`, `PreparationBlocked`, `PreparationFailed`, `StartImplementation`, `ImplementationReadyForReview`, `ImplementationBlocked`, `ImplementationFailed`, `StartReview`, `ReviewPassed`, `ReviewBlocked`, `ReviewFailed`, `HumanRequeued`, and `HumanRetryFailed`.
 - `agent:running` remains the state that makes review-lane work runnable in the current scheduler model.
@@ -100,7 +100,7 @@ Target repo owns:
 - MR receives curated evidence, not raw transcript dumps.
 - Failure kinds are `operator_access`, `runtime_error`, `agent_contract_error`, `verification_error`, `state_conflict`, and `unknown`.
 - MR auth/access failure is `agent:failed` with `failureKind: operator_access`.
-- No implementation starts before Draft MR exists.
+- No implementer agent starts before Draft MR exists.
 - No auto-retry in v1.
 - Human/operator requeues failed work by moving issue back to `agent:ready`.
 - Beads remains source of truth for issue state and contract metadata.
@@ -152,8 +152,8 @@ Target repo owns:
 
 4. **Draft MR starts implementation run**
    Type: AFK
-   `agent:prepared` -> `agent:running`.
-   Morpheus creates branch, pushes it, creates Draft MR through `glab`, links issue, writes pending review artifact.
+   `agent:prepared` -> `agent:running`, or `agent:prepared` -> `agent:failed` if workspace, branch, or Draft MR setup fails.
+   Morpheus creates a run-scoped branch/worktree, pushes it, creates Draft MR through `glab`, links issue, writes pending review artifact.
    Ledger links issue, run, sandbox, branch, and MR.
 
 5. **Implementation evidence updates MR**

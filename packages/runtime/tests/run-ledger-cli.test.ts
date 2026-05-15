@@ -26,6 +26,9 @@ const run: RunSummary = {
 const fakeLedger = (overrides: Partial<RunLedgerService> = {}): Layer.Layer<RunLedger> =>
   Layer.succeed(RunLedger, {
     createPreparationRun: () => Effect.succeed(run),
+    createImplementationRun: () => Effect.succeed({ ...run, lane: "implementation" }),
+    recordImplementationWorkspace: () => Effect.succeed(run),
+    recordMergeRequest: () => Effect.succeed(run),
     finishRun: () => Effect.succeed(run),
     writeRunArtifacts: () => Effect.succeed(run),
     getRunLogs: () =>

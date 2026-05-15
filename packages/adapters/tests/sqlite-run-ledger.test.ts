@@ -105,6 +105,135 @@ describe("SqliteRunLedger", () => {
     });
   });
 
+  it("records implementation workspace, branch, and Draft MR refs", async () => {
+    await withTempDir(async (dir) => {
+      const { events, run } = await runWithLedger(
+        dir,
+        Effect.gen(function* () {
+          const ledger = yield* RunLedger;
+          const run = yield* ledger.createImplementationRun({
+            issueId: "morph-7ky",
+            summary: "Create Draft MR before implementation",
+          });
+          yield* ledger.recordImplementationWorkspace(run.id, {
+            workspacePath: "/repo",
+            worktreePath: "/repo",
+            branch: "morpheus/morph-7ky",
+          });
+          const updated = yield* ledger.recordMergeRequest(run.id, {
+            reference: "!42",
+            url: "https://gitlab.example.com/group/project/-/merge_requests/42",
+          });
+          return {
+            run: updated,
+            events: yield* ledger.getRunEvents(run.id),
+          };
+        }),
+      );
+
+      expect(run).toMatchObject({
+        issueId: "morph-7ky",
+        lane: "implementation",
+        status: "running",
+        workspacePath: "/repo",
+        worktreePath: "/repo",
+        branch: "morpheus/morph-7ky",
+        mergeRequestRef: "!42",
+        mergeRequestUrl: "https://gitlab.example.com/group/project/-/merge_requests/42",
+      });
+      expect(events).toMatchObject([
+        {
+          sequence: 1,
+          type: "ImplementationStarted",
+        },
+        {
+          sequence: 2,
+          type: "ImplementationWorkspacePrepared",
+          message: "morpheus/morph-7ky",
+        },
+        {
+          sequence: 3,
+          type: "DraftMergeRequestCreated",
+          message: "!42",
+        },
+      ]);
+    });
+  });
+
+  it("rejects implementation refs on terminal runs", async () => {
+    await withTempDir(async (dir) => {
+      const { events, recordMergeRequestResult, recordWorkspaceResult, run } = await runWithLedger(
+        dir,
+        Effect.gen(function* () {
+          const ledger = yield* RunLedger;
+          const run = yield* ledger.createImplementationRun({
+            issueId: "morph-7ky",
+            summary: "Create Draft MR before implementation",
+          });
+          const failed = yield* ledger.finishRun(run.id, {
+            status: "failed",
+            failureKind: "runtime_error",
+            terminalEvent: "ImplementationFailed",
+            message: "setup failed",
+          });
+          const recordWorkspaceResult = yield* ledger
+            .recordImplementationWorkspace(run.id, {
+              workspacePath: "/repo",
+              worktreePath: "/repo",
+              branch: "morpheus/morph-7ky",
+            })
+            .pipe(Effect.either);
+          const recordMergeRequestResult = yield* ledger
+            .recordMergeRequest(run.id, {
+              reference: "!42",
+            })
+            .pipe(Effect.either);
+
+          return {
+            run: yield* ledger.getRun(run.id),
+            failed,
+            events: yield* ledger.getRunEvents(run.id),
+            recordWorkspaceResult,
+            recordMergeRequestResult,
+          };
+        }),
+      );
+
+      expect(recordWorkspaceResult).toMatchObject({
+        _tag: "Left",
+        left: {
+          _tag: "RunLedgerInvalidStateError",
+          status: "failed",
+          operation: "recordImplementationWorkspace",
+        },
+      });
+      expect(recordMergeRequestResult).toMatchObject({
+        _tag: "Left",
+        left: {
+          _tag: "RunLedgerInvalidStateError",
+          status: "failed",
+          operation: "recordMergeRequest",
+        },
+      });
+      expect(run).toMatchObject({
+        status: "failed",
+        workspacePath: undefined,
+        mergeRequestRef: undefined,
+      });
+      expect(events).toMatchObject([
+        {
+          sequence: 1,
+          type: "ImplementationStarted",
+        },
+        {
+          sequence: 2,
+          type: "ImplementationFailed",
+          message: "setup failed",
+        },
+      ]);
+    });
+  });
+
   it("records terminal result events and updates the summary", async () => {
     await withTempDir(async (dir) => {
       const { events, run } = await runWithLedger(
