@@ -9,6 +9,7 @@ import {
   gitWorkspaceRuntimeLayer,
   glabMergeRequestClientLayer,
   nodeProcessRunnerLayer,
+  operatorHealthLayer,
   sqliteRunLedgerLayer,
 } from "@morpheus/adapters";
 import {
@@ -17,6 +18,10 @@ import {
   listRunsForCli,
   loadMorpheusConfig,
   MergeRequestClient,
+  OperatorHealth,
+  operatorDoctorForCli,
+  operatorSliceForCli,
+  operatorStatusForCli,
   prepareIssueForCli,
   reviewIssueForCli,
   RunLedger,
@@ -104,6 +109,34 @@ const provideLedger = <A, E>(
   Effect.flatMap(ledgerLayerFromConfig(pathOption), (ledgerLayer) =>
     Effect.provide(program, ledgerLayer),
   );
+
+const operatorLayerFromConfig = (
+  pathOption: Option.Option<string>,
+): Effect.Effect<
+  Layer.Layer<RunLedger | IssueTracker | OperatorHealth, RunLedgerPersistenceError>,
+  Error
+> =>
+  Effect.sync(() => {
+    const config = loadCliConfig(pathOption);
+    const processRunnerLayer = nodeProcessRunnerLayer({
+      cwd: config.targetRepo,
+    });
+
+    return Layer.mergeAll(
+      sqliteRunLedgerLayer({
+        ledgerPath: config.ledgerPath,
+        runsDirectory: resolve(config.configDirectory, ".morpheus", "runs"),
+      }),
+      beadsIssueTrackerLayer.pipe(Layer.provide(processRunnerLayer)),
+      operatorHealthLayer.pipe(Layer.provide(processRunnerLayer)),
+    );
+  });
+
+const provideOperator = <A, E>(
+  pathOption: Option.Option<string>,
+  program: Effect.Effect<A, E, RunLedger | IssueTracker | OperatorHealth>,
+): Effect.Effect<A, E | RunLedgerPersistenceError | Error> =>
+  Effect.flatMap(operatorLayerFromConfig(pathOption), (layer) => Effect.provide(program, layer));
 
 const prepareLayerFromConfig = (
   pathOption: Option.Option<string>,
@@ -239,6 +272,24 @@ const logs = Command.make("logs", { runId, configPath }, ({ runId, configPath })
   ),
 ).pipe(Command.withDescription("Show Morpheus run logs"));
 
+const status = Command.make("status", { configPath }, ({ configPath }) =>
+  provideOperator(configPath, operatorStatusForCli()).pipe(
+    Effect.flatMap((output) => Console.log(output)),
+  ),
+).pipe(Command.withDescription("Show read-only Morpheus operator status"));
+
+const slice = Command.make("slice", { issueId, configPath }, ({ issueId, configPath }) =>
+  provideOperator(configPath, operatorSliceForCli(issueId)).pipe(
+    Effect.flatMap((output) => Console.log(output)),
+  ),
+).pipe(Command.withDescription("Show read-only Morpheus issue forensics"));
+
+const doctor = Command.make("doctor", { configPath }, ({ configPath }) =>
+  provideOperator(configPath, operatorDoctorForCli).pipe(
+    Effect.flatMap((output) => Console.log(output)),
+  ),
+).pipe(Command.withDescription("Check read-only Morpheus adapter and runtime health"));
+
 const prepare = Command.make("prepare", { issueId, configPath }, ({ issueId, configPath }) =>
   providePreparation(configPath, prepareIssueForCli(issueId)).pipe(
     Effect.flatMap((output) => Console.log(output)),
@@ -261,7 +312,18 @@ const command = Command.make("morpheus", {}, () =>
   Console.log("Morpheus local agent orchestration"),
 ).pipe(
   Command.withDescription("Morpheus local agent orchestration"),
-  Command.withSubcommands([config, runs, runDetail, logs, prepare, implement, review]),
+  Command.withSubcommands([
+    config,
+    runs,
+    runDetail,
+    logs,
+    status,
+    slice,
+    doctor,
+    prepare,
+    implement,
+    review,
+  ]),
 );
 
 const run = Command.run(command, {

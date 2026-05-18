@@ -12,6 +12,7 @@ import {
   IssueTrackerMalformedMetadataError,
   MergeRequestClient,
   MergeRequestClientError,
+  OperatorHealth,
   ProcessRunner,
   ProcessRunnerError,
   WorkspaceRuntime,
@@ -27,6 +28,8 @@ import type {
   ReviewAgentResult,
   TrackedIssue,
   IssueTrackerService,
+  OperatorHealthCheck,
+  OperatorHealthService,
   WorkspaceRuntimeService,
 } from "@morpheus/runtime";
 import { Effect, Layer } from "effect";
@@ -64,6 +67,9 @@ type BeadsIssueJson = {
   readonly priority?: unknown;
   readonly created_at?: unknown;
   readonly updated_at?: unknown;
+  readonly dependency_count?: unknown;
+  readonly dependent_count?: unknown;
+  readonly dependencies?: unknown;
   readonly metadata?: unknown;
 };
 
@@ -233,18 +239,43 @@ const labelsFromIssue = (value: unknown): readonly string[] => {
   return value;
 };
 
+const dependencyIdsFromIssue = (issueId: string, value: unknown): readonly string[] => {
+  if (value === undefined) {
+    return [];
+  }
+
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  return value.flatMap((dependency) => {
+    if (!isRecord(dependency)) {
+      return [];
+    }
+
+    const dependencyIssueId = optionalString(dependency.issue_id);
+    const dependsOnId = optionalString(dependency.depends_on_id);
+
+    return dependencyIssueId === issueId && dependsOnId !== undefined ? [dependsOnId] : [];
+  });
+};
+
 const issueFromJson = (issue: BeadsIssueJson): TrackedIssue => {
   const labels = labelsFromIssue(issue.labels);
+  const id = requiredString(issue.id, "id");
   const derivedState = deriveIssueState(labels);
   const lane = derivedState.status === "active" ? deriveLane(derivedState.state) : "none";
 
   return {
-    id: requiredString(issue.id, "id"),
+    id,
     title: requiredString(issue.title, "title"),
     labels,
     priority: optionalNumber(issue.priority),
     createdAt: optionalString(issue.created_at),
     updatedAt: optionalString(issue.updated_at),
+    dependencyCount: optionalNumber(issue.dependency_count),
+    dependentCount: optionalNumber(issue.dependent_count),
+    dependencyIds: dependencyIdsFromIssue(id, issue.dependencies),
     derivedState,
     lane,
   };
@@ -627,6 +658,61 @@ export const createFakeAgentRunner = ({
 export const fakeAgentRunnerLayer = (
   options: FakeAgentRunnerOptions = {},
 ): Layer.Layer<AgentRunner> => Layer.succeed(AgentRunner, createFakeAgentRunner(options));
+
+const checkCommand = (
+  processRunner: ProcessRunnerService,
+  name: OperatorHealthCheck["name"],
+  command: string,
+  args: readonly string[],
+  okDetail: string,
+): Effect.Effect<OperatorHealthCheck, never> =>
+  processRunner.run(command, args).pipe(
+    Effect.match({
+      onFailure: (error) => ({
+        name,
+        status: "warn" as const,
+        detail: error.message,
+      }),
+      onSuccess: (result) =>
+        result.exitCode === 0
+          ? {
+              name,
+              status: "ok" as const,
+              detail: okDetail,
+            }
+          : {
+              name,
+              status: "warn" as const,
+              detail: result.stderr || `${command} exited ${result.exitCode}`,
+            },
+    }),
+  );
+
+export const createOperatorHealth = ({
+  processRunner,
+}: BeadsIssueTrackerOptions): OperatorHealthService => ({
+  check: () =>
+    Effect.all([
+      checkCommand(processRunner, "beads", "bd", ["list", "--limit", "1", "--json"], "bd readable"),
+      checkCommand(processRunner, "gitlab", "glab", ["auth", "status"], "glab authenticated"),
+      checkCommand(processRunner, "docker", "docker", ["info"], "docker reachable"),
+      checkCommand(processRunner, "workspace", "git", ["rev-parse", "--show-toplevel"], "workspace readable"),
+      checkCommand(processRunner, "labels", "bd", ["list", "--label-pattern", "agent:*", "--limit", "1", "--json"], "agent labels readable"),
+      checkCommand(processRunner, "daemon", "git", ["status", "--short"], "daemon assumptions readable"),
+      checkCommand(processRunner, "containers", "docker", ["ps", "--format", "{{.ID}}"], "containers readable"),
+      checkCommand(processRunner, "worktrees", "git", ["worktree", "list", "--porcelain"], "worktrees readable"),
+      Effect.succeed({
+        name: "config",
+        status: "ok",
+        detail: "config loaded",
+      } satisfies OperatorHealthCheck),
+    ]),
+});
+
+export const operatorHealthLayer: Layer.Layer<OperatorHealth, never, ProcessRunner> = Layer.effect(
+  OperatorHealth,
+  Effect.map(ProcessRunner, (processRunner) => createOperatorHealth({ processRunner })),
+);
 
 export const createBeadsIssueTracker = ({
   processRunner,
