@@ -6,6 +6,7 @@ import {
   planAgentStateTransition,
   renderDraftReviewArtifact,
   renderReviewArtifact,
+  scheduleLanes,
 } from "@morpheus/core";
 import { Context, Effect, Either, Schema as EffectSchema } from "effect";
 import type {
@@ -14,6 +15,8 @@ import type {
   DerivedIssueState,
   FailureKind,
   Lane,
+  LaneCapacityConfig,
+  LaneSchedule,
   ReviewFinding,
   RunnableLane,
 } from "@morpheus/core";
@@ -259,6 +262,58 @@ export class IssueTracker extends Context.Tag("@morpheus/runtime/IssueTracker")<
 >() {}
 
 export type IssueTrackerService = Context.Tag.Service<typeof IssueTracker>;
+
+export type ScheduleLaneWorkInput = {
+  readonly capacities?: LaneCapacityConfig;
+};
+
+export type ScheduledLaneWorkCommand = {
+  readonly lane: RunnableLane;
+  readonly issueId: string;
+};
+
+export type DaemonTickPlan = {
+  readonly schedule: LaneSchedule;
+  readonly commands: Record<RunnableLane, readonly ScheduledLaneWorkCommand[]>;
+  readonly reconciliation: {
+    readonly excluded: LaneSchedule["excluded"];
+  };
+};
+
+const commandsFromSchedule = (
+  schedule: LaneSchedule,
+): Record<RunnableLane, readonly ScheduledLaneWorkCommand[]> => ({
+  preparation: schedule.selected.preparation.map((issue) => ({
+    lane: "preparation",
+    issueId: issue.id,
+  })),
+  implementation: schedule.selected.implementation.map((issue) => ({
+    lane: "implementation",
+    issueId: issue.id,
+  })),
+  review: schedule.selected.review.map((issue) => ({
+    lane: "review",
+    issueId: issue.id,
+  })),
+});
+
+export const planDaemonTick = (schedule: LaneSchedule): DaemonTickPlan => ({
+  schedule,
+  commands: commandsFromSchedule(schedule),
+  reconciliation: {
+    excluded: schedule.excluded,
+  },
+});
+
+export const scheduleLaneWork = (
+  input: ScheduleLaneWorkInput = {},
+): Effect.Effect<DaemonTickPlan, IssueTrackerError, IssueTracker> =>
+  Effect.gen(function* () {
+    const tracker = yield* IssueTracker;
+    const issues = yield* tracker.listRunnableIssues();
+
+    return planDaemonTick(scheduleLanes(issues, input.capacities));
+  });
 
 export type PreparationAgentInput = {
   readonly issue: TrackedIssue;

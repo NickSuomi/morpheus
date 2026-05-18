@@ -633,7 +633,7 @@ export const createBeadsIssueTracker = ({
 }: BeadsIssueTrackerOptions): IssueTrackerService => ({
   listRunnableIssues: () =>
     Effect.gen(function* () {
-      const args = ["ready", "--json"] as const;
+      const args = ["list", "--status", "open,in_progress", "--limit", "0", "--json"] as const;
       const result = yield* runBdEffect(processRunner, args);
       return yield* issuesFromJson(result.stdout, args);
     }),
