@@ -27,6 +27,7 @@ const fakeLedger = (overrides: Partial<RunLedgerService> = {}): Layer.Layer<RunL
   Layer.succeed(RunLedger, {
     createPreparationRun: () => Effect.succeed(run),
     createImplementationRun: () => Effect.succeed({ ...run, lane: "implementation" }),
+    createReviewRun: () => Effect.succeed({ ...run, lane: "review" }),
     recordImplementationWorkspace: () => Effect.succeed(run),
     recordMergeRequest: () => Effect.succeed(run),
     finishRun: () => Effect.succeed(run),
@@ -36,6 +37,12 @@ const fakeLedger = (overrides: Partial<RunLedgerService> = {}): Layer.Layer<RunL
         runId: run.id,
         transcriptPath: run.transcriptPath ?? "",
         transcript: "fake preparation transcript",
+      }),
+    getRunArtifact: () =>
+      Effect.succeed({
+        runId: run.id,
+        artifactPath: run.artifactPath ?? "",
+        artifact: "{}",
       }),
     listRuns: () => Effect.succeed([run]),
     getRun: () => Effect.succeed(run),

@@ -142,6 +142,16 @@ const fakeRunLedger = (
       };
       return Effect.succeed(run);
     },
+    createReviewRun: (input) => {
+      events.push("StartReview");
+      run = {
+        ...run,
+        issueId: input.issueId,
+        lane: "review",
+        summary: input.summary,
+      };
+      return Effect.succeed(run);
+    },
     recordImplementationWorkspace: (_runId, input) => {
       events.push("ImplementationWorkspacePrepared");
       if (options.failRecordWorkspace === true) {
@@ -201,6 +211,12 @@ const fakeRunLedger = (
         runId: run.id,
         transcriptPath: "",
         transcript: "",
+      }),
+    getRunArtifact: () =>
+      Effect.succeed({
+        runId: run.id,
+        artifactPath: run.artifactPath ?? "",
+        artifact: "{}",
       }),
     listRuns: () => Effect.succeed([run]),
     getRun: () => Effect.succeed(run),
@@ -294,6 +310,7 @@ const fakeWorkspaceRuntime = (): {
         remote: "origin",
       });
     },
+    prepareReviewWorkspace: () => Effect.die("not used"),
   };
 
   return {
@@ -391,7 +408,13 @@ describe("startImplementation", () => {
     const result = await Effect.runPromise(
       startImplementation("morph-7ky").pipe(
         Effect.provide(
-          testLayer(tracker.layer, ledger.layer, workspace.layer, mergeRequests.layer, runner.layer),
+          testLayer(
+            tracker.layer,
+            ledger.layer,
+            workspace.layer,
+            mergeRequests.layer,
+            runner.layer,
+          ),
         ),
       ),
     );
@@ -414,12 +437,11 @@ describe("startImplementation", () => {
       "DraftMergeRequestCreated",
       "RunArtifactsWritten",
     ]);
-    expect(workspace.calls).toEqual([
-      "prepare:morph-7ky:run_01KRGGDQ6JQN2GMD6KJQ5SFXR6",
-    ]);
+    expect(workspace.calls).toEqual(["prepare:morph-7ky:run_01KRGGDQ6JQN2GMD6KJQ5SFXR6"]);
     expect(mergeRequests.calls).toEqual(["morpheus/morph-7ky", "update:!42"]);
     expect(mergeRequests.descriptions[0]).toContain("Fake implementation complete.");
     expect(mergeRequests.descriptions[0]).toContain("passed: pnpm check - passed");
+    expect(mergeRequests.descriptions[0]).toContain("Review verdict: pending");
     expect(runner.calls).toEqual(["implement:morph-7ky:!42"]);
   });
 
@@ -433,7 +455,13 @@ describe("startImplementation", () => {
     const result = await Effect.runPromise(
       startImplementation("morph-7ky").pipe(
         Effect.provide(
-          testLayer(tracker.layer, ledger.layer, workspace.layer, mergeRequests.layer, runner.layer),
+          testLayer(
+            tracker.layer,
+            ledger.layer,
+            workspace.layer,
+            mergeRequests.layer,
+            runner.layer,
+          ),
         ),
       ),
     );
@@ -458,7 +486,13 @@ describe("startImplementation", () => {
     const result = await Effect.runPromise(
       startImplementation("morph-7ky").pipe(
         Effect.provide(
-          testLayer(tracker.layer, ledger.layer, workspace.layer, mergeRequests.layer, runner.layer),
+          testLayer(
+            tracker.layer,
+            ledger.layer,
+            workspace.layer,
+            mergeRequests.layer,
+            runner.layer,
+          ),
         ),
       ),
     );
@@ -482,7 +516,13 @@ describe("startImplementation", () => {
     const result = await Effect.runPromise(
       startImplementation("morph-7ky").pipe(
         Effect.provide(
-          testLayer(tracker.layer, ledger.layer, workspace.layer, mergeRequests.layer, runner.layer),
+          testLayer(
+            tracker.layer,
+            ledger.layer,
+            workspace.layer,
+            mergeRequests.layer,
+            runner.layer,
+          ),
         ),
       ),
     );
@@ -502,6 +542,7 @@ describe("startImplementation", () => {
     expect(mergeRequests.calls).toEqual(["morpheus/morph-7ky", "update:!42"]);
     expect(mergeRequests.descriptions[0]).toContain("Fake implementation complete.");
     expect(mergeRequests.descriptions[0]).toContain("failed: pnpm check - failed");
+    expect(mergeRequests.descriptions[0]).toContain("Review verdict: pending");
     expect(ledger.events).toEqual([
       "ImplementationStarted",
       "ImplementationWorkspacePrepared",
@@ -521,7 +562,13 @@ describe("startImplementation", () => {
     const result = await Effect.runPromise(
       startImplementation("morph-7ky").pipe(
         Effect.provide(
-          testLayer(tracker.layer, ledger.layer, workspace.layer, mergeRequests.layer, runner.layer),
+          testLayer(
+            tracker.layer,
+            ledger.layer,
+            workspace.layer,
+            mergeRequests.layer,
+            runner.layer,
+          ),
         ),
       ),
     );
@@ -547,7 +594,13 @@ describe("startImplementation", () => {
     const result = await Effect.runPromise(
       startImplementation("morph-7ky").pipe(
         Effect.provide(
-          testLayer(tracker.layer, ledger.layer, workspace.layer, mergeRequests.layer, runner.layer),
+          testLayer(
+            tracker.layer,
+            ledger.layer,
+            workspace.layer,
+            mergeRequests.layer,
+            runner.layer,
+          ),
         ),
       ),
     );
@@ -575,7 +628,13 @@ describe("startImplementation", () => {
     const result = await Effect.runPromise(
       startImplementation("morph-7ky").pipe(
         Effect.provide(
-          testLayer(tracker.layer, ledger.layer, workspace.layer, mergeRequests.layer, runner.layer),
+          testLayer(
+            tracker.layer,
+            ledger.layer,
+            workspace.layer,
+            mergeRequests.layer,
+            runner.layer,
+          ),
         ),
       ),
     );
@@ -631,7 +690,13 @@ describe("startImplementation", () => {
     const result = await Effect.runPromise(
       startImplementation("morph-7ky").pipe(
         Effect.provide(
-          testLayer(tracker.layer, ledger.layer, workspace.layer, mergeRequests.layer, runner.layer),
+          testLayer(
+            tracker.layer,
+            ledger.layer,
+            workspace.layer,
+            mergeRequests.layer,
+            runner.layer,
+          ),
         ),
       ),
     );

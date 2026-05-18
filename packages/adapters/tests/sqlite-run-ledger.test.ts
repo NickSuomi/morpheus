@@ -160,6 +160,38 @@ describe("SqliteRunLedger", () => {
     });
   });
 
+  it("creates a review run with an ordered start event", async () => {
+    await withTempDir(async (dir) => {
+      const { events, run } = await runWithLedger(
+        dir,
+        Effect.gen(function* () {
+          const ledger = yield* RunLedger;
+          const run = yield* ledger.createReviewRun({
+            issueId: "morph-wv6",
+            summary: "Run read-only review",
+          });
+          return {
+            run,
+            events: yield* ledger.getRunEvents(run.id),
+          };
+        }),
+      );
+
+      expect(run).toMatchObject({
+        issueId: "morph-wv6",
+        lane: "review",
+        status: "running",
+        summary: "Run read-only review",
+      });
+      expect(events).toMatchObject([
+        {
+          sequence: 1,
+          type: "StartReview",
+        },
+      ]);
+    });
+  });
+
   it("rejects implementation refs on terminal runs", async () => {
     await withTempDir(async (dir) => {
       const { events, recordMergeRequestResult, recordWorkspaceResult, run } = await runWithLedger(
@@ -419,7 +451,7 @@ describe("SqliteRunLedger", () => {
 
   it("writes transcript and artifact refs under the configured run directory", async () => {
     await withTempDir(async (dir) => {
-      const { events, logs, run, updated } = await runWithLedger(
+      const { artifact, events, logs, run, updated } = await runWithLedger(
         dir,
         Effect.gen(function* () {
           const ledger = yield* RunLedger;
@@ -434,6 +466,7 @@ describe("SqliteRunLedger", () => {
           return {
             run,
             updated,
+            artifact: yield* ledger.getRunArtifact(run.id),
             logs: yield* ledger.getRunLogs(run.id),
             events: yield* ledger.getRunEvents(run.id),
           };
@@ -450,6 +483,11 @@ describe("SqliteRunLedger", () => {
         runId: run.id,
         transcriptPath: updated?.transcriptPath,
         transcript: "fake preparation transcript",
+      });
+      expect(artifact).toEqual({
+        runId: run.id,
+        artifactPath: updated?.artifactPath,
+        artifact: JSON.stringify({ result: "blocked" }),
       });
       expect(events).toMatchObject([
         {
@@ -554,43 +592,43 @@ describe("SqliteRunLedger", () => {
   it.each(["not-a-lane", "none"])(
     "rejects corrupt persisted run rows with invalid lane %s",
     async (lane) => {
-    await withTempDir(async (dir) => {
-      const runId = "run_01HX0000000000000000000001";
-      const result = await runWithLedgerAndSql(
-        dir,
-        Effect.gen(function* () {
-          const ledger = yield* RunLedger;
-          yield* insertRawRun({
-            runId,
-            lane,
-            status: "running",
-            failureKind: null,
-          });
+      await withTempDir(async (dir) => {
+        const runId = "run_01HX0000000000000000000001";
+        const result = await runWithLedgerAndSql(
+          dir,
+          Effect.gen(function* () {
+            const ledger = yield* RunLedger;
+            yield* insertRawRun({
+              runId,
+              lane,
+              status: "running",
+              failureKind: null,
+            });
 
-          return {
-            getRun: yield* ledger.getRun(runId).pipe(Effect.either),
-            listRuns: yield* ledger.listRuns().pipe(Effect.either),
-          };
-        }),
-      );
+            return {
+              getRun: yield* ledger.getRun(runId).pipe(Effect.either),
+              listRuns: yield* ledger.listRuns().pipe(Effect.either),
+            };
+          }),
+        );
 
-      expect(result.getRun).toMatchObject({
-        _tag: "Left",
-        left: {
-          _tag: "RunLedgerPersistenceError",
-          operation: "getRun",
-          message: expect.stringContaining("lane"),
-        },
+        expect(result.getRun).toMatchObject({
+          _tag: "Left",
+          left: {
+            _tag: "RunLedgerPersistenceError",
+            operation: "getRun",
+            message: expect.stringContaining("lane"),
+          },
+        });
+        expect(result.listRuns).toMatchObject({
+          _tag: "Left",
+          left: {
+            _tag: "RunLedgerPersistenceError",
+            operation: "listRuns",
+            message: expect.stringContaining("lane"),
+          },
+        });
       });
-      expect(result.listRuns).toMatchObject({
-        _tag: "Left",
-        left: {
-          _tag: "RunLedgerPersistenceError",
-          operation: "listRuns",
-          message: expect.stringContaining("lane"),
-        },
-      });
-    });
     },
   );
 

@@ -78,6 +78,7 @@ export type ReviewArtifactInput = {
   readonly contract: AgentReadyContract
   readonly implementationEvidence: readonly string[]
   readonly verificationEvidence: readonly string[]
+  readonly reviewVerdict?: "pending" | "passed" | "blocked" | "failed"
   readonly reviewFindings: readonly ReviewFinding[]
   readonly humanChecklist: readonly string[]
 }
@@ -95,6 +96,7 @@ export const renderReviewArtifact = ({
   contract,
   implementationEvidence,
   verificationEvidence,
+  reviewVerdict = "pending",
   reviewFindings,
   humanChecklist
 }: ReviewArtifactInput): string =>
@@ -139,7 +141,7 @@ export const renderReviewArtifact = ({
     "",
     "## Status",
     "",
-    "Draft MR created before implementer agent execution."
+    `Review verdict: ${reviewVerdict}`
   ].join("\n")
 
 export const renderDraftReviewArtifact = ({
@@ -151,6 +153,7 @@ export const renderDraftReviewArtifact = ({
     contract,
     implementationEvidence: [],
     verificationEvidence: [],
+    reviewVerdict: "pending",
     reviewFindings: [],
     humanChecklist: []
   })

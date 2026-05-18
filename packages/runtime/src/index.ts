@@ -14,6 +14,7 @@ import type {
   DerivedIssueState,
   FailureKind,
   Lane,
+  ReviewFinding,
   RunnableLane,
 } from "@morpheus/core";
 
@@ -61,6 +62,13 @@ export type PreparedImplementationWorkspace = {
   readonly remote: string;
 };
 
+export type PreparedReviewWorkspace = {
+  readonly workspacePath: string;
+  readonly worktreePath?: string;
+  readonly branch?: string;
+  readonly permissions: "read-only";
+};
+
 export class WorkspaceRuntimeError extends EffectSchema.TaggedError<WorkspaceRuntimeError>(
   "WorkspaceRuntimeError",
 )("WorkspaceRuntimeError", {
@@ -75,6 +83,11 @@ export class WorkspaceRuntime extends Context.Tag("@morpheus/runtime/WorkspaceRu
       readonly issueId: string;
       readonly runId: string;
     }) => Effect.Effect<PreparedImplementationWorkspace, WorkspaceRuntimeError>;
+    readonly prepareReviewWorkspace: (input: {
+      readonly issueId: string;
+      readonly runId: string;
+      readonly implementationRun: RunSummary;
+    }) => Effect.Effect<PreparedReviewWorkspace, WorkspaceRuntimeError>;
   }
 >() {}
 
@@ -308,6 +321,38 @@ export type ImplementationAgentResult =
       readonly artifact: unknown;
     };
 
+export type ReviewAgentInput = {
+  readonly issue: TrackedIssue;
+  readonly contract: AgentReadyContract;
+  readonly workspace: PreparedReviewWorkspace;
+  readonly mergeRequest: MergeRequestReference;
+  readonly implementationEvidence: readonly ImplementationEvidence[];
+  readonly verificationEvidence: readonly VerificationEvidence[];
+};
+
+export type ReviewAgentResult =
+  | {
+      readonly status: "passed";
+      readonly findings: readonly ReviewFinding[];
+      readonly transcript: string;
+      readonly artifact: unknown;
+    }
+  | {
+      readonly status: "blocked";
+      readonly reason: string;
+      readonly findings: readonly ReviewFinding[];
+      readonly transcript: string;
+      readonly artifact: unknown;
+    }
+  | {
+      readonly status: "failed";
+      readonly failureKind: FailureKind;
+      readonly message: string;
+      readonly findings: readonly ReviewFinding[];
+      readonly transcript: string;
+      readonly artifact: unknown;
+    };
+
 export class AgentRunnerError extends EffectSchema.TaggedError<AgentRunnerError>(
   "AgentRunnerError",
 )("AgentRunnerError", {
@@ -324,6 +369,7 @@ export class AgentRunner extends Context.Tag("@morpheus/runtime/AgentRunner")<
     readonly implementIssue?: (
       input: ImplementationAgentInput,
     ) => Effect.Effect<unknown, AgentRunnerError>;
+    readonly reviewIssue?: (input: ReviewAgentInput) => Effect.Effect<unknown, AgentRunnerError>;
   }
 >() {}
 
@@ -369,6 +415,11 @@ export type CreateImplementationRunInput = {
   readonly summary: string;
 };
 
+export type CreateReviewRunInput = {
+  readonly issueId: string;
+  readonly summary: string;
+};
+
 export type FinishRunInput =
   | {
       readonly status: "succeeded";
@@ -404,6 +455,12 @@ export type RunLogs = {
   readonly transcript: string;
 };
 
+export type RunArtifact = {
+  readonly runId: string;
+  readonly artifactPath: string;
+  readonly artifact: string;
+};
+
 export class RunLedgerPersistenceError extends EffectSchema.TaggedError<RunLedgerPersistenceError>(
   "RunLedgerPersistenceError",
 )("RunLedgerPersistenceError", {
@@ -423,6 +480,12 @@ export class RunLedgerLogsNotFoundError extends EffectSchema.TaggedError<RunLedg
   runId: EffectSchema.String,
 }) {}
 
+export class RunLedgerArtifactNotFoundError extends EffectSchema.TaggedError<RunLedgerArtifactNotFoundError>(
+  "RunLedgerArtifactNotFoundError",
+)("RunLedgerArtifactNotFoundError", {
+  runId: EffectSchema.String,
+}) {}
+
 export class RunLedgerInvalidStateError extends EffectSchema.TaggedError<RunLedgerInvalidStateError>(
   "RunLedgerInvalidStateError",
 )("RunLedgerInvalidStateError", {
@@ -434,6 +497,7 @@ export class RunLedgerInvalidStateError extends EffectSchema.TaggedError<RunLedg
 export type RunLedgerError =
   | RunLedgerPersistenceError
   | RunLedgerNotFoundError
+  | RunLedgerArtifactNotFoundError
   | RunLedgerLogsNotFoundError
   | RunLedgerInvalidStateError;
 
@@ -445,6 +509,9 @@ export class RunLedger extends Context.Tag("@morpheus/runtime/RunLedger")<
     ) => Effect.Effect<RunSummary, RunLedgerPersistenceError>;
     readonly createImplementationRun: (
       input: CreateImplementationRunInput,
+    ) => Effect.Effect<RunSummary, RunLedgerPersistenceError>;
+    readonly createReviewRun: (
+      input: CreateReviewRunInput,
     ) => Effect.Effect<RunSummary, RunLedgerPersistenceError>;
     readonly recordImplementationWorkspace: (
       runId: string,
@@ -474,6 +541,9 @@ export class RunLedger extends Context.Tag("@morpheus/runtime/RunLedger")<
     readonly getRunLogs: (
       runId: string,
     ) => Effect.Effect<RunLogs, RunLedgerLogsNotFoundError | RunLedgerPersistenceError>;
+    readonly getRunArtifact: (
+      runId: string,
+    ) => Effect.Effect<RunArtifact, RunLedgerArtifactNotFoundError | RunLedgerPersistenceError>;
     readonly listRuns: () => Effect.Effect<readonly RunSummary[], RunLedgerPersistenceError>;
     readonly getRun: (
       runId: string,
@@ -594,6 +664,16 @@ export type ImplementationAgentResultDecodeResult =
       readonly message: string;
     };
 
+export type ReviewAgentResultDecodeResult =
+  | {
+      readonly status: "valid";
+      readonly result: ReviewAgentResult;
+    }
+  | {
+      readonly status: "invalid";
+      readonly message: string;
+    };
+
 const ImplementationEvidenceSchema = Schema.Struct({
   summary: Schema.NonEmptyString,
   files: Schema.Array(Schema.String),
@@ -624,6 +704,35 @@ const ImplementationAgentResultSchema = Schema.Union(
   }),
 );
 
+const ReviewFindingSchema = Schema.Struct({
+  severity: Schema.Literal("info", "warning", "error"),
+  summary: Schema.NonEmptyString,
+});
+
+const ReviewAgentResultSchema = Schema.Union(
+  Schema.Struct({
+    status: Schema.Literal("passed"),
+    findings: Schema.Array(ReviewFindingSchema),
+    transcript: Schema.String,
+    artifact: Schema.Unknown,
+  }),
+  Schema.Struct({
+    status: Schema.Literal("blocked"),
+    reason: Schema.NonEmptyString,
+    findings: Schema.Array(ReviewFindingSchema),
+    transcript: Schema.String,
+    artifact: Schema.Unknown,
+  }),
+  Schema.Struct({
+    status: Schema.Literal("failed"),
+    failureKind: Schema.Literal(...failureKinds),
+    message: Schema.NonEmptyString,
+    findings: Schema.Array(ReviewFindingSchema),
+    transcript: Schema.String,
+    artifact: Schema.Unknown,
+  }),
+);
+
 export const decodeImplementationAgentResult = (
   value: unknown,
 ): ImplementationAgentResultDecodeResult => {
@@ -633,6 +742,20 @@ export const decodeImplementationAgentResult = (
       result: Schema.decodeUnknownSync(ImplementationAgentResultSchema)(
         value,
       ) as ImplementationAgentResult,
+    };
+  } catch (error) {
+    return {
+      status: "invalid",
+      message: errorMessage(error),
+    };
+  }
+};
+
+export const decodeReviewAgentResult = (value: unknown): ReviewAgentResultDecodeResult => {
+  try {
+    return {
+      status: "valid",
+      result: Schema.decodeUnknownSync(ReviewAgentResultSchema)(value) as ReviewAgentResult,
     };
   } catch (error) {
     return {
@@ -1299,9 +1422,7 @@ export const startImplementation = (
 
     const currentIssue = yield* tracker.getIssue(issueId);
     const currentStartPlan = planAgentStateTransition(currentIssue.labels, "StartImplementation");
-    const startResult = yield* Effect.either(
-      tracker.applyAgentState(issueId, currentStartPlan),
-    );
+    const startResult = yield* Effect.either(tracker.applyAgentState(issueId, currentStartPlan));
     if (Either.isLeft(startResult) || startResult.right.status === "rejected") {
       const message = terminalFailureMessage(
         startResult,
@@ -1405,6 +1526,7 @@ export const startImplementation = (
           verificationEvidence: verificationEvidenceLines(
             implementationResult.verificationEvidence,
           ),
+          reviewVerdict: "pending",
           reviewFindings: [],
           humanChecklist: ["Review implementation evidence before marking ready."],
         }),
@@ -1451,6 +1573,488 @@ export const startImplementation = (
       issueId,
       run: artifactRunResult.right,
       workspace,
+      mergeRequest,
+    };
+  });
+
+export type ReviewIssueResult =
+  | {
+      readonly status: "review_candidate";
+      readonly issueId: string;
+      readonly run: RunSummary;
+      readonly findings: readonly ReviewFinding[];
+      readonly mergeRequest: MergeRequestReference;
+    }
+  | {
+      readonly status: "blocked";
+      readonly issueId: string;
+      readonly run: RunSummary;
+      readonly reason: string;
+      readonly findings: readonly ReviewFinding[];
+    }
+  | {
+      readonly status: "failed";
+      readonly issueId: string;
+      readonly run?: RunSummary;
+      readonly failureKind: FailureKind;
+      readonly message: string;
+      readonly findings?: readonly ReviewFinding[];
+    }
+  | {
+      readonly status: "state_rejected";
+      readonly issueId: string;
+      readonly reason: Extract<IssueTrackerApplyResult, { readonly status: "rejected" }>["reason"];
+      readonly failureKind: FailureKind;
+    };
+
+type ImplementationArtifactForReview = {
+  readonly implementationEvidence: readonly ImplementationEvidence[];
+  readonly verificationEvidence: readonly VerificationEvidence[];
+  readonly mergeRequest: MergeRequestReference;
+};
+
+const ImplementationArtifactForReviewSchema = Schema.Struct({
+  implementationEvidence: Schema.NonEmptyArray(ImplementationEvidenceSchema),
+  verificationEvidence: Schema.NonEmptyArray(VerificationEvidenceSchema),
+  mergeRequest: Schema.Struct({
+    reference: Schema.NonEmptyString,
+    url: Schema.optional(Schema.String),
+  }),
+});
+
+const decodeImplementationArtifactForReview = (
+  value: unknown,
+):
+  | { readonly status: "valid"; readonly artifact: ImplementationArtifactForReview }
+  | {
+      readonly status: "invalid";
+      readonly message: string;
+    } => {
+  try {
+    return {
+      status: "valid",
+      artifact: Schema.decodeUnknownSync(ImplementationArtifactForReviewSchema)(
+        value,
+      ) as ImplementationArtifactForReview,
+    };
+  } catch (error) {
+    return {
+      status: "invalid",
+      message: errorMessage(error),
+    };
+  }
+};
+
+const readImplementationArtifactForReview = (
+  ledger: RunLedgerService,
+  run: RunSummary,
+): Effect.Effect<
+  ImplementationArtifactForReview,
+  RunLedgerArtifactNotFoundError | RunLedgerPersistenceError
+> =>
+  Effect.gen(function* () {
+    const runArtifact = yield* ledger.getRunArtifact(run.id);
+    const parsed = yield* Effect.try({
+      try: () => JSON.parse(runArtifact.artifact) as unknown,
+      catch: (error) =>
+        new RunLedgerPersistenceError({
+          operation: "decodeImplementationArtifactForReview",
+          message: errorMessage(error),
+        }),
+    });
+    const decoded = decodeImplementationArtifactForReview(parsed);
+    if (decoded.status === "invalid") {
+      return yield* new RunLedgerPersistenceError({
+        operation: "readImplementationArtifactForReview",
+        message: decoded.message,
+      });
+    }
+    return decoded.artifact;
+  });
+
+const findImplementationRunForReview = (
+  runs: readonly RunSummary[],
+  issueId: string,
+): RunSummary | undefined =>
+  runs.find(
+    (run) =>
+      run.issueId === issueId &&
+      run.lane === "implementation" &&
+      run.mergeRequestRef !== undefined &&
+      run.artifactPath !== undefined,
+  );
+
+const reviewArtifact = (result: ReviewAgentResult, mergeRequest: MergeRequestReference) => ({
+  status: result.status,
+  findings: result.findings,
+  mergeRequest,
+  ...(result.status === "blocked"
+    ? {
+        reason: result.reason,
+      }
+    : {}),
+  ...(result.status === "failed"
+    ? {
+        failureKind: result.failureKind,
+        message: result.message,
+      }
+    : {}),
+});
+
+const reviewFailureResult = (
+  issueId: string,
+  run: RunSummary,
+  failureKind: FailureKind,
+  message: string,
+  findings?: readonly ReviewFinding[],
+): Extract<ReviewIssueResult, { readonly status: "failed" }> => ({
+  status: "failed",
+  issueId,
+  run,
+  failureKind,
+  message,
+  findings,
+});
+
+const finishReview = (
+  tracker: IssueTrackerService,
+  ledger: RunLedgerService,
+  issueId: string,
+  runId: string,
+  event: "ReviewPassed" | "ReviewBlocked" | "ReviewFailed",
+  terminal: FinishRunInput,
+): Effect.Effect<RunSummary, IssueTrackerError | RunLedgerError> =>
+  Effect.gen(function* () {
+    const currentIssue = yield* tracker.getIssue(issueId);
+    const transition = planAgentStateTransition(currentIssue.labels, event);
+    const transitionResult = yield* Effect.either(tracker.applyAgentState(issueId, transition));
+    if (Either.isLeft(transitionResult) || transitionResult.right.status === "rejected") {
+      return yield* ledger.finishRun(runId, {
+        status: "failed",
+        failureKind: terminalFailureKind(transitionResult, "state_conflict"),
+        terminalEvent: "ReviewFailed",
+        message: terminalFailureMessage(
+          transitionResult,
+          "Review terminal transition rejected.",
+          "Review terminal transition rejected.",
+        ),
+      });
+    }
+
+    return yield* ledger.finishRun(runId, terminal);
+  });
+
+const failReviewAfterStart = (
+  tracker: IssueTrackerService,
+  ledger: RunLedgerService,
+  issueId: string,
+  runId: string,
+  failureKind: FailureKind,
+  message: string,
+  findings?: readonly ReviewFinding[],
+): Effect.Effect<
+  Extract<ReviewIssueResult, { readonly status: "failed" }>,
+  IssueTrackerError | RunLedgerError
+> =>
+  Effect.gen(function* () {
+    const terminalRun = yield* finishReview(tracker, ledger, issueId, runId, "ReviewFailed", {
+      status: "failed",
+      failureKind,
+      terminalEvent: "ReviewFailed",
+      message,
+    });
+    return reviewFailureResult(
+      issueId,
+      terminalRun,
+      terminalRun.failureKind ?? failureKind,
+      message,
+      findings,
+    );
+  });
+
+export const reviewIssue = (
+  issueId: string,
+): Effect.Effect<
+  ReviewIssueResult,
+  | IssueTrackerError
+  | RunLedgerError
+  | WorkspaceRuntimeError
+  | AgentRunnerError
+  | MergeRequestClientError,
+  IssueTracker | RunLedger | WorkspaceRuntime | AgentRunner | MergeRequestClient
+> =>
+  Effect.gen(function* () {
+    const tracker = yield* IssueTracker;
+    const ledger = yield* RunLedger;
+    const workspaceRuntime = yield* WorkspaceRuntime;
+    const runner = yield* AgentRunner;
+    const mergeRequests = yield* MergeRequestClient;
+
+    const issue = yield* tracker.getIssue(issueId);
+    const startPlan = planAgentStateTransition(issue.labels, "ImplementationReadyForReview");
+    if (startPlan.status !== "planned") {
+      return {
+        status: "state_rejected",
+        issueId,
+        reason: startPlan.status,
+        failureKind: startPlan.status === "conflict" ? "state_conflict" : "runtime_error",
+      };
+    }
+
+    const startResult = yield* Effect.either(tracker.applyAgentState(issueId, startPlan));
+    if (Either.isLeft(startResult) || startResult.right.status === "rejected") {
+      const failureKind = terminalFailureKind(startResult, "state_conflict");
+      const message = terminalFailureMessage(
+        startResult,
+        "Review start transition rejected.",
+        "Review start transition rejected.",
+      );
+      return {
+        status: "failed",
+        issueId,
+        failureKind,
+        message,
+      };
+    }
+
+    const run = yield* ledger.createReviewRun({
+      issueId,
+      summary: issue.title,
+    });
+
+    const contractResult = yield* Effect.either(tracker.readContract(issueId));
+    if (Either.isLeft(contractResult)) {
+      return yield* failReviewAfterStart(
+        tracker,
+        ledger,
+        issueId,
+        run.id,
+        "runtime_error",
+        `Agent-Ready Contract read failed: ${errorMessage(contractResult.left)}`,
+      );
+    }
+    if (contractResult.right.status === "missing") {
+      return yield* failReviewAfterStart(
+        tracker,
+        ledger,
+        issueId,
+        run.id,
+        "agent_contract_error",
+        "Agent-Ready Contract metadata missing.",
+      );
+    }
+    const contract = contractResult.right.contract;
+
+    const implementationRun = findImplementationRunForReview(yield* ledger.listRuns(), issueId);
+    if (implementationRun === undefined) {
+      return yield* failReviewAfterStart(
+        tracker,
+        ledger,
+        issueId,
+        run.id,
+        "runtime_error",
+        "Implementation run artifact missing for review.",
+      );
+    }
+
+    const implementationArtifactResult = yield* Effect.either(
+      readImplementationArtifactForReview(ledger, implementationRun),
+    );
+    if (Either.isLeft(implementationArtifactResult)) {
+      return yield* failReviewAfterStart(
+        tracker,
+        ledger,
+        issueId,
+        run.id,
+        "runtime_error",
+        `Implementation artifact read failed: ${errorMessage(implementationArtifactResult.left)}`,
+      );
+    }
+    const implementationArtifact = implementationArtifactResult.right;
+    const mergeRequest = implementationArtifact.mergeRequest;
+    const mergeRequestRunResult = yield* Effect.either(
+      ledger.recordMergeRequest(run.id, mergeRequest),
+    );
+    if (Either.isLeft(mergeRequestRunResult)) {
+      return yield* failReviewAfterStart(
+        tracker,
+        ledger,
+        issueId,
+        run.id,
+        "runtime_error",
+        `Review MR ledger update failed: ${errorMessage(mergeRequestRunResult.left)}`,
+      );
+    }
+
+    const reviewIssueRunner = runner.reviewIssue;
+    if (reviewIssueRunner === undefined) {
+      return yield* failReviewAfterStart(
+        tracker,
+        ledger,
+        issueId,
+        run.id,
+        "runtime_error",
+        "Agent runner does not support review.",
+      );
+    }
+
+    const reviewWorkspaceResult = yield* Effect.either(
+      workspaceRuntime.prepareReviewWorkspace({
+        issueId,
+        runId: run.id,
+        implementationRun,
+      }),
+    );
+    if (Either.isLeft(reviewWorkspaceResult)) {
+      return yield* failReviewAfterStart(
+        tracker,
+        ledger,
+        issueId,
+        run.id,
+        "runtime_error",
+        `Review workspace preparation failed: ${reviewWorkspaceResult.left.message}`,
+      );
+    }
+    const reviewWorkspace = reviewWorkspaceResult.right;
+
+    const agentResult = yield* Effect.either(
+      reviewIssueRunner({
+        issue,
+        contract,
+        workspace: reviewWorkspace,
+        mergeRequest,
+        implementationEvidence: implementationArtifact.implementationEvidence,
+        verificationEvidence: implementationArtifact.verificationEvidence,
+      }),
+    );
+    if (Either.isLeft(agentResult)) {
+      return yield* failReviewAfterStart(
+        tracker,
+        ledger,
+        issueId,
+        run.id,
+        "runtime_error",
+        `Agent runner failed during review: ${agentResult.left.message}`,
+      );
+    }
+
+    const decodedResult = decodeReviewAgentResult(agentResult.right);
+    if (decodedResult.status === "invalid") {
+      return yield* failReviewAfterStart(
+        tracker,
+        ledger,
+        issueId,
+        run.id,
+        "agent_contract_error",
+        `Invalid review result: ${decodedResult.message}`,
+      );
+    }
+
+    const reviewResult = decodedResult.result;
+    const artifactResult = yield* Effect.either(
+      artifactToString(reviewArtifact(reviewResult, mergeRequest)),
+    );
+    if (Either.isLeft(artifactResult)) {
+      return yield* failReviewAfterStart(
+        tracker,
+        ledger,
+        issueId,
+        run.id,
+        "runtime_error",
+        `Review artifact serialization failed: ${errorMessage(artifactResult.left)}`,
+        reviewResult.findings,
+      );
+    }
+    const artifactRunResult = yield* Effect.either(
+      ledger.writeRunArtifacts(run.id, {
+        transcript: reviewResult.transcript,
+        artifact: artifactResult.right,
+      }),
+    );
+    if (Either.isLeft(artifactRunResult)) {
+      return yield* failReviewAfterStart(
+        tracker,
+        ledger,
+        issueId,
+        run.id,
+        "runtime_error",
+        `Review artifact write failed: ${errorMessage(artifactRunResult.left)}`,
+        reviewResult.findings,
+      );
+    }
+
+    const updateResult = yield* Effect.either(
+      mergeRequests.updateDescription({
+        reference: mergeRequest.reference,
+        description: renderReviewArtifact({
+          issueId: issue.id,
+          contract,
+          implementationEvidence: implementationEvidenceLines(
+            implementationArtifact.implementationEvidence,
+          ),
+          verificationEvidence: verificationEvidenceLines(
+            implementationArtifact.verificationEvidence,
+          ),
+          reviewVerdict: reviewResult.status,
+          reviewFindings: reviewResult.findings,
+          humanChecklist:
+            reviewResult.status === "passed"
+              ? ["Human reviewer owns final GitLab approval and merge."]
+              : ["Resolve review outcome before human merge."],
+        }),
+      }),
+    );
+    if (Either.isLeft(updateResult)) {
+      return yield* failReviewAfterStart(
+        tracker,
+        ledger,
+        issueId,
+        run.id,
+        updateResult.left.failureKind,
+        `MR review update failed: ${updateResult.left.message}`,
+        reviewResult.findings,
+      );
+    }
+
+    if (reviewResult.status === "blocked") {
+      const terminalRun = yield* finishReview(tracker, ledger, issueId, run.id, "ReviewBlocked", {
+        status: "failed",
+        failureKind: "agent_contract_error",
+        terminalEvent: "ReviewBlocked",
+        message: `Review blocked: ${reviewResult.reason}`,
+      });
+      return {
+        status: "blocked",
+        issueId,
+        run: terminalRun,
+        reason: reviewResult.reason,
+        findings: reviewResult.findings,
+      };
+    }
+
+    if (reviewResult.status === "failed") {
+      return yield* failReviewAfterStart(
+        tracker,
+        ledger,
+        issueId,
+        run.id,
+        reviewResult.failureKind,
+        reviewResult.message,
+        reviewResult.findings,
+      );
+    }
+
+    const terminalRun = yield* finishReview(tracker, ledger, issueId, run.id, "ReviewPassed", {
+      status: "succeeded",
+      terminalEvent: "ReviewPassed",
+      message: "Review passed.",
+    });
+
+    return {
+      status: "review_candidate",
+      issueId,
+      run: terminalRun,
+      findings: reviewResult.findings,
       mergeRequest,
     };
   });
@@ -1524,6 +2128,42 @@ export const renderStartImplementationResult = (result: StartImplementationResul
   ].join("\n");
 };
 
+export const renderReviewIssueResult = (result: ReviewIssueResult): string => {
+  if (result.status === "review_candidate") {
+    return [
+      `Review candidate ${result.issueId}`,
+      `run: ${result.run.id}`,
+      `mergeRequest: ${result.mergeRequest.reference}`,
+      `findings: ${result.findings.length}`,
+    ].join("\n");
+  }
+
+  if (result.status === "blocked") {
+    return [
+      `Blocked ${result.issueId}`,
+      `run: ${result.run.id}`,
+      `reason: ${result.reason}`,
+      `findings: ${result.findings.length}`,
+    ].join("\n");
+  }
+
+  if (result.status === "state_rejected") {
+    return [
+      `State rejected ${result.issueId}`,
+      `reason: ${result.reason}`,
+      `failureKind: ${result.failureKind}`,
+    ].join("\n");
+  }
+
+  return [
+    `Failed ${result.issueId}`,
+    `run: ${result.run?.id ?? "None"}`,
+    `failureKind: ${result.failureKind}`,
+    `message: ${result.message}`,
+    `findings: ${result.findings?.length ?? 0}`,
+  ].join("\n");
+};
+
 export const prepareIssueForCli = (
   issueId: string,
 ): Effect.Effect<
@@ -1543,6 +2183,18 @@ export const startImplementationForCli = (
   | AgentRunnerError,
   IssueTracker | RunLedger | WorkspaceRuntime | MergeRequestClient | AgentRunner
 > => startImplementation(issueId).pipe(Effect.map(renderStartImplementationResult));
+
+export const reviewIssueForCli = (
+  issueId: string,
+): Effect.Effect<
+  string,
+  | IssueTrackerError
+  | RunLedgerError
+  | WorkspaceRuntimeError
+  | AgentRunnerError
+  | MergeRequestClientError,
+  IssueTracker | RunLedger | WorkspaceRuntime | MergeRequestClient | AgentRunner
+> => reviewIssue(issueId).pipe(Effect.map(renderReviewIssueResult));
 
 export const AgentReadyContractSchema = Schema.Struct({
   category: Schema.String,

@@ -24,6 +24,7 @@ import type {
   ProcessResult,
   ProcessRunnerService,
   ImplementationAgentResult,
+  ReviewAgentResult,
   TrackedIssue,
   IssueTrackerService,
   WorkspaceRuntimeService,
@@ -408,7 +409,11 @@ export type FakeAgentRunnerScenario =
   | "blocked_contract"
   | "implemented"
   | "malformed_implementation"
-  | "verification_failed";
+  | "verification_failed"
+  | "review_passed"
+  | "review_blocked"
+  | "review_failed"
+  | "malformed_review";
 
 type FakeAgentRunnerOptions = {
   readonly scenario?: FakeAgentRunnerScenario;
@@ -437,6 +442,9 @@ const fakeTranscript = (issue: TrackedIssue, status: string): string =>
 const fakeImplementationTranscript = (issue: TrackedIssue, status: string): string =>
   [`FakeAgentRunner implementation`, `issue: ${issue.id}`, `status: ${status}`].join("\n");
 
+const fakeReviewTranscript = (issue: TrackedIssue, status: string): string =>
+  [`FakeAgentRunner review`, `issue: ${issue.id}`, `status: ${status}`].join("\n");
+
 const fakeImplementationResult = (
   issue: TrackedIssue,
   status: "implemented" | "verification_failed",
@@ -455,9 +463,7 @@ const fakeImplementationResult = (
         command: "pnpm check",
         status: verificationStatus,
         output:
-          status === "implemented"
-            ? "Fake verification passed."
-            : "Fake verification failed.",
+          status === "implemented" ? "Fake verification passed." : "Fake verification failed.",
       },
     ],
     transcript: fakeImplementationTranscript(issue, status),
@@ -465,6 +471,46 @@ const fakeImplementationResult = (
       scenario: status,
       issueId: issue.id,
     },
+  };
+};
+
+const fakeReviewResult = (
+  issue: TrackedIssue,
+  status: "review_passed" | "review_blocked" | "review_failed",
+): ReviewAgentResult => {
+  const findings = [
+    {
+      severity: status === "review_failed" ? "error" : "info",
+      summary: `Fake review finding for ${issue.id}.`,
+    },
+  ] as const;
+
+  if (status === "review_blocked") {
+    return {
+      status: "blocked",
+      reason: "Fake review needs human clarification.",
+      findings,
+      transcript: fakeReviewTranscript(issue, status),
+      artifact: { scenario: status, issueId: issue.id },
+    };
+  }
+
+  if (status === "review_failed") {
+    return {
+      status: "failed",
+      failureKind: "verification_error",
+      message: "Fake review found a failing verification claim.",
+      findings,
+      transcript: fakeReviewTranscript(issue, status),
+      artifact: { scenario: status, issueId: issue.id },
+    };
+  }
+
+  return {
+    status: "passed",
+    findings,
+    transcript: fakeReviewTranscript(issue, status),
+    artifact: { scenario: status, issueId: issue.id },
   };
 };
 
@@ -555,6 +601,26 @@ export const createFakeAgentRunner = ({
     }
 
     return Effect.succeed(fakeImplementationResult(issue, "implemented"));
+  },
+  reviewIssue: ({ issue }) => {
+    if (scenario === "malformed_review") {
+      return Effect.succeed({
+        status: "passed",
+        findings: [{ severity: "critical", summary: "Invalid severity." }],
+        transcript: fakeReviewTranscript(issue, "malformed_review"),
+        artifact: { scenario },
+      });
+    }
+
+    if (
+      scenario === "review_passed" ||
+      scenario === "review_blocked" ||
+      scenario === "review_failed"
+    ) {
+      return Effect.succeed(fakeReviewResult(issue, scenario));
+    }
+
+    return Effect.succeed(fakeReviewResult(issue, "review_passed"));
   },
 });
 
@@ -703,8 +769,7 @@ export const beadsIssueTrackerLayer: Layer.Layer<IssueTracker, never, ProcessRun
   }),
 );
 
-const branchSafeIssueId = (issueId: string): string =>
-  issueId.replaceAll(/[^A-Za-z0-9._-]/g, "-");
+const branchSafeIssueId = (issueId: string): string => issueId.replaceAll(/[^A-Za-z0-9._-]/g, "-");
 
 const branchSafeRunId = (runId: string): string => runId.replaceAll(/[^A-Za-z0-9._-]/g, "-");
 
@@ -713,15 +778,23 @@ export const createGitWorkspaceRuntime = ({
 }: GitWorkspaceRuntimeOptions): WorkspaceRuntimeService => ({
   prepareImplementationWorkspace: ({ issueId, runId }) =>
     Effect.gen(function* () {
-      const root = (
-        yield* runGitEffect(processRunner, ["rev-parse", "--show-toplevel"])
-      ).stdout.trim();
+      const root = (yield* runGitEffect(processRunner, [
+        "rev-parse",
+        "--show-toplevel",
+      ])).stdout.trim();
       const targetBranch =
         (yield* runGitEffect(processRunner, ["branch", "--show-current"])).stdout.trim() || "main";
       const branch = `morpheus/${branchSafeIssueId(issueId)}-${branchSafeRunId(runId)}`;
       const remote = "origin";
       const worktreePath = join(dirname(root), `.morpheus-worktree-${branchSafeRunId(runId)}`);
-      yield* runGitEffect(processRunner, ["worktree", "add", "-b", branch, worktreePath, targetBranch]);
+      yield* runGitEffect(processRunner, [
+        "worktree",
+        "add",
+        "-b",
+        branch,
+        worktreePath,
+        targetBranch,
+      ]);
       yield* runGitEffect(processRunner, ["push", "--set-upstream", remote, branch]);
 
       return {
@@ -731,6 +804,13 @@ export const createGitWorkspaceRuntime = ({
         targetBranch,
         remote,
       };
+    }),
+  prepareReviewWorkspace: ({ implementationRun }) =>
+    Effect.succeed({
+      workspacePath: implementationRun.workspacePath ?? implementationRun.worktreePath ?? ".",
+      worktreePath: implementationRun.worktreePath,
+      branch: implementationRun.branch,
+      permissions: "read-only",
     }),
 });
 
@@ -796,24 +876,20 @@ export const createGlabMergeRequestClient = ({
 }: GlabMergeRequestClientOptions): MergeRequestClientService => ({
   createDraftMergeRequest: (input) =>
     Effect.gen(function* () {
-      const result = yield* runGlabEffect(
-        processRunner,
-        "createDraftMergeRequest",
-        [
-          "mr",
-          "create",
-          "--draft",
-          "--source-branch",
-          input.sourceBranch,
-          "--target-branch",
-          input.targetBranch,
-          "--title",
-          input.title,
-          "--description",
-          input.description,
-          "--yes",
-        ],
-      );
+      const result = yield* runGlabEffect(processRunner, "createDraftMergeRequest", [
+        "mr",
+        "create",
+        "--draft",
+        "--source-branch",
+        input.sourceBranch,
+        "--target-branch",
+        input.targetBranch,
+        "--title",
+        input.title,
+        "--description",
+        input.description,
+        "--yes",
+      ]);
       const reference = parseMergeRequestReference(result.stdout);
       if (reference instanceof MergeRequestClientError) {
         return yield* Effect.fail(reference);
@@ -842,14 +918,11 @@ export const createGlabMergeRequestClient = ({
     }),
 });
 
-export const glabMergeRequestClientLayer: Layer.Layer<
-  MergeRequestClient,
-  never,
-  ProcessRunner
-> = Layer.effect(
-  MergeRequestClient,
-  Effect.gen(function* () {
-    const processRunner = yield* ProcessRunner;
-    return createGlabMergeRequestClient({ processRunner });
-  }),
-);
+export const glabMergeRequestClientLayer: Layer.Layer<MergeRequestClient, never, ProcessRunner> =
+  Layer.effect(
+    MergeRequestClient,
+    Effect.gen(function* () {
+      const processRunner = yield* ProcessRunner;
+      return createGlabMergeRequestClient({ processRunner });
+    }),
+  );

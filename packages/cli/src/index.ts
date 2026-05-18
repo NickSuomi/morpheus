@@ -18,6 +18,7 @@ import {
   loadMorpheusConfig,
   MergeRequestClient,
   prepareIssueForCli,
+  reviewIssueForCli,
   RunLedger,
   showRunForCli,
   showRunLogsForCli,
@@ -172,6 +173,43 @@ const provideImplementation = <A, E>(
     Effect.provide(program, layer),
   );
 
+const reviewLayerFromConfig = (
+  pathOption: Option.Option<string>,
+): Effect.Effect<
+  Layer.Layer<
+    RunLedger | IssueTracker | WorkspaceRuntime | MergeRequestClient | AgentRunner,
+    RunLedgerPersistenceError
+  >,
+  Error
+> =>
+  Effect.sync(() => {
+    const config = loadCliConfig(pathOption);
+    const processRunnerLayer = nodeProcessRunnerLayer({
+      cwd: config.targetRepo,
+    });
+
+    return Layer.mergeAll(
+      sqliteRunLedgerLayer({
+        ledgerPath: config.ledgerPath,
+        runsDirectory: resolve(config.configDirectory, ".morpheus", "runs"),
+      }),
+      beadsIssueTrackerLayer.pipe(Layer.provide(processRunnerLayer)),
+      gitWorkspaceRuntimeLayer.pipe(Layer.provide(processRunnerLayer)),
+      glabMergeRequestClientLayer.pipe(Layer.provide(processRunnerLayer)),
+      fakeAgentRunnerLayer(),
+    );
+  });
+
+const provideReview = <A, E>(
+  pathOption: Option.Option<string>,
+  program: Effect.Effect<
+    A,
+    E,
+    RunLedger | IssueTracker | WorkspaceRuntime | MergeRequestClient | AgentRunner
+  >,
+): Effect.Effect<A, E | RunLedgerPersistenceError | Error> =>
+  Effect.flatMap(reviewLayerFromConfig(pathOption), (layer) => Effect.provide(program, layer));
+
 const configShow = Command.make("show", { configPath }, ({ configPath }) =>
   formatConfigSummary(
     loadMorpheusConfig({
@@ -213,11 +251,17 @@ const implement = Command.make("implement", { issueId, configPath }, ({ issueId,
   ),
 ).pipe(Command.withDescription("Create workspace branch and Draft MR for one prepared issue"));
 
+const review = Command.make("review", { issueId, configPath }, ({ issueId, configPath }) =>
+  provideReview(configPath, reviewIssueForCli(issueId)).pipe(
+    Effect.flatMap((output) => Console.log(output)),
+  ),
+).pipe(Command.withDescription("Run read-only review for one running issue"));
+
 const command = Command.make("morpheus", {}, () =>
   Console.log("Morpheus local agent orchestration"),
 ).pipe(
   Command.withDescription("Morpheus local agent orchestration"),
-  Command.withSubcommands([config, runs, runDetail, logs, prepare, implement]),
+  Command.withSubcommands([config, runs, runDetail, logs, prepare, implement, review]),
 );
 
 const run = Command.run(command, {
