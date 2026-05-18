@@ -7,6 +7,7 @@ import {
   RunLedgerNotFoundError,
   showRunForCli,
   showRunLogsForCli,
+  pruneRunsForCli,
   type RunLedgerService,
   type RunSummary,
 } from "../src/index.js";
@@ -69,6 +70,22 @@ const fakeLedger = (overrides: Partial<RunLedgerService> = {}): Layer.Layer<RunL
           message: "Fake preparation could not produce a valid contract.",
         },
       ]),
+    pruneRuns: (input) =>
+      Effect.succeed({
+        applied: input.apply,
+        eligibleRuns: [
+          {
+            runId: run.id,
+            issueId: run.issueId,
+            lane: run.lane,
+            status: run.status,
+            artifactPaths: [run.transcriptPath ?? ""].filter(Boolean),
+            artifactBytes: 27,
+            reason: input.reason,
+          },
+        ],
+        totalArtifactBytes: 27,
+      }),
     ...overrides,
   });
 
@@ -113,6 +130,39 @@ describe("RunLedger CLI rendering", () => {
     await expect(runWithLedger(showRunLogsForCli(run.id))).resolves.toBe(
       "fake preparation transcript",
     );
+  });
+
+  it("renders prune dry-run output", async () => {
+    await expect(
+      runWithLedger(
+        pruneRunsForCli({
+          apply: false,
+          policy: {
+            completedIntermediate: { keepDays: 14, keepLast: 100 },
+            failed: "manual",
+            reviewCandidate: "until-mr-closed-or-manual",
+            active: "never",
+          },
+          prunedBy: "operator",
+          reason: "operator dry-run",
+        }),
+      ),
+    ).resolves.toContain(`${run.id} morph-7o3 preparation failed artifacts=1 bytes=27`);
+    await expect(
+      runWithLedger(
+        pruneRunsForCli({
+          apply: false,
+          policy: {
+            completedIntermediate: { keepDays: 14, keepLast: 100 },
+            failed: "manual",
+            reviewCandidate: "until-mr-closed-or-manual",
+            active: "never",
+          },
+          prunedBy: "operator",
+          reason: "operator dry-run",
+        }),
+      ),
+    ).resolves.toContain(`artifact: ${run.transcriptPath}`);
   });
 
   it("throws typed messages for missing run data", async () => {

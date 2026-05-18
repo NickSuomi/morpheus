@@ -101,9 +101,25 @@ const runs: readonly RunSummary[] = [
 ];
 
 const events: Record<string, readonly RunEvent[]> = {
-  run_preparation: [{ sequence: 1, runId: "run_preparation", type: "PreparationSucceeded", occurredAt: "2026-05-13T11:09:19.418Z" }],
-  run_implementation: [{ sequence: 1, runId: "run_implementation", type: "ImplementationReadyForReview", occurredAt: "2026-05-13T11:10:19.418Z" }],
-  run_review: [{ sequence: 1, runId: "run_review", type: "RunPruned", occurredAt: "2026-05-13T11:12:19.418Z" }],
+  run_preparation: [
+    {
+      sequence: 1,
+      runId: "run_preparation",
+      type: "PreparationSucceeded",
+      occurredAt: "2026-05-13T11:09:19.418Z",
+    },
+  ],
+  run_implementation: [
+    {
+      sequence: 1,
+      runId: "run_implementation",
+      type: "ImplementationReadyForReview",
+      occurredAt: "2026-05-13T11:10:19.418Z",
+    },
+  ],
+  run_review: [
+    { sequence: 1, runId: "run_review", type: "RunPruned", occurredAt: "2026-05-13T11:12:19.418Z" },
+  ],
   run_current: [],
 };
 
@@ -144,6 +160,12 @@ const runLedgerLayer = Layer.succeed(RunLedger, {
   listRuns: () => Effect.succeed(runs),
   getRun: (runId) => Effect.succeed(runs.find((run) => run.id === runId)),
   getRunEvents: (runId) => Effect.succeed(events[runId] ?? []),
+  pruneRuns: (input) =>
+    Effect.succeed({
+      applied: input.apply,
+      eligibleRuns: [],
+      totalArtifactBytes: 0,
+    }),
 } satisfies RunLedgerService);
 
 const healthLayer = Layer.succeed(OperatorHealth, {
@@ -165,7 +187,9 @@ const operatorLayer = Layer.mergeAll(issueTrackerLayer, runLedgerLayer, healthLa
 
 describe("operator CLI rendering", () => {
   it("renders read-only status with lanes, runnable counts, blocked/failed counts, and runs", async () => {
-    const output = await Effect.runPromise(operatorStatusForCli().pipe(Effect.provide(operatorLayer)));
+    const output = await Effect.runPromise(
+      operatorStatusForCli().pipe(Effect.provide(operatorLayer)),
+    );
 
     expect(output).toContain("lanes: preparation=2 implementation=1 review=1");
     expect(output).toContain("runnable: preparation=1 implementation=1 review=1");
@@ -191,7 +215,9 @@ describe("operator CLI rendering", () => {
   });
 
   it("renders doctor health checks including ledger state", async () => {
-    const output = await Effect.runPromise(operatorDoctorForCli.pipe(Effect.provide(operatorLayer)));
+    const output = await Effect.runPromise(
+      operatorDoctorForCli.pipe(Effect.provide(operatorLayer)),
+    );
 
     expect(output).toContain("OK beads: bd readable");
     expect(output).toContain("WARN gitlab: glab auth unavailable");

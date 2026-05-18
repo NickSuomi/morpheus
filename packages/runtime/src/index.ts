@@ -482,6 +482,12 @@ export type RunSummary = {
   readonly branch?: string;
   readonly mergeRequestRef?: string;
   readonly mergeRequestUrl?: string;
+  readonly prunedAt?: string;
+  readonly prunedBy?: string;
+  readonly pruneReason?: string;
+  readonly eventsPrunedAt?: string;
+  readonly artifactsPrunedAt?: string;
+  readonly artifactBytesDeleted?: number;
 };
 
 export type RunEvent = {
@@ -546,6 +552,39 @@ export type RunArtifact = {
   readonly runId: string;
   readonly artifactPath: string;
   readonly artifact: string;
+};
+
+export type RunPrunePolicy = {
+  readonly completedIntermediate: {
+    readonly keepDays: number;
+    readonly keepLast: number;
+  };
+  readonly failed: "manual";
+  readonly reviewCandidate: "until-mr-closed-or-manual";
+  readonly active: "never";
+};
+
+export type RunPruneCandidate = {
+  readonly runId: string;
+  readonly issueId: string;
+  readonly lane: RunnableLane;
+  readonly status: RunStatus;
+  readonly artifactPaths: readonly string[];
+  readonly artifactBytes: number;
+  readonly reason: string;
+};
+
+export type RunPruneInput = {
+  readonly apply: boolean;
+  readonly policy: RunPrunePolicy;
+  readonly prunedBy: string;
+  readonly reason: string;
+};
+
+export type RunPruneResult = {
+  readonly applied: boolean;
+  readonly eligibleRuns: readonly RunPruneCandidate[];
+  readonly totalArtifactBytes: number;
 };
 
 export class RunLedgerPersistenceError extends EffectSchema.TaggedError<RunLedgerPersistenceError>(
@@ -638,6 +677,9 @@ export class RunLedger extends Context.Tag("@morpheus/runtime/RunLedger")<
     readonly getRunEvents: (
       runId: string,
     ) => Effect.Effect<readonly RunEvent[], RunLedgerPersistenceError>;
+    readonly pruneRuns: (
+      input: RunPruneInput,
+    ) => Effect.Effect<RunPruneResult, RunLedgerPersistenceError>;
   }
 >() {}
 
@@ -667,6 +709,12 @@ export const renderRunDetail = (run: RunSummary, events: readonly RunEvent[]): s
     `mergeRequest: ${run.mergeRequestRef ?? "None"}`,
     `mergeRequestUrl: ${run.mergeRequestUrl ?? "None"}`,
     `transcript: ${run.transcriptPath ?? "None"}`,
+    `prunedAt: ${run.prunedAt ?? "None"}`,
+    `prunedBy: ${run.prunedBy ?? "None"}`,
+    `pruneReason: ${run.pruneReason ?? "None"}`,
+    `eventsPrunedAt: ${run.eventsPrunedAt ?? "None"}`,
+    `artifactsPrunedAt: ${run.artifactsPrunedAt ?? "None"}`,
+    `artifactBytesDeleted: ${run.artifactBytesDeleted ?? 0}`,
     "events:",
     ...events.map(
       (event) =>
@@ -702,6 +750,30 @@ export const showRunLogsForCli = (
   Effect.gen(function* () {
     const ledger = yield* RunLedger;
     return renderRunLogs(yield* ledger.getRunLogs(runId));
+  });
+
+export const renderRunPruneResult = (result: RunPruneResult): string => {
+  const heading = result.applied ? "Morpheus prune apply" : "Morpheus prune dry-run";
+  const lines =
+    result.eligibleRuns.length === 0
+      ? ["eligibleRuns: None"]
+      : [
+          "eligibleRuns:",
+          ...result.eligibleRuns.flatMap((run) => [
+            `- ${run.runId} ${run.issueId} ${run.lane} ${run.status} artifacts=${run.artifactPaths.length} bytes=${run.artifactBytes} reason=${run.reason}`,
+            ...run.artifactPaths.map((path) => `  artifact: ${path}`),
+          ]),
+        ];
+
+  return [heading, ...lines, `totalArtifactBytes: ${result.totalArtifactBytes}`].join("\n");
+};
+
+export const pruneRunsForCli = (
+  input: RunPruneInput,
+): Effect.Effect<string, RunLedgerPersistenceError, RunLedger> =>
+  Effect.gen(function* () {
+    const ledger = yield* RunLedger;
+    return renderRunPruneResult(yield* ledger.pruneRuns(input));
   });
 
 const laneCount = (issues: readonly TrackedIssue[], lane: RunnableLane): number =>

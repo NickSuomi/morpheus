@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { SqlClient } from "@effect/sql";
 import { SqliteClient } from "@effect/sql-sqlite-node";
@@ -13,6 +13,8 @@ import {
   type FinishRunInput,
   type RunEvent,
   type RunLedgerService,
+  type RunPruneCandidate,
+  type RunPruneInput,
   type RunStatus,
   type RunSummary,
   runStatuses,
@@ -41,6 +43,12 @@ type RunRow = {
   readonly branch: string | null;
   readonly merge_request_ref: string | null;
   readonly merge_request_url: string | null;
+  readonly pruned_at: string | null;
+  readonly pruned_by: string | null;
+  readonly prune_reason: string | null;
+  readonly events_pruned_at: string | null;
+  readonly artifacts_pruned_at: string | null;
+  readonly artifact_bytes_deleted: number | null;
 };
 
 type RunEventRow = {
@@ -161,6 +169,12 @@ const runSummaryFromRow = (
       branch: maybe(row.branch),
       mergeRequestRef: maybe(row.merge_request_ref),
       mergeRequestUrl: maybe(row.merge_request_url),
+      prunedAt: maybe(row.pruned_at),
+      prunedBy: maybe(row.pruned_by),
+      pruneReason: maybe(row.prune_reason),
+      eventsPrunedAt: maybe(row.events_pruned_at),
+      artifactsPrunedAt: maybe(row.artifacts_pruned_at),
+      artifactBytesDeleted: row.artifact_bytes_deleted ?? undefined,
     };
   });
 
@@ -192,7 +206,13 @@ const setupSchema = Effect.fn("SqliteRunLedger.setupSchema")(function* () {
       worktree_path TEXT,
       branch TEXT,
       merge_request_ref TEXT,
-      merge_request_url TEXT
+      merge_request_url TEXT,
+      pruned_at TEXT,
+      pruned_by TEXT,
+      prune_reason TEXT,
+      events_pruned_at TEXT,
+      artifacts_pruned_at TEXT,
+      artifact_bytes_deleted INTEGER
     );
   `);
   yield* sql.unsafe(`
@@ -223,7 +243,78 @@ const setupSchema = Effect.fn("SqliteRunLedger.setupSchema")(function* () {
   if (!columnNames.has("merge_request_url")) {
     yield* sql.unsafe(`ALTER TABLE runs ADD COLUMN merge_request_url TEXT`);
   }
+  if (!columnNames.has("pruned_at")) {
+    yield* sql.unsafe(`ALTER TABLE runs ADD COLUMN pruned_at TEXT`);
+  }
+  if (!columnNames.has("pruned_by")) {
+    yield* sql.unsafe(`ALTER TABLE runs ADD COLUMN pruned_by TEXT`);
+  }
+  if (!columnNames.has("prune_reason")) {
+    yield* sql.unsafe(`ALTER TABLE runs ADD COLUMN prune_reason TEXT`);
+  }
+  if (!columnNames.has("events_pruned_at")) {
+    yield* sql.unsafe(`ALTER TABLE runs ADD COLUMN events_pruned_at TEXT`);
+  }
+  if (!columnNames.has("artifacts_pruned_at")) {
+    yield* sql.unsafe(`ALTER TABLE runs ADD COLUMN artifacts_pruned_at TEXT`);
+  }
+  if (!columnNames.has("artifact_bytes_deleted")) {
+    yield* sql.unsafe(`ALTER TABLE runs ADD COLUMN artifact_bytes_deleted INTEGER`);
+  }
 });
+
+const terminalStatuses = ["succeeded", "failed"] as const;
+
+const isTerminalStatus = (status: RunStatus): boolean =>
+  terminalStatuses.includes(status as (typeof terminalStatuses)[number]);
+
+const completedRetentionCutoff = (
+  input: RunPruneInput,
+  terminalCompletedRuns: readonly RunSummary[],
+): Set<string> => {
+  const keepLast = Math.max(0, input.policy.completedIntermediate.keepLast);
+  const keepDays = Math.max(0, input.policy.completedIntermediate.keepDays);
+  const cutoffMs = Date.now() - keepDays * 24 * 60 * 60 * 1000;
+  const keptByCount = new Set(
+    [...terminalCompletedRuns]
+      .sort((left, right) => right.startedAt.localeCompare(left.startedAt))
+      .slice(0, keepLast)
+      .map((run) => run.id),
+  );
+
+  return new Set(
+    terminalCompletedRuns
+      .filter((run) => !keptByCount.has(run.id))
+      .filter((run) => new Date(run.startedAt).getTime() <= cutoffMs)
+      .map((run) => run.id),
+  );
+};
+
+const artifactPathsForRun = (run: RunSummary): readonly string[] =>
+  [run.transcriptPath, run.artifactPath].filter((path): path is string => path !== undefined);
+
+const artifactBytesForPaths = (paths: readonly string[]): number =>
+  paths.reduce((total, path) => {
+    try {
+      return total + statSync(path).size;
+    } catch {
+      return total;
+    }
+  }, 0);
+
+const toPruneCandidate = (run: RunSummary, reason: string): RunPruneCandidate => {
+  const artifactPaths = artifactPathsForRun(run);
+
+  return {
+    runId: run.id,
+    issueId: run.issueId,
+    lane: run.lane,
+    status: run.status,
+    artifactPaths,
+    artifactBytes: artifactBytesForPaths(artifactPaths),
+    reason,
+  };
+};
 
 export const createSqliteRunLedger = ({
   ledgerPath,
@@ -614,6 +705,87 @@ export const createSqliteRunLedger = ({
           `,
         );
         return yield* Effect.forEach(rows, (row) => runSummaryFromRow("listRuns", row));
+      }),
+
+      pruneRuns: Effect.fn("SqliteRunLedger.pruneRuns")(function* (input) {
+        const runs = yield* Effect.forEach(
+          yield* mapPersistenceError(
+            "pruneRuns",
+            sql<RunRow>`
+              SELECT * FROM runs
+              ORDER BY started_at DESC, id ASC
+            `,
+          ),
+          (row) => runSummaryFromRow("pruneRuns", row),
+        );
+        const completedEligibleIds = completedRetentionCutoff(
+          input,
+          runs.filter(
+            (run) =>
+              run.status === "succeeded" && run.prunedAt === undefined && run.lane !== "review",
+          ),
+        );
+        const candidates = runs
+          .filter((run) => isTerminalStatus(run.status))
+          .filter((run) => run.prunedAt === undefined)
+          .flatMap((run) => {
+            if (run.status === "failed") {
+              return [toPruneCandidate(run, input.reason)];
+            }
+            if (run.lane === "review") {
+              return [toPruneCandidate(run, input.reason)];
+            }
+            if (completedEligibleIds.has(run.id)) {
+              return [toPruneCandidate(run, input.reason)];
+            }
+            return [];
+          });
+
+        if (input.apply) {
+          for (const candidate of candidates) {
+            const now = new Date().toISOString();
+            yield* trySync("pruneRuns.deleteArtifacts", () => {
+              for (const path of candidate.artifactPaths) {
+                rmSync(path, { force: true });
+              }
+            });
+            yield* mapPersistenceError(
+              "pruneRuns",
+              sql.withTransaction(
+                Effect.gen(function* () {
+                  yield* sql`
+                    DELETE FROM run_events
+                    WHERE run_id = ${candidate.runId}
+                  `;
+                  yield* sql`
+                    INSERT INTO run_events (run_id, sequence, type, occurred_at, message)
+                    VALUES (${candidate.runId}, ${1}, ${"RunPruned"}, ${now}, ${input.reason})
+                  `;
+                  yield* sql`
+                    UPDATE runs
+                    SET pruned_at = ${now},
+                        pruned_by = ${input.prunedBy},
+                        prune_reason = ${input.reason},
+                        events_pruned_at = ${now},
+                        artifacts_pruned_at = ${now},
+                        artifact_bytes_deleted = ${candidate.artifactBytes},
+                        transcript_path = NULL,
+                        artifact_path = NULL
+                    WHERE id = ${candidate.runId}
+                      AND status <> ${"running"}
+                      AND pruned_at IS NULL
+                  `;
+                }),
+              ),
+            );
+          }
+        }
+
+        return {
+          applied: input.apply,
+          eligibleRuns: candidates,
+          totalArtifactBytes: candidates.reduce((total, run) => total + run.artifactBytes, 0),
+        };
       }),
 
       getRun,

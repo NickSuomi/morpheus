@@ -23,11 +23,13 @@ import {
   operatorSliceForCli,
   operatorStatusForCli,
   prepareIssueForCli,
+  pruneRunsForCli,
   reviewIssueForCli,
   RunLedger,
   showRunForCli,
   showRunLogsForCli,
   startImplementationForCli,
+  type MorpheusConfig,
   type RunLedgerPersistenceError,
   WorkspaceRuntime,
 } from "@morpheus/runtime";
@@ -41,6 +43,7 @@ type LoadedCliConfig = {
   readonly configDirectory: string;
   readonly targetRepo: string;
   readonly ledgerPath: string;
+  readonly retention: MorpheusConfig["retention"];
   readonly promptPaths?: {
     readonly prepare?: string;
     readonly implement?: string;
@@ -69,6 +72,7 @@ const loadCliConfig = (pathOption: Option.Option<string>): LoadedCliConfig => {
     configDirectory,
     targetRepo,
     ledgerPath,
+    retention: result.config.retention,
     promptPaths: result.config.prompts,
   };
 };
@@ -290,6 +294,30 @@ const logs = Command.make("logs", { runId, configPath }, ({ runId, configPath })
   ),
 ).pipe(Command.withDescription("Show Morpheus run logs"));
 
+const dryRun = Options.boolean("dry-run");
+const apply = Options.boolean("apply");
+
+const prune = Command.make(
+  "prune",
+  { configPath, dryRun, apply },
+  ({ configPath, dryRun, apply }) =>
+    Effect.gen(function* () {
+      if (dryRun === apply) {
+        return yield* Effect.fail(new Error("Pass exactly one of --dry-run or --apply"));
+      }
+      const config = loadCliConfig(configPath);
+      return yield* provideLedger(
+        configPath,
+        pruneRunsForCli({
+          apply,
+          policy: config.retention,
+          prunedBy: process.env.USER ?? "operator",
+          reason: apply ? "operator apply" : "operator dry-run",
+        }),
+      );
+    }).pipe(Effect.flatMap((output) => Console.log(output))),
+).pipe(Command.withDescription("Prune policy-eligible terminal Morpheus runs"));
+
 const status = Command.make("status", { configPath }, ({ configPath }) =>
   provideOperator(configPath, operatorStatusForCli()).pipe(
     Effect.flatMap((output) => Console.log(output)),
@@ -335,6 +363,7 @@ const command = Command.make("morpheus", {}, () =>
     runs,
     runDetail,
     logs,
+    prune,
     status,
     slice,
     doctor,
