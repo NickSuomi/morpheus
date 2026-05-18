@@ -2654,11 +2654,20 @@ export const validateAfkReadyContract = (
 };
 
 const LaneConcurrencySchema = Schema.Number.pipe(Schema.int(), Schema.positive());
+const PositiveIntegerSchema = Schema.Number.pipe(Schema.int(), Schema.positive());
 
 export const MorpheusConfigSchema = Schema.Struct({
   targetRepo: Schema.String,
   issueTracker: Schema.Struct({
     kind: Schema.Literal("beads"),
+  }),
+  gitlab: Schema.Struct({
+    project: Schema.String,
+    readyLabel: Schema.String,
+    targetBranch: Schema.String,
+  }),
+  daemon: Schema.Struct({
+    pollIntervalSeconds: PositiveIntegerSchema,
   }),
   mergeRequests: Schema.Struct({
     kind: Schema.Literal("gitlab-glab"),
