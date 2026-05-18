@@ -307,3 +307,148 @@ export const planAgentStateTransition = (
     finalLabels: [...labels.filter((label) => label !== state.state), to]
   }
 }
+
+export type LaneSchedulerIssue = {
+  readonly id: string
+  readonly labels: readonly string[]
+  readonly priority?: number
+  readonly createdAt?: string
+  readonly updatedAt?: string
+}
+
+export type LaneCapacityConfig = Partial<Record<RunnableLane, number>>
+
+export type ScheduledLaneIssue = LaneSchedulerIssue & {
+  readonly lane: RunnableLane
+  readonly state: AgentState
+}
+
+export type ExcludedLaneIssue =
+  | {
+      readonly issue: LaneSchedulerIssue
+      readonly reason: "state_conflict"
+      readonly activeStates: readonly AgentState[]
+    }
+  | {
+      readonly issue: LaneSchedulerIssue
+      readonly reason: "missing_state" | "idle_state"
+      readonly state?: AgentState
+    }
+
+export type LaneSchedule = {
+  readonly capacities: Record<RunnableLane, number>
+  readonly queues: Record<RunnableLane, readonly ScheduledLaneIssue[]>
+  readonly selected: Record<RunnableLane, readonly ScheduledLaneIssue[]>
+  readonly excluded: readonly ExcludedLaneIssue[]
+}
+
+const defaultLaneCapacities: Record<RunnableLane, number> = {
+  preparation: 1,
+  implementation: 1,
+  review: 1
+}
+
+const normalizeCapacity = (capacity: number | undefined, fallback: number): number => {
+  if (capacity === undefined) {
+    return fallback
+  }
+
+  if (!Number.isInteger(capacity) || capacity <= 0) {
+    throw new RangeError("Lane capacity must be a positive integer")
+  }
+
+  return capacity
+}
+
+const normalizeLaneCapacities = (
+  config: LaneCapacityConfig = {}
+): Record<RunnableLane, number> => ({
+  preparation: normalizeCapacity(
+    config.preparation,
+    defaultLaneCapacities.preparation
+  ),
+  implementation: normalizeCapacity(
+    config.implementation,
+    defaultLaneCapacities.implementation
+  ),
+  review: normalizeCapacity(config.review, defaultLaneCapacities.review)
+})
+
+const emptyLaneBuckets = <T>(): Record<RunnableLane, T[]> => ({
+  preparation: [],
+  implementation: [],
+  review: []
+})
+
+const issueDate = (issue: LaneSchedulerIssue): string =>
+  issue.createdAt ?? issue.updatedAt ?? ""
+
+const compareLaneIssues = (
+  left: LaneSchedulerIssue,
+  right: LaneSchedulerIssue
+): number =>
+  (left.priority ?? Number.MAX_SAFE_INTEGER) -
+    (right.priority ?? Number.MAX_SAFE_INTEGER) ||
+  issueDate(left).localeCompare(issueDate(right)) ||
+  left.id.localeCompare(right.id)
+
+export const scheduleLanes = (
+  issues: readonly LaneSchedulerIssue[],
+  capacityConfig: LaneCapacityConfig = {}
+): LaneSchedule => {
+  const capacities = normalizeLaneCapacities(capacityConfig)
+  const queues = emptyLaneBuckets<ScheduledLaneIssue>()
+  const excluded: ExcludedLaneIssue[] = []
+
+  for (const issue of issues) {
+    const state = deriveIssueState(issue.labels)
+
+    if (state.status === "conflict") {
+      excluded.push({
+        issue,
+        reason: "state_conflict",
+        activeStates: state.activeStates
+      })
+      continue
+    }
+
+    if (state.status === "missing") {
+      excluded.push({
+        issue,
+        reason: "missing_state"
+      })
+      continue
+    }
+
+    const lane = deriveLane(state.state)
+    if (lane === "none") {
+      excluded.push({
+        issue,
+        reason: "idle_state",
+        state: state.state
+      })
+      continue
+    }
+
+    queues[lane].push({
+      ...issue,
+      lane,
+      state: state.state
+    })
+  }
+
+  for (const lane of runnableLanes) {
+    queues[lane].sort(compareLaneIssues)
+  }
+
+  return {
+    capacities,
+    queues,
+    selected: {
+      preparation: queues.preparation.slice(0, capacities.preparation),
+      implementation: queues.implementation.slice(0, capacities.implementation),
+      review: queues.review.slice(0, capacities.review)
+    },
+    excluded
+  }
+}

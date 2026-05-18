@@ -76,7 +76,7 @@ const runEitherWithTracker = <A, E>(
 ) => Effect.runPromise(Effect.either(program).pipe(Effect.provide(testLayer(processRunnerLayer))));
 
 describe("BeadsIssueTracker", () => {
-  it("lists runnable issues from bd ready JSON output", async () => {
+  it("lists runnable issues from current open and in-progress Beads state", async () => {
     const processRunner = fakeProcessRunner([
       ok([
         {
@@ -113,7 +113,12 @@ describe("BeadsIssueTracker", () => {
         lane: "preparation",
       },
     ]);
-    expect(processRunner.calls).toEqual([{ command: "bd", args: ["ready", "--json"] }]);
+    expect(processRunner.calls).toEqual([
+      {
+        command: "bd",
+        args: ["list", "--status", "open,in_progress", "--limit", "0", "--json"],
+      },
+    ]);
   });
 
   it("fails closed when runnable issue labels contain conflicting agent states", async () => {
@@ -196,7 +201,7 @@ describe("BeadsIssueTracker", () => {
       expect(result.left).toMatchObject({
         _tag: "IssueTrackerCommandError",
         command: "bd",
-        args: ["ready", "--json"],
+        args: ["list", "--status", "open,in_progress", "--limit", "0", "--json"],
         exitCode: 1,
         stderr: "bd failed",
       });
@@ -225,7 +230,7 @@ describe("BeadsIssueTracker", () => {
       expect(result.left).toMatchObject({
         _tag: "IssueTrackerJsonParseError",
         command: "bd",
-        args: ["ready", "--json"],
+        args: ["list", "--status", "open,in_progress", "--limit", "0", "--json"],
       });
     }
   });
@@ -246,7 +251,7 @@ describe("BeadsIssueTracker", () => {
       expect(result.left).toMatchObject({
         _tag: "IssueTrackerJsonParseError",
         command: "bd",
-        args: ["ready", "--json"],
+        args: ["list", "--status", "open,in_progress", "--limit", "0", "--json"],
         message: "Expected issue row to be an object",
       });
     }
@@ -276,7 +281,7 @@ describe("BeadsIssueTracker", () => {
       expect(result.left).toMatchObject({
         _tag: "IssueTrackerJsonParseError",
         command: "bd",
-        args: ["ready", "--json"],
+        args: ["list", "--status", "open,in_progress", "--limit", "0", "--json"],
         message: "Expected issue labels to be an array",
       });
     }
@@ -306,7 +311,7 @@ describe("BeadsIssueTracker", () => {
       expect(result.left).toMatchObject({
         _tag: "IssueTrackerJsonParseError",
         command: "bd",
-        args: ["ready", "--json"],
+        args: ["list", "--status", "open,in_progress", "--limit", "0", "--json"],
         message: "Expected issue labels to contain only strings",
       });
     }
