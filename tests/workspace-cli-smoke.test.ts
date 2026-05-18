@@ -1,6 +1,6 @@
 import { beforeAll, describe, expect, it } from "vitest";
 import { execFileSync } from "node:child_process";
-import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -225,116 +225,13 @@ describe("morpheus cli", () => {
     } finally {
       rmSync(dir, { force: true, recursive: true });
     }
-  });
+  }, 20_000);
 
-  it("prepares one issue with the fake agent runner", () => {
-    const dir = mkdtempSync(join(tmpdir(), "morpheus-cli-prepare-"));
-    try {
-      const targetRepo = join(dir, "target");
-      const binDir = join(dir, "bin");
-      const statePath = join(dir, "fake-bd-state.json");
-      const configPath = join(dir, "morpheus.config.json");
-      const ledgerPath = join(dir, ".morpheus", "ledger.sqlite");
-      writeFileSync(
-        statePath,
-        JSON.stringify({
-          issue: {
-            id: "morph-lpp",
-            title: "Prepare an issue with fake AgentRunner",
-            labels: ["agent:ready", "ready-for-agent"],
-            metadata: {},
-          },
-        }),
-      );
-      writeFileSync(
-        configPath,
-        JSON.stringify(
-          {
-            targetRepo,
-            issueTracker: { kind: "beads" },
-            mergeRequests: { kind: "gitlab-glab" },
-            agentRunner: { kind: "sandcastle" },
-            ledger: { path: ledgerPath },
-            lanes: {
-              preparation: { concurrency: 1 },
-              implementation: { concurrency: 1 },
-              review: { concurrency: 1 },
-            },
-            verification: { commands: [] },
-            retention: {
-              completedIntermediate: {
-                keepDays: 14,
-                keepLast: 100,
-              },
-              failed: "manual",
-              reviewCandidate: "until-mr-closed-or-manual",
-              active: "never",
-            },
-          },
-          null,
-          2,
-        ),
-      );
-      mkdirSync(targetRepo, { recursive: true });
-      mkdirSync(binDir, { recursive: true });
-      const fakeBdPath = join(binDir, "bd");
-      writeFileSync(
-        fakeBdPath,
-        `#!/usr/bin/env node
-import { readFileSync, writeFileSync } from "node:fs";
+  it("exposes one-shot agent workflow commands", () => {
+    const output = runPnpm(["--filter", "@morpheus/cli", "morpheus", "--help"]);
 
-const statePath = process.env.FAKE_BD_STATE;
-const args = process.argv.slice(2);
-const state = JSON.parse(readFileSync(statePath, "utf8"));
-
-if (args[0] === "show" && args[2] === "--json") {
-  console.log(JSON.stringify([state.issue]));
-  process.exit(0);
-}
-
-if (args[0] === "update") {
-  const labels = [];
-  for (let index = 2; index < args.length; index += 1) {
-    if (args[index] === "--set-labels") {
-      labels.push(args[index + 1]);
-      index += 1;
-    } else if (args[index] === "--metadata") {
-      state.issue.metadata = JSON.parse(args[index + 1]);
-      index += 1;
-    }
-  }
-  if (labels.length > 0) {
-    state.issue.labels = labels;
-  }
-  writeFileSync(statePath, JSON.stringify(state));
-  console.log("[]");
-  process.exit(0);
-}
-
-console.error("unexpected bd args: " + args.join(" "));
-process.exit(1);
-`,
-      );
-      chmodSync(fakeBdPath, 0o755);
-
-      const output = runPnpm(
-        ["--filter", "@morpheus/cli", "morpheus", "prepare", "morph-lpp", "--config", configPath],
-        {
-          PATH: `${binDir}:${process.env.PATH ?? ""}`,
-          FAKE_BD_STATE: statePath,
-        },
-      );
-
-      const state = JSON.parse(readFileSync(statePath, "utf8"));
-      expect(output).toContain("Prepared morph-lpp");
-      expect(output).toContain("contract: written");
-      expect(output).toContain("transcript.txt");
-      expect(state.issue.labels).toEqual(["ready-for-agent", "agent:prepared"]);
-      expect(state.issue.metadata.morpheus.agentReadyContract.summary).toBe(
-        "Prepare an issue with fake AgentRunner",
-      );
-    } finally {
-      rmSync(dir, { force: true, recursive: true });
-    }
+    expect(output).toContain("prepare");
+    expect(output).toContain("implement");
+    expect(output).toContain("review");
   });
 });

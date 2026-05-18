@@ -1,9 +1,15 @@
 import { execFile } from "node:child_process";
-import { dirname, join } from "node:path";
+import { existsSync, mkdirSync, readFileSync } from "node:fs";
+import { dirname, join, resolve } from "node:path";
+import { codex, run as sandcastleRun } from "@ai-hero/sandcastle";
+import type { AgentProvider, RunOptions, RunResult } from "@ai-hero/sandcastle";
+import { docker } from "@ai-hero/sandcastle/sandboxes/docker";
+import type { SandboxProvider } from "@ai-hero/sandcastle";
 import { deriveIssueState, deriveLane, planAgentStateTransition } from "@morpheus/core";
 import type { AgentStateTransitionPlan } from "@morpheus/core";
 import {
   AgentRunner,
+  AgentRunnerError,
   decodeAgentReadyContract,
   IssueTracker,
   IssueTrackerCommandError,
@@ -21,9 +27,12 @@ import {
 import type {
   AgentReadyContract,
   AgentRunnerService,
+  PreparationAgentResult,
+  ImplementationAgentInput,
   MergeRequestClientService,
   ProcessResult,
   ProcessRunnerService,
+  ReviewAgentInput,
   ImplementationAgentResult,
   ReviewAgentResult,
   TrackedIssue,
@@ -450,6 +459,19 @@ type FakeAgentRunnerOptions = {
   readonly scenario?: FakeAgentRunnerScenario;
 };
 
+type SandcastlePhase = "prepare" | "implement" | "review";
+
+type SandcastleRun = (options: RunOptions) => Promise<RunResult>;
+
+export type SandcastleAgentRunnerOptions = {
+  readonly cwd: string;
+  readonly promptPaths?: Partial<Record<SandcastlePhase, string>>;
+  readonly logDirectory: string;
+  readonly run?: SandcastleRun;
+  readonly agent?: AgentProvider;
+  readonly sandbox?: SandboxProvider;
+};
+
 const fakeContract = (issue: TrackedIssue): AgentReadyContract => ({
   category: "task",
   summary: issue.title,
@@ -658,6 +680,148 @@ export const createFakeAgentRunner = ({
 export const fakeAgentRunnerLayer = (
   options: FakeAgentRunnerOptions = {},
 ): Layer.Layer<AgentRunner> => Layer.succeed(AgentRunner, createFakeAgentRunner(options));
+
+const resultTag = "morpheus_result";
+
+type SandcastlePhaseInput =
+  | { readonly phase: "prepare"; readonly issue: TrackedIssue }
+  | ({ readonly phase: "implement" } & ImplementationAgentInput)
+  | ({ readonly phase: "review" } & ReviewAgentInput);
+
+const builtInPrompt = (input: SandcastlePhaseInput): string => {
+  const { phase, issue } = input;
+  const base = [
+    `You are a Morpheus ${phase} agent.`,
+    `Issue: ${issue.id}`,
+    `Title: ${issue.title}`,
+    "Do not commit. Do not close Beads issues.",
+    `Return only JSON inside <${resultTag}>...</${resultTag}>.`,
+  ];
+
+  if (phase === "prepare") {
+    return [
+      ...base,
+      "JSON shape: {\"status\":\"prepared\",\"contract\":AgentReadyContract,\"transcript\":\"...\",\"artifact\":{}} or blocked/failed variant.",
+    ].join("\n");
+  }
+
+  if (phase === "implement") {
+    return [
+      ...base,
+      `Workspace: ${input.workspace.workspacePath}`,
+      `Worktree: ${input.workspace.worktreePath ?? "None"}`,
+      `Branch: ${input.workspace.branch}`,
+      `Target branch: ${input.workspace.targetBranch}`,
+      `Remote: ${input.workspace.remote}`,
+      `Merge request: ${input.mergeRequest.reference}`,
+      `Merge request URL: ${input.mergeRequest.url ?? "None"}`,
+      `Contract: ${JSON.stringify(input.contract)}`,
+      "JSON shape: {\"status\":\"implemented\",\"implementationEvidence\":[{\"summary\":\"...\",\"files\":[]}],\"verificationEvidence\":[{\"command\":\"...\",\"status\":\"passed\"}],\"transcript\":\"...\",\"artifact\":{}} or failed variant.",
+    ].join("\n");
+  }
+
+  return [
+    ...base,
+    `Workspace: ${input.workspace.workspacePath}`,
+    `Worktree: ${input.workspace.worktreePath ?? "None"}`,
+    `Branch: ${input.workspace.branch ?? "None"}`,
+    `Permissions: ${input.workspace.permissions}`,
+    `Merge request: ${input.mergeRequest.reference}`,
+    `Merge request URL: ${input.mergeRequest.url ?? "None"}`,
+    `Contract: ${JSON.stringify(input.contract)}`,
+    `Implementation evidence: ${JSON.stringify(input.implementationEvidence)}`,
+    `Verification evidence: ${JSON.stringify(input.verificationEvidence)}`,
+    "JSON shape: {\"status\":\"passed\",\"findings\":[],\"transcript\":\"...\",\"artifact\":{}} or blocked/failed variant.",
+  ].join("\n");
+};
+
+const resolvePromptText = (
+  input: SandcastlePhaseInput,
+  promptPaths: Partial<Record<SandcastlePhase, string>> = {},
+  cwd: string,
+): string => {
+  const { phase } = input;
+  const configuredPath = promptPaths[phase];
+  if (configuredPath === undefined) {
+    return builtInPrompt(input);
+  }
+
+  const promptPath = resolve(cwd, configuredPath);
+  if (!existsSync(promptPath)) {
+    throw new Error(`Prompt override not found: ${promptPath}`);
+  }
+
+  return readFileSync(promptPath, "utf8");
+};
+
+const extractTaggedJson = (stdout: string): unknown => {
+  const match = stdout.match(new RegExp(`<${resultTag}>([\\s\\S]*?)</${resultTag}>`));
+  if (match === null) {
+    throw new Error(`Missing <${resultTag}> output`);
+  }
+
+  return JSON.parse(match[1]);
+};
+
+const runSandcastlePhase = (
+  options: SandcastleAgentRunnerOptions,
+  input: SandcastlePhaseInput,
+): Effect.Effect<unknown, AgentRunnerError> =>
+  Effect.tryPromise({
+    try: async () => {
+      const { phase, issue } = input;
+      const cwd =
+        phase === "implement" || phase === "review" ? input.workspace.workspacePath : options.cwd;
+      mkdirSync(options.logDirectory, { recursive: true });
+      const runner = options.run ?? sandcastleRun;
+      const result = await runner({
+        agent: options.agent ?? codex("gpt-5.4-mini", { effort: "medium" }),
+        sandbox: options.sandbox ?? docker(),
+        cwd,
+        prompt: resolvePromptText(input, options.promptPaths, options.cwd),
+        logging: {
+          type: "file",
+          path: join(options.logDirectory, `${issue.id}-${phase}.log`),
+        },
+        name: `morpheus-${phase}-${issue.id}`,
+        maxIterations: 1,
+      });
+      const output = extractTaggedJson(result.stdout);
+
+      return {
+        ...(typeof output === "object" && output !== null ? output : {}),
+        transcript: result.stdout,
+        artifact: {
+          output,
+          logFilePath: result.logFilePath,
+          branch: result.branch,
+          commits: result.commits,
+          preservedWorktreePath: result.preservedWorktreePath,
+        },
+      };
+    },
+    catch: (error) =>
+      new AgentRunnerError({
+        operation: `sandcastle.${input.phase}`,
+        message: errorMessage(error),
+      }),
+  });
+
+export const createSandcastleAgentRunner = (
+  options: SandcastleAgentRunnerOptions,
+): AgentRunnerService => ({
+  prepareIssue: ({ issue }) =>
+    runSandcastlePhase(options, { phase: "prepare", issue }) as Effect.Effect<
+      PreparationAgentResult,
+      AgentRunnerError
+    >,
+  implementIssue: (input) => runSandcastlePhase(options, { ...input, phase: "implement" }),
+  reviewIssue: (input) => runSandcastlePhase(options, { ...input, phase: "review" }),
+});
+
+export const sandcastleAgentRunnerLayer = (
+  options: SandcastleAgentRunnerOptions,
+): Layer.Layer<AgentRunner> => Layer.succeed(AgentRunner, createSandcastleAgentRunner(options));
 
 const checkCommand = (
   processRunner: ProcessRunnerService,

@@ -290,7 +290,9 @@ Reconciliation is internal daemon tick behavior in v1, not a public scheduler la
 
 Runtime depends on `AgentRunner` port.
 
-Early slices use `FakeAgentRunner` to produce realistic typed results and transcript artifacts. Real `SandcastleAgentRunner` arrives later as adapter work.
+`SandcastleAgentRunner` is the production adapter for `agentRunner.kind = "sandcastle"`. It resolves built-in Morpheus prompts or target-repo prompt overrides, calls the Sandcastle programmatic API, captures raw stdout as the transcript, and stores Sandcastle metadata in local run artifacts.
+
+`FakeAgentRunner` remains a test/support adapter for deterministic runtime coverage.
 
 Public vocabulary remains Morpheus. Sandcastle appears only in adapter implementation naming.
 
