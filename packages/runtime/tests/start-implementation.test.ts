@@ -2,6 +2,7 @@ import { deriveIssueState, deriveLane, type AgentReadyContract } from "@morpheus
 import { Effect, Layer } from "effect";
 import { describe, expect, it } from "vitest";
 import {
+  AgentRunner,
   IssueTracker,
   IssueTrackerCommandError,
   MergeRequestClient,
@@ -11,6 +12,7 @@ import {
   startImplementation,
   WorkspaceRuntime,
   type IssueTrackerService,
+  type AgentRunnerService,
   type MergeRequestClientService,
   type RunLedgerService,
   type RunSummary,
@@ -175,7 +177,15 @@ const fakeRunLedger = (
       };
       return Effect.succeed(run);
     },
-    writeRunArtifacts: () => Effect.succeed(run),
+    writeRunArtifacts: () => {
+      events.push("RunArtifactsWritten");
+      run = {
+        ...run,
+        transcriptPath: "/tmp/morpheus/transcript.txt",
+        artifactPath: "/tmp/morpheus/artifact.json",
+      };
+      return Effect.succeed(run);
+    },
     finishRun: (_runId, input) => {
       events.push(input.terminalEvent ?? "ImplementationFailed");
       run = {
@@ -214,6 +224,60 @@ const fakeRunLedger = (
   };
 };
 
+const fakeAgentRunner = (
+  scenario: "implemented" | "malformed" | "empty_evidence" | "verification_failed" = "implemented",
+) => {
+  const calls: string[] = [];
+  const service: AgentRunnerService = {
+    prepareIssue: () => Effect.die("not used"),
+    implementIssue: (input) => {
+      calls.push(`implement:${input.issue.id}:${input.mergeRequest.reference}`);
+      if (scenario === "malformed") {
+        return Effect.succeed({
+          status: "implemented",
+          implementationEvidence: [{ summary: "missing files" }],
+          verificationEvidence: [],
+          transcript: "malformed transcript",
+          artifact: { status: "malformed" },
+        });
+      }
+      if (scenario === "empty_evidence") {
+        return Effect.succeed({
+          status: "implemented",
+          implementationEvidence: [],
+          verificationEvidence: [],
+          transcript: "empty evidence transcript",
+          artifact: { status: "empty_evidence" },
+        });
+      }
+
+      return Effect.succeed({
+        status: "implemented",
+        implementationEvidence: [
+          {
+            summary: "Fake implementation complete.",
+            files: ["packages/runtime/src/index.ts"],
+          },
+        ],
+        verificationEvidence: [
+          {
+            command: "pnpm check",
+            status: scenario === "verification_failed" ? "failed" : "passed",
+            output: scenario === "verification_failed" ? "failed" : "passed",
+          },
+        ],
+        transcript: "fake implementation transcript",
+        artifact: { status: scenario },
+      });
+    },
+  };
+
+  return {
+    calls,
+    layer: Layer.succeed(AgentRunner, service),
+  };
+};
+
 const fakeWorkspaceRuntime = (): {
   readonly calls: string[];
   readonly layer: Layer.Layer<WorkspaceRuntime>;
@@ -240,6 +304,7 @@ const fakeWorkspaceRuntime = (): {
 
 const fakeMergeRequestClient = (scenario: "success" | "operator_access") => {
   const calls: string[] = [];
+  const descriptions: string[] = [];
   const service: MergeRequestClientService = {
     createDraftMergeRequest: (input) => {
       calls.push(input.sourceBranch);
@@ -260,6 +325,7 @@ const fakeMergeRequestClient = (scenario: "success" | "operator_access") => {
     },
     updateDescription: (input) => {
       calls.push(`update:${input.reference}`);
+      descriptions.push(input.description);
       return Effect.succeed({
         reference: input.reference,
       });
@@ -268,6 +334,7 @@ const fakeMergeRequestClient = (scenario: "success" | "operator_access") => {
 
   return {
     calls,
+    descriptions,
     layer: Layer.succeed(MergeRequestClient, service),
   };
 };
@@ -310,7 +377,8 @@ const testLayer = (
   ledger: Layer.Layer<RunLedger>,
   workspace: Layer.Layer<WorkspaceRuntime>,
   mergeRequests: Layer.Layer<MergeRequestClient>,
-) => Layer.mergeAll(tracker, ledger, workspace, mergeRequests);
+  runner: Layer.Layer<AgentRunner>,
+) => Layer.mergeAll(tracker, ledger, workspace, mergeRequests, runner);
 
 describe("startImplementation", () => {
   it("prepares workspace, creates Draft MR, records refs, then moves issue to running", async () => {
@@ -318,11 +386,12 @@ describe("startImplementation", () => {
     const ledger = fakeRunLedger();
     const workspace = fakeWorkspaceRuntime();
     const mergeRequests = fakeMergeRequestClient("success");
+    const runner = fakeAgentRunner();
 
     const result = await Effect.runPromise(
       startImplementation("morph-7ky").pipe(
         Effect.provide(
-          testLayer(tracker.layer, ledger.layer, workspace.layer, mergeRequests.layer),
+          testLayer(tracker.layer, ledger.layer, workspace.layer, mergeRequests.layer, runner.layer),
         ),
       ),
     );
@@ -343,11 +412,103 @@ describe("startImplementation", () => {
       "ImplementationStarted",
       "ImplementationWorkspacePrepared",
       "DraftMergeRequestCreated",
+      "RunArtifactsWritten",
     ]);
     expect(workspace.calls).toEqual([
       "prepare:morph-7ky:run_01KRGGDQ6JQN2GMD6KJQ5SFXR6",
     ]);
+    expect(mergeRequests.calls).toEqual(["morpheus/morph-7ky", "update:!42"]);
+    expect(mergeRequests.descriptions[0]).toContain("Fake implementation complete.");
+    expect(mergeRequests.descriptions[0]).toContain("passed: pnpm check - passed");
+    expect(runner.calls).toEqual(["implement:morph-7ky:!42"]);
+  });
+
+  it("rejects malformed implementation evidence before updating MR evidence", async () => {
+    const tracker = fakeIssueTracker(["agent:prepared"]);
+    const ledger = fakeRunLedger();
+    const workspace = fakeWorkspaceRuntime();
+    const mergeRequests = fakeMergeRequestClient("success");
+    const runner = fakeAgentRunner("malformed");
+
+    const result = await Effect.runPromise(
+      startImplementation("morph-7ky").pipe(
+        Effect.provide(
+          testLayer(tracker.layer, ledger.layer, workspace.layer, mergeRequests.layer, runner.layer),
+        ),
+      ),
+    );
+
+    expect(result).toMatchObject({
+      status: "failed",
+      failureKind: "agent_contract_error",
+      message: expect.stringContaining("Invalid implementation result"),
+    });
+    expect(tracker.labels).toEqual(["agent:failed"]);
     expect(mergeRequests.calls).toEqual(["morpheus/morph-7ky"]);
+    expect(ledger.run.status).toBe("failed");
+  });
+
+  it("rejects empty implementation evidence before updating MR evidence", async () => {
+    const tracker = fakeIssueTracker(["agent:prepared"]);
+    const ledger = fakeRunLedger();
+    const workspace = fakeWorkspaceRuntime();
+    const mergeRequests = fakeMergeRequestClient("success");
+    const runner = fakeAgentRunner("empty_evidence");
+
+    const result = await Effect.runPromise(
+      startImplementation("morph-7ky").pipe(
+        Effect.provide(
+          testLayer(tracker.layer, ledger.layer, workspace.layer, mergeRequests.layer, runner.layer),
+        ),
+      ),
+    );
+
+    expect(result).toMatchObject({
+      status: "failed",
+      failureKind: "agent_contract_error",
+      message: expect.stringContaining("Invalid implementation result"),
+    });
+    expect(tracker.labels).toEqual(["agent:failed"]);
+    expect(mergeRequests.calls).toEqual(["morpheus/morph-7ky"]);
+  });
+
+  it("records implementation artifacts but fails the run when verification fails", async () => {
+    const tracker = fakeIssueTracker(["agent:prepared"]);
+    const ledger = fakeRunLedger();
+    const workspace = fakeWorkspaceRuntime();
+    const mergeRequests = fakeMergeRequestClient("success");
+    const runner = fakeAgentRunner("verification_failed");
+
+    const result = await Effect.runPromise(
+      startImplementation("morph-7ky").pipe(
+        Effect.provide(
+          testLayer(tracker.layer, ledger.layer, workspace.layer, mergeRequests.layer, runner.layer),
+        ),
+      ),
+    );
+
+    expect(result).toMatchObject({
+      status: "failed",
+      failureKind: "verification_error",
+      message: "Implementation verification failed: pnpm check",
+    });
+    expect(tracker.labels).toEqual(["agent:failed"]);
+    expect(ledger.run).toMatchObject({
+      status: "failed",
+      failureKind: "verification_error",
+      transcriptPath: "/tmp/morpheus/transcript.txt",
+      artifactPath: "/tmp/morpheus/artifact.json",
+    });
+    expect(mergeRequests.calls).toEqual(["morpheus/morph-7ky", "update:!42"]);
+    expect(mergeRequests.descriptions[0]).toContain("Fake implementation complete.");
+    expect(mergeRequests.descriptions[0]).toContain("failed: pnpm check - failed");
+    expect(ledger.events).toEqual([
+      "ImplementationStarted",
+      "ImplementationWorkspacePrepared",
+      "DraftMergeRequestCreated",
+      "RunArtifactsWritten",
+      "ImplementationFailed",
+    ]);
   });
 
   it("fails before running when workspace ledger recording fails", async () => {
@@ -355,11 +516,12 @@ describe("startImplementation", () => {
     const ledger = fakeRunLedger({ failRecordWorkspace: true });
     const workspace = fakeWorkspaceRuntime();
     const mergeRequests = fakeMergeRequestClient("success");
+    const runner = fakeAgentRunner();
 
     const result = await Effect.runPromise(
       startImplementation("morph-7ky").pipe(
         Effect.provide(
-          testLayer(tracker.layer, ledger.layer, workspace.layer, mergeRequests.layer),
+          testLayer(tracker.layer, ledger.layer, workspace.layer, mergeRequests.layer, runner.layer),
         ),
       ),
     );
@@ -380,11 +542,12 @@ describe("startImplementation", () => {
     const ledger = fakeRunLedger({ failRecordMergeRequest: true });
     const workspace = fakeWorkspaceRuntime();
     const mergeRequests = fakeMergeRequestClient("success");
+    const runner = fakeAgentRunner();
 
     const result = await Effect.runPromise(
       startImplementation("morph-7ky").pipe(
         Effect.provide(
-          testLayer(tracker.layer, ledger.layer, workspace.layer, mergeRequests.layer),
+          testLayer(tracker.layer, ledger.layer, workspace.layer, mergeRequests.layer, runner.layer),
         ),
       ),
     );
@@ -407,11 +570,12 @@ describe("startImplementation", () => {
     const ledger = fakeRunLedger();
     const workspace = fakeWorkspaceRuntime();
     const mergeRequests = fakeMergeRequestClient("success");
+    const runner = fakeAgentRunner();
 
     const result = await Effect.runPromise(
       startImplementation("morph-7ky").pipe(
         Effect.provide(
-          testLayer(tracker.layer, ledger.layer, workspace.layer, mergeRequests.layer),
+          testLayer(tracker.layer, ledger.layer, workspace.layer, mergeRequests.layer, runner.layer),
         ),
       ),
     );
@@ -431,6 +595,7 @@ describe("startImplementation", () => {
     const ledger = fakeRunLedger();
     const workspace = fakeWorkspaceRuntime();
     const mergeRequests = fakeMergeRequestClient("success");
+    const runner = fakeAgentRunner();
 
     const result = await Effect.runPromise(
       startImplementation("morph-7ky").pipe(
@@ -440,6 +605,7 @@ describe("startImplementation", () => {
             ledger.layer,
             workspace.layer,
             mergeRequests.layer,
+            runner.layer,
           ),
         ),
       ),
@@ -460,11 +626,12 @@ describe("startImplementation", () => {
     const ledger = fakeRunLedger();
     const workspace = fakeWorkspaceRuntime();
     const mergeRequests = fakeMergeRequestClient("operator_access");
+    const runner = fakeAgentRunner();
 
     const result = await Effect.runPromise(
       startImplementation("morph-7ky").pipe(
         Effect.provide(
-          testLayer(tracker.layer, ledger.layer, workspace.layer, mergeRequests.layer),
+          testLayer(tracker.layer, ledger.layer, workspace.layer, mergeRequests.layer, runner.layer),
         ),
       ),
     );

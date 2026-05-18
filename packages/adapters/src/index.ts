@@ -23,6 +23,7 @@ import type {
   MergeRequestClientService,
   ProcessResult,
   ProcessRunnerService,
+  ImplementationAgentResult,
   TrackedIssue,
   IssueTrackerService,
   WorkspaceRuntimeService,
@@ -404,7 +405,10 @@ export type FakeAgentRunnerScenario =
   | "blocked"
   | "failed"
   | "invalid_contract"
-  | "blocked_contract";
+  | "blocked_contract"
+  | "implemented"
+  | "malformed_implementation"
+  | "verification_failed";
 
 type FakeAgentRunnerOptions = {
   readonly scenario?: FakeAgentRunnerScenario;
@@ -429,6 +433,40 @@ const fakeContract = (issue: TrackedIssue): AgentReadyContract => ({
 
 const fakeTranscript = (issue: TrackedIssue, status: string): string =>
   [`FakeAgentRunner preparation`, `issue: ${issue.id}`, `status: ${status}`].join("\n");
+
+const fakeImplementationTranscript = (issue: TrackedIssue, status: string): string =>
+  [`FakeAgentRunner implementation`, `issue: ${issue.id}`, `status: ${status}`].join("\n");
+
+const fakeImplementationResult = (
+  issue: TrackedIssue,
+  status: "implemented" | "verification_failed",
+): ImplementationAgentResult => {
+  const verificationStatus = status === "implemented" ? "passed" : "failed";
+  return {
+    status: "implemented",
+    implementationEvidence: [
+      {
+        summary: `Fake implementation completed for ${issue.id}.`,
+        files: ["packages/runtime/src/index.ts"],
+      },
+    ],
+    verificationEvidence: [
+      {
+        command: "pnpm check",
+        status: verificationStatus,
+        output:
+          status === "implemented"
+            ? "Fake verification passed."
+            : "Fake verification failed.",
+      },
+    ],
+    transcript: fakeImplementationTranscript(issue, status),
+    artifact: {
+      scenario: status,
+      issueId: issue.id,
+    },
+  };
+};
 
 export const createFakeAgentRunner = ({
   scenario = "prepared",
@@ -498,6 +536,25 @@ export const createFakeAgentRunner = ({
         contract,
       },
     });
+  },
+  implementIssue: ({ issue }) => {
+    if (scenario === "malformed_implementation") {
+      return Effect.succeed({
+        status: "implemented",
+        implementationEvidence: [{ summary: "Missing files field." }],
+        verificationEvidence: [],
+        transcript: fakeImplementationTranscript(issue, "malformed_implementation"),
+        artifact: {
+          scenario,
+        },
+      });
+    }
+
+    if (scenario === "verification_failed") {
+      return Effect.succeed(fakeImplementationResult(issue, "verification_failed"));
+    }
+
+    return Effect.succeed(fakeImplementationResult(issue, "implemented"));
   },
 });
 

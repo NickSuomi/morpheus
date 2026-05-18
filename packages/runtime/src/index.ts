@@ -1,7 +1,12 @@
 import { existsSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import * as Schema from "@effect/schema/Schema";
-import { planAgentStateTransition, renderDraftReviewArtifact } from "@morpheus/core";
+import {
+  failureKinds,
+  planAgentStateTransition,
+  renderDraftReviewArtifact,
+  renderReviewArtifact,
+} from "@morpheus/core";
 import { Context, Effect, Either, Schema as EffectSchema } from "effect";
 import type {
   AgentReadyContract,
@@ -267,6 +272,42 @@ export type PreparationAgentResult =
       readonly artifact: unknown;
     };
 
+export type ImplementationEvidence = {
+  readonly summary: string;
+  readonly files: readonly string[];
+};
+
+export type VerificationEvidence = {
+  readonly command: string;
+  readonly status: "passed" | "failed";
+  readonly output?: string;
+};
+
+export type ImplementationAgentInput = {
+  readonly issue: TrackedIssue;
+  readonly contract: AgentReadyContract;
+  readonly workspace: PreparedImplementationWorkspace;
+  readonly mergeRequest: MergeRequestReference;
+};
+
+export type ImplementationAgentResult =
+  | {
+      readonly status: "implemented";
+      readonly implementationEvidence: readonly ImplementationEvidence[];
+      readonly verificationEvidence: readonly VerificationEvidence[];
+      readonly transcript: string;
+      readonly artifact: unknown;
+    }
+  | {
+      readonly status: "failed";
+      readonly failureKind: FailureKind;
+      readonly message: string;
+      readonly implementationEvidence: readonly ImplementationEvidence[];
+      readonly verificationEvidence: readonly VerificationEvidence[];
+      readonly transcript: string;
+      readonly artifact: unknown;
+    };
+
 export class AgentRunnerError extends EffectSchema.TaggedError<AgentRunnerError>(
   "AgentRunnerError",
 )("AgentRunnerError", {
@@ -280,6 +321,9 @@ export class AgentRunner extends Context.Tag("@morpheus/runtime/AgentRunner")<
     readonly prepareIssue: (
       input: PreparationAgentInput,
     ) => Effect.Effect<PreparationAgentResult, AgentRunnerError>;
+    readonly implementIssue?: (
+      input: ImplementationAgentInput,
+    ) => Effect.Effect<unknown, AgentRunnerError>;
   }
 >() {}
 
@@ -539,6 +583,64 @@ const artifactToString = (artifact: unknown): Effect.Effect<string, RunLedgerPer
         message: errorMessage(error),
       }),
   });
+
+export type ImplementationAgentResultDecodeResult =
+  | {
+      readonly status: "valid";
+      readonly result: ImplementationAgentResult;
+    }
+  | {
+      readonly status: "invalid";
+      readonly message: string;
+    };
+
+const ImplementationEvidenceSchema = Schema.Struct({
+  summary: Schema.NonEmptyString,
+  files: Schema.Array(Schema.String),
+});
+
+const VerificationEvidenceSchema = Schema.Struct({
+  command: Schema.NonEmptyString,
+  status: Schema.Literal("passed", "failed"),
+  output: Schema.optional(Schema.String),
+});
+
+const ImplementationAgentResultSchema = Schema.Union(
+  Schema.Struct({
+    status: Schema.Literal("implemented"),
+    implementationEvidence: Schema.NonEmptyArray(ImplementationEvidenceSchema),
+    verificationEvidence: Schema.NonEmptyArray(VerificationEvidenceSchema),
+    transcript: Schema.String,
+    artifact: Schema.Unknown,
+  }),
+  Schema.Struct({
+    status: Schema.Literal("failed"),
+    failureKind: Schema.Literal(...failureKinds),
+    message: Schema.NonEmptyString,
+    implementationEvidence: Schema.NonEmptyArray(ImplementationEvidenceSchema),
+    verificationEvidence: Schema.NonEmptyArray(VerificationEvidenceSchema),
+    transcript: Schema.String,
+    artifact: Schema.Unknown,
+  }),
+);
+
+export const decodeImplementationAgentResult = (
+  value: unknown,
+): ImplementationAgentResultDecodeResult => {
+  try {
+    return {
+      status: "valid",
+      result: Schema.decodeUnknownSync(ImplementationAgentResultSchema)(
+        value,
+      ) as ImplementationAgentResult,
+    };
+  } catch (error) {
+    return {
+      status: "invalid",
+      message: errorMessage(error),
+    };
+  }
+};
 
 const terminalPlanFromPreparing = (
   labels: readonly string[],
@@ -1043,6 +1145,33 @@ const failImplementationStart = (
     };
   });
 
+const implementationEvidenceLines = (items: readonly ImplementationEvidence[]): readonly string[] =>
+  items.map((item) =>
+    item.files.length === 0 ? item.summary : `${item.summary} (${item.files.join(", ")})`,
+  );
+
+const verificationEvidenceLines = (items: readonly VerificationEvidence[]): readonly string[] =>
+  items.map((item) => {
+    const suffix = item.output === undefined ? "" : ` - ${item.output}`;
+    return `${item.status}: ${item.command}${suffix}`;
+  });
+
+const implementationArtifact = (
+  result: ImplementationAgentResult,
+  mergeRequest: MergeRequestReference,
+) => ({
+  status: result.status,
+  implementationEvidence: result.implementationEvidence,
+  verificationEvidence: result.verificationEvidence,
+  mergeRequest,
+  ...(result.status === "failed"
+    ? {
+        failureKind: result.failureKind,
+        message: result.message,
+      }
+    : {}),
+});
+
 export const startImplementation = (
   issueId: string,
 ): Effect.Effect<
@@ -1050,14 +1179,16 @@ export const startImplementation = (
   | IssueTrackerError
   | RunLedgerError
   | WorkspaceRuntimeError
-  | MergeRequestClientError,
-  IssueTracker | RunLedger | WorkspaceRuntime | MergeRequestClient
+  | MergeRequestClientError
+  | AgentRunnerError,
+  IssueTracker | RunLedger | WorkspaceRuntime | MergeRequestClient | AgentRunner
 > =>
   Effect.gen(function* () {
     const tracker = yield* IssueTracker;
     const ledger = yield* RunLedger;
     const workspaceRuntime = yield* WorkspaceRuntime;
     const mergeRequests = yield* MergeRequestClient;
+    const runner = yield* AgentRunner;
 
     const issue = yield* tracker.getIssue(issueId);
     const startPlan = planAgentStateTransition(issue.labels, "StartImplementation");
@@ -1166,8 +1297,6 @@ export const startImplementation = (
       );
     }
 
-    const mrRun = mrRunResult.right;
-
     const currentIssue = yield* tracker.getIssue(issueId);
     const currentStartPlan = planAgentStateTransition(currentIssue.labels, "StartImplementation");
     const startResult = yield* Effect.either(
@@ -1189,10 +1318,138 @@ export const startImplementation = (
       );
     }
 
+    const implementIssue = runner.implementIssue;
+    if (implementIssue === undefined) {
+      return yield* failImplementationStart(
+        tracker,
+        ledger,
+        issueId,
+        run.id,
+        "runtime_error",
+        "Agent runner does not support implementation.",
+      );
+    }
+
+    const agentResult = yield* Effect.either(
+      implementIssue({
+        issue,
+        contract,
+        workspace,
+        mergeRequest,
+      }),
+    );
+    if (Either.isLeft(agentResult)) {
+      return yield* failImplementationStart(
+        tracker,
+        ledger,
+        issueId,
+        run.id,
+        "runtime_error",
+        `Agent runner failed during implementation: ${agentResult.left.message}`,
+      );
+    }
+
+    const decodedResult = decodeImplementationAgentResult(agentResult.right);
+    if (decodedResult.status === "invalid") {
+      return yield* failImplementationStart(
+        tracker,
+        ledger,
+        issueId,
+        run.id,
+        "agent_contract_error",
+        `Invalid implementation result: ${decodedResult.message}`,
+      );
+    }
+
+    const implementationResult = decodedResult.result;
+    const artifactResult = yield* Effect.either(
+      artifactToString(implementationArtifact(implementationResult, mergeRequest)),
+    );
+    if (Either.isLeft(artifactResult)) {
+      return yield* failImplementationStart(
+        tracker,
+        ledger,
+        issueId,
+        run.id,
+        "runtime_error",
+        `Implementation artifact serialization failed: ${errorMessage(artifactResult.left)}`,
+      );
+    }
+
+    const artifactRunResult = yield* Effect.either(
+      ledger.writeRunArtifacts(run.id, {
+        transcript: implementationResult.transcript,
+        artifact: artifactResult.right,
+      }),
+    );
+    if (Either.isLeft(artifactRunResult)) {
+      return yield* failImplementationStart(
+        tracker,
+        ledger,
+        issueId,
+        run.id,
+        "runtime_error",
+        `Implementation artifact write failed: ${errorMessage(artifactRunResult.left)}`,
+      );
+    }
+
+    const updateResult = yield* Effect.either(
+      mergeRequests.updateDescription({
+        reference: mergeRequest.reference,
+        description: renderReviewArtifact({
+          issueId: issue.id,
+          contract,
+          implementationEvidence: implementationEvidenceLines(
+            implementationResult.implementationEvidence,
+          ),
+          verificationEvidence: verificationEvidenceLines(
+            implementationResult.verificationEvidence,
+          ),
+          reviewFindings: [],
+          humanChecklist: ["Review implementation evidence before marking ready."],
+        }),
+      }),
+    );
+    if (Either.isLeft(updateResult)) {
+      return yield* failImplementationStart(
+        tracker,
+        ledger,
+        issueId,
+        run.id,
+        updateResult.left.failureKind,
+        `MR evidence update failed: ${updateResult.left.message}`,
+      );
+    }
+
+    if (implementationResult.status === "failed") {
+      return yield* failImplementationStart(
+        tracker,
+        ledger,
+        issueId,
+        run.id,
+        implementationResult.failureKind,
+        implementationResult.message,
+      );
+    }
+
+    const failedVerification = implementationResult.verificationEvidence.find(
+      (evidence) => evidence.status === "failed",
+    );
+    if (failedVerification !== undefined) {
+      return yield* failImplementationStart(
+        tracker,
+        ledger,
+        issueId,
+        run.id,
+        "verification_error",
+        `Implementation verification failed: ${failedVerification.command}`,
+      );
+    }
+
     return {
       status: "started",
       issueId,
-      run: mrRun,
+      run: artifactRunResult.right,
       workspace,
       mergeRequest,
     };
@@ -1279,8 +1536,12 @@ export const startImplementationForCli = (
   issueId: string,
 ): Effect.Effect<
   string,
-  IssueTrackerError | RunLedgerError | WorkspaceRuntimeError | MergeRequestClientError,
-  IssueTracker | RunLedger | WorkspaceRuntime | MergeRequestClient
+  | IssueTrackerError
+  | RunLedgerError
+  | WorkspaceRuntimeError
+  | MergeRequestClientError
+  | AgentRunnerError,
+  IssueTracker | RunLedger | WorkspaceRuntime | MergeRequestClient | AgentRunner
 > => startImplementation(issueId).pipe(Effect.map(renderStartImplementationResult));
 
 export const AgentReadyContractSchema = Schema.Struct({

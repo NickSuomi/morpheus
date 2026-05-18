@@ -137,7 +137,7 @@ const implementationLayerFromConfig = (
   pathOption: Option.Option<string>,
 ): Effect.Effect<
   Layer.Layer<
-    RunLedger | IssueTracker | WorkspaceRuntime | MergeRequestClient,
+    RunLedger | IssueTracker | WorkspaceRuntime | MergeRequestClient | AgentRunner,
     RunLedgerPersistenceError
   >,
   Error
@@ -156,12 +156,17 @@ const implementationLayerFromConfig = (
       beadsIssueTrackerLayer.pipe(Layer.provide(processRunnerLayer)),
       gitWorkspaceRuntimeLayer.pipe(Layer.provide(processRunnerLayer)),
       glabMergeRequestClientLayer.pipe(Layer.provide(processRunnerLayer)),
+      fakeAgentRunnerLayer(),
     );
   });
 
 const provideImplementation = <A, E>(
   pathOption: Option.Option<string>,
-  program: Effect.Effect<A, E, RunLedger | IssueTracker | WorkspaceRuntime | MergeRequestClient>,
+  program: Effect.Effect<
+    A,
+    E,
+    RunLedger | IssueTracker | WorkspaceRuntime | MergeRequestClient | AgentRunner
+  >,
 ): Effect.Effect<A, E | RunLedgerPersistenceError | Error> =>
   Effect.flatMap(implementationLayerFromConfig(pathOption), (layer) =>
     Effect.provide(program, layer),
