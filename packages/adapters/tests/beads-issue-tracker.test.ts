@@ -86,6 +86,14 @@ describe("BeadsIssueTracker", () => {
           priority: 2,
           created_at: "2026-05-12T22:55:16Z",
           updated_at: "2026-05-12T22:55:16Z",
+          dependency_count: 1,
+          dependent_count: 2,
+          dependencies: [
+            {
+              issue_id: "morph-fe0",
+              depends_on_id: "morph-bqg",
+            },
+          ],
         },
       ]),
     ]);
@@ -106,6 +114,9 @@ describe("BeadsIssueTracker", () => {
         priority: 2,
         createdAt: "2026-05-12T22:55:16Z",
         updatedAt: "2026-05-12T22:55:16Z",
+        dependencyCount: 1,
+        dependentCount: 2,
+        dependencyIds: ["morph-bqg"],
         derivedState: {
           status: "active",
           state: "agent:ready",

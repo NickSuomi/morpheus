@@ -11,6 +11,7 @@ import {
 import { Context, Effect, Either, Schema as EffectSchema } from "effect";
 import type {
   AgentReadyContract,
+  AgentState,
   AgentStateTransitionPlan,
   DerivedIssueState,
   FailureKind,
@@ -143,6 +144,10 @@ export type TrackedIssue = {
   readonly priority?: number;
   readonly createdAt?: string;
   readonly updatedAt?: string;
+  readonly dependencyCount?: number;
+  readonly dependentCount?: number;
+  readonly dependencyIds?: readonly string[];
+  readonly dependentIds?: readonly string[];
   readonly derivedState: DerivedIssueState;
   readonly lane: Lane;
 };
@@ -262,6 +267,33 @@ export class IssueTracker extends Context.Tag("@morpheus/runtime/IssueTracker")<
 >() {}
 
 export type IssueTrackerService = Context.Tag.Service<typeof IssueTracker>;
+
+export type OperatorHealthStatus = "ok" | "warn" | "fail";
+
+export type OperatorHealthCheck = {
+  readonly name:
+    | "beads"
+    | "gitlab"
+    | "docker"
+    | "workspace"
+    | "labels"
+    | "daemon"
+    | "containers"
+    | "worktrees"
+    | "ledger"
+    | "config";
+  readonly status: OperatorHealthStatus;
+  readonly detail: string;
+};
+
+export class OperatorHealth extends Context.Tag("@morpheus/runtime/OperatorHealth")<
+  OperatorHealth,
+  {
+    readonly check: () => Effect.Effect<readonly OperatorHealthCheck[], never>;
+  }
+>() {}
+
+export type OperatorHealthService = Context.Tag.Service<typeof OperatorHealth>;
 
 export type ScheduleLaneWorkInput = {
   readonly capacities?: LaneCapacityConfig;
@@ -671,6 +703,198 @@ export const showRunLogsForCli = (
     const ledger = yield* RunLedger;
     return renderRunLogs(yield* ledger.getRunLogs(runId));
   });
+
+const laneCount = (issues: readonly TrackedIssue[], lane: RunnableLane): number =>
+  issues.filter((issue) => issue.lane === lane).length;
+
+const stateCount = (issues: readonly TrackedIssue[], state: AgentState): number =>
+  issues.filter(
+    (issue) => issue.derivedState.status === "active" && issue.derivedState.state === state,
+  ).length;
+
+const runLine = (run: RunSummary): string =>
+  `${run.id} ${run.issueId} ${run.lane} ${run.status} ${run.summary}`;
+
+export type OperatorStatus = {
+  readonly issues: readonly TrackedIssue[];
+  readonly schedule: LaneSchedule;
+  readonly runs: readonly RunSummary[];
+};
+
+export type OperatorSlice = {
+  readonly issue: TrackedIssue;
+  readonly runs: readonly RunSummary[];
+  readonly events: Record<RunnableLane, readonly RunEvent[]>;
+  readonly dependencyIds: readonly string[];
+  readonly dependentIds: readonly string[];
+};
+
+export type OperatorDoctor = {
+  readonly checks: readonly OperatorHealthCheck[];
+};
+
+export const renderOperatorStatus = ({ issues, schedule, runs }: OperatorStatus): string => {
+  const runningRuns = runs.filter((run) => run.status === "running");
+
+  return [
+    "Morpheus status",
+    `lanes: preparation=${laneCount(issues, "preparation")} implementation=${laneCount(issues, "implementation")} review=${laneCount(issues, "review")}`,
+    `runnable: preparation=${schedule.selected.preparation.length} implementation=${schedule.selected.implementation.length} review=${schedule.selected.review.length}`,
+    `blocked=${stateCount(issues, "agent:blocked")} failed=${stateCount(issues, "agent:failed")}`,
+    `conflicts=${schedule.excluded.filter((issue) => issue.reason === "state_conflict").length}`,
+    "currentRuns:",
+    ...(runningRuns.length === 0 ? ["- None"] : runningRuns.map((run) => `- ${runLine(run)}`)),
+  ].join("\n");
+};
+
+const runForLane = (runs: readonly RunSummary[], lane: RunnableLane): RunSummary | undefined =>
+  runs.find((run) => run.lane === lane);
+
+const sliceRunLine = (
+  lane: RunnableLane,
+  run: RunSummary | undefined,
+  events: readonly RunEvent[],
+): string => {
+  if (run === undefined) {
+    return `${lane}: None`;
+  }
+
+  const tombstone = events.find((event) => event.type === "RunPruned");
+  const suffix = tombstone === undefined ? "" : ` tombstone=${tombstone.occurredAt}`;
+
+  return `${lane}: ${run.status} ${run.id}${suffix}`;
+};
+
+export const renderOperatorSlice = ({
+  issue,
+  runs,
+  events,
+  dependencyIds,
+  dependentIds,
+}: OperatorSlice): string => {
+  const latestFailure = runs.find((run) => run.failureKind !== undefined);
+  const latestMr = runs.find(
+    (run) => run.mergeRequestRef !== undefined || run.mergeRequestUrl !== undefined,
+  );
+  const latestRunsFirst = [...runs].reverse();
+  const latestTranscript = latestRunsFirst.find((run) => run.transcriptPath !== undefined);
+  const latestArtifact = latestRunsFirst.find((run) => run.artifactPath !== undefined);
+
+  return [
+    `Morpheus slice ${issue.id}`,
+    `title: ${issue.title}`,
+    `state: ${issue.derivedState.status === "active" ? issue.derivedState.state : issue.derivedState.status}`,
+    `lane: ${issue.lane}`,
+    `dependencies: ${dependencyIds.join(", ") || "None"}`,
+    `dependents: ${dependentIds.join(", ") || "None"}`,
+    sliceRunLine("preparation", runForLane(runs, "preparation"), events.preparation),
+    sliceRunLine("implementation", runForLane(runs, "implementation"), events.implementation),
+    sliceRunLine("review", runForLane(runs, "review"), events.review),
+    `mergeRequest: ${latestMr?.mergeRequestRef ?? "None"}`,
+    `mergeRequestUrl: ${latestMr?.mergeRequestUrl ?? "None"}`,
+    `failure: ${latestFailure?.failureKind ?? "None"}`,
+    `transcript: ${latestTranscript?.transcriptPath ?? "None"}`,
+    `artifact: ${latestArtifact?.artifactPath ?? "None"}`,
+  ].join("\n");
+};
+
+export const renderOperatorDoctor = ({ checks }: OperatorDoctor): string =>
+  [
+    "Morpheus doctor",
+    ...checks.map((check) => `${check.status.toUpperCase()} ${check.name}: ${check.detail}`),
+  ].join("\n");
+
+export const operatorStatus = (
+  capacities: LaneCapacityConfig = {},
+): Effect.Effect<
+  OperatorStatus,
+  IssueTrackerError | RunLedgerPersistenceError,
+  IssueTracker | RunLedger
+> =>
+  Effect.gen(function* () {
+    const tracker = yield* IssueTracker;
+    const ledger = yield* RunLedger;
+    const issues = yield* tracker.listRunnableIssues();
+    const runs = yield* ledger.listRuns();
+
+    return {
+      issues,
+      schedule: scheduleLanes(issues, capacities),
+      runs,
+    };
+  });
+
+export const operatorSlice = (
+  issueId: string,
+): Effect.Effect<
+  OperatorSlice,
+  IssueTrackerError | RunLedgerPersistenceError,
+  IssueTracker | RunLedger
+> =>
+  Effect.gen(function* () {
+    const tracker = yield* IssueTracker;
+    const ledger = yield* RunLedger;
+    const issue = yield* tracker.getIssue(issueId);
+    const issues = yield* tracker.listRunnableIssues();
+    const runs = (yield* ledger.listRuns()).filter((run) => run.issueId === issueId);
+    const events: Record<RunnableLane, RunEvent[]> = {
+      preparation: [],
+      implementation: [],
+      review: [],
+    };
+
+    for (const run of runs) {
+      events[run.lane] = [...events[run.lane], ...(yield* ledger.getRunEvents(run.id))];
+    }
+
+    return {
+      issue,
+      runs,
+      events,
+      dependencyIds: issue.dependencyIds ?? [],
+      dependentIds: [
+        ...(issue.dependentIds ?? []),
+        ...issues
+          .filter((candidate) => candidate.dependencyIds?.includes(issueId) === true)
+          .map((candidate) => candidate.id),
+      ].filter((id, index, ids) => ids.indexOf(id) === index),
+    };
+  });
+
+export const operatorDoctor: Effect.Effect<
+  OperatorDoctor,
+  RunLedgerPersistenceError,
+  RunLedger | OperatorHealth
+> = Effect.gen(function* () {
+  const ledger = yield* RunLedger;
+  const health = yield* OperatorHealth;
+  const checks = [...(yield* health.check())];
+
+  const ledgerStatus = yield* Effect.either(ledger.listRuns());
+  checks.push(
+    Either.isRight(ledgerStatus)
+      ? { name: "ledger", status: "ok", detail: "run ledger readable" }
+      : { name: "ledger", status: "fail", detail: ledgerStatus.left.message },
+  );
+
+  return { checks };
+});
+
+export const operatorStatusForCli = (
+  capacities: LaneCapacityConfig = {},
+): Effect.Effect<string, IssueTrackerError | RunLedgerPersistenceError, IssueTracker | RunLedger> =>
+  operatorStatus(capacities).pipe(Effect.map(renderOperatorStatus));
+
+export const operatorSliceForCli = (
+  issueId: string,
+): Effect.Effect<string, IssueTrackerError | RunLedgerPersistenceError, IssueTracker | RunLedger> =>
+  operatorSlice(issueId).pipe(Effect.map(renderOperatorSlice));
+
+export const operatorDoctorForCli: Effect.Effect<
+  string,
+  RunLedgerPersistenceError,
+  RunLedger | OperatorHealth
+> = operatorDoctor.pipe(Effect.map(renderOperatorDoctor));
 
 export type PrepareIssueResult =
   | {
