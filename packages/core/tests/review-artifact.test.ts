@@ -31,7 +31,7 @@ describe("ReviewArtifact", () => {
     expect(output).toContain("Create Draft MR before implementation.")
     expect(output).toContain("- Draft MR exists before agent:running.")
     expect(output).toContain("- pnpm check")
-    expect(output).toContain("Draft MR created before implementer agent execution.")
+    expect(output).toContain("Review verdict: pending")
   })
 
   it("renders full curated MR context without raw transcript content", () => {
@@ -40,6 +40,7 @@ describe("ReviewArtifact", () => {
       contract,
       implementationEvidence: ["Implemented ReviewArtifact renderer."],
       verificationEvidence: ["pnpm --filter @morpheus/core test -- review-artifact.test.ts"],
+      reviewVerdict: "blocked",
       reviewFindings: [
         {
           severity: "warning",
@@ -54,6 +55,7 @@ describe("ReviewArtifact", () => {
     expect(output).toContain("## Verification Evidence")
     expect(output).toContain("- pnpm --filter @morpheus/core test -- review-artifact.test.ts")
     expect(output).toContain("Risk level: medium")
+    expect(output).toContain("Review verdict: blocked")
     expect(output).toContain("- [warning] Follow-up review still pending.")
     expect(output).toContain("- Confirm GitLab MR description matches artifact.")
     expect(output).not.toContain("raw transcript")

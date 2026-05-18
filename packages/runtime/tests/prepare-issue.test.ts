@@ -144,7 +144,10 @@ const fakeIssueTracker = (
 };
 
 const fakeRunLedger = (
-  options: { readonly failCreatePreparationRun?: boolean; readonly failWriteArtifacts?: boolean } = {},
+  options: {
+    readonly failCreatePreparationRun?: boolean;
+    readonly failWriteArtifacts?: boolean;
+  } = {},
 ) => {
   const calls: string[] = [];
   const events: string[] = [];
@@ -183,6 +186,16 @@ const fakeRunLedger = (
         ...run,
         issueId: input.issueId,
         lane: "implementation",
+        summary: input.summary,
+      };
+      return Effect.succeed(run);
+    },
+    createReviewRun: (input) => {
+      calls.push("createReviewRun");
+      run = {
+        ...run,
+        issueId: input.issueId,
+        lane: "review",
         summary: input.summary,
       };
       return Effect.succeed(run);
@@ -245,6 +258,12 @@ const fakeRunLedger = (
         runId: run.id,
         transcriptPath: run.transcriptPath ?? "",
         transcript: "fake transcript",
+      }),
+    getRunArtifact: () =>
+      Effect.succeed({
+        runId: run.id,
+        artifactPath: run.artifactPath ?? "",
+        artifact: "{}",
       }),
     listRuns: () => Effect.succeed(created ? [run] : []),
     getRun: () => Effect.succeed(created ? run : undefined),

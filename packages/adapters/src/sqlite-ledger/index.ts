@@ -5,6 +5,7 @@ import { SqliteClient } from "@effect/sql-sqlite-node";
 import { failureKinds, runnableLanes, type FailureKind, type RunnableLane } from "@morpheus/core";
 import {
   RunLedger,
+  RunLedgerArtifactNotFoundError,
   RunLedgerInvalidStateError,
   RunLedgerLogsNotFoundError,
   RunLedgerNotFoundError,
@@ -90,8 +91,7 @@ const trySync = <A>(
 
 const ignoreCleanupFailure = <E, R>(
   effect: Effect.Effect<void, E, R>,
-): Effect.Effect<void, never, R> =>
-  effect.pipe(Effect.catchAll(() => Effect.void));
+): Effect.Effect<void, never, R> => effect.pipe(Effect.catchAll(() => Effect.void));
 
 const includes = <T extends string>(values: readonly T[], value: string): value is T =>
   values.includes(value as T);
@@ -266,7 +266,7 @@ export const createSqliteRunLedger = ({
 
     const createRun = Effect.fn("SqliteRunLedger.createRun")(function* (input: {
       readonly issueId: string;
-      readonly lane: "preparation" | "implementation";
+      readonly lane: RunnableLane;
       readonly summary: string;
       readonly eventType: string;
     }) {
@@ -308,74 +308,83 @@ export const createSqliteRunLedger = ({
         });
       }),
 
-      createImplementationRun: Effect.fn("SqliteRunLedger.createImplementationRun")(function* (
-        input,
-      ) {
+      createImplementationRun: Effect.fn("SqliteRunLedger.createImplementationRun")(
+        function* (input) {
+          return yield* createRun({
+            issueId: input.issueId,
+            lane: "implementation",
+            summary: input.summary,
+            eventType: "ImplementationStarted",
+          });
+        },
+      ),
+
+      createReviewRun: Effect.fn("SqliteRunLedger.createReviewRun")(function* (input) {
         return yield* createRun({
           issueId: input.issueId,
-          lane: "implementation",
+          lane: "review",
           summary: input.summary,
-          eventType: "ImplementationStarted",
+          eventType: "StartReview",
         });
       }),
 
-      recordImplementationWorkspace: Effect.fn(
-        "SqliteRunLedger.recordImplementationWorkspace",
-      )(function* (runId, input) {
-        const now = new Date().toISOString();
-        yield* sql
-          .withTransaction(
-            Effect.gen(function* () {
-              const [runStatusRow] = yield* sql<RunStatusRow>`
+      recordImplementationWorkspace: Effect.fn("SqliteRunLedger.recordImplementationWorkspace")(
+        function* (runId, input) {
+          const now = new Date().toISOString();
+          yield* sql
+            .withTransaction(
+              Effect.gen(function* () {
+                const [runStatusRow] = yield* sql<RunStatusRow>`
                   SELECT status
                   FROM runs
                   WHERE id = ${runId}
                 `;
 
-              if (runStatusRow === undefined) {
-                return yield* new RunLedgerNotFoundError({ runId });
-              }
-              if (runStatusRow.status !== "running") {
-                return yield* new RunLedgerInvalidStateError({
-                  runId,
-                  status: runStatusRow.status,
-                  operation: "recordImplementationWorkspace",
-                });
-              }
+                if (runStatusRow === undefined) {
+                  return yield* new RunLedgerNotFoundError({ runId });
+                }
+                if (runStatusRow.status !== "running") {
+                  return yield* new RunLedgerInvalidStateError({
+                    runId,
+                    status: runStatusRow.status,
+                    operation: "recordImplementationWorkspace",
+                  });
+                }
 
-              const [sequenceRow] = yield* sql<SequenceRow>`
+                const [sequenceRow] = yield* sql<SequenceRow>`
                   SELECT COALESCE(MAX(sequence), 0) + 1 AS sequence
                   FROM run_events
                   WHERE run_id = ${runId}
                 `;
-              yield* sql`
+                yield* sql`
                   INSERT INTO run_events (run_id, sequence, type, occurred_at, message)
                   VALUES (${runId}, ${sequenceRow?.sequence ?? 1}, ${"ImplementationWorkspacePrepared"}, ${now}, ${input.branch})
                 `;
-              yield* sql`
+                yield* sql`
                   UPDATE runs
                   SET workspace_path = ${input.workspacePath},
                       worktree_path = ${input.worktreePath ?? null},
                       branch = ${input.branch}
                   WHERE id = ${runId}
                 `;
-            }),
-          )
-          .pipe(
-            Effect.mapError((error) =>
-              error instanceof RunLedgerInvalidStateError ||
-              error instanceof RunLedgerNotFoundError
-                ? error
-                : persistenceError("recordImplementationWorkspace", error),
-            ),
-          );
+              }),
+            )
+            .pipe(
+              Effect.mapError((error) =>
+                error instanceof RunLedgerInvalidStateError ||
+                error instanceof RunLedgerNotFoundError
+                  ? error
+                  : persistenceError("recordImplementationWorkspace", error),
+              ),
+            );
 
-        const run = yield* getRun(runId);
-        if (run === undefined) {
-          return yield* new RunLedgerNotFoundError({ runId });
-        }
-        return run;
-      }),
+          const run = yield* getRun(runId);
+          if (run === undefined) {
+            return yield* new RunLedgerNotFoundError({ runId });
+          }
+          return run;
+        },
+      ),
 
       recordMergeRequest: Effect.fn("SqliteRunLedger.recordMergeRequest")(function* (runId, input) {
         const now = new Date().toISOString();
@@ -418,8 +427,7 @@ export const createSqliteRunLedger = ({
           )
           .pipe(
             Effect.mapError((error) =>
-              error instanceof RunLedgerInvalidStateError ||
-              error instanceof RunLedgerNotFoundError
+              error instanceof RunLedgerInvalidStateError || error instanceof RunLedgerNotFoundError
                 ? error
                 : persistenceError("recordMergeRequest", error),
             ),
@@ -480,8 +488,7 @@ export const createSqliteRunLedger = ({
           )
           .pipe(
             Effect.mapError((error) =>
-              error instanceof RunLedgerInvalidStateError ||
-              error instanceof RunLedgerNotFoundError
+              error instanceof RunLedgerInvalidStateError || error instanceof RunLedgerNotFoundError
                 ? error
                 : persistenceError("finishRun", error),
             ),
@@ -579,6 +586,22 @@ export const createSqliteRunLedger = ({
           runId,
           transcriptPath,
           transcript,
+        };
+      }),
+
+      getRunArtifact: Effect.fn("SqliteRunLedger.getRunArtifact")(function* (runId: string) {
+        const run = yield* getRun(runId);
+        const artifactPath = run?.artifactPath;
+        if (artifactPath === undefined) {
+          return yield* new RunLedgerArtifactNotFoundError({ runId });
+        }
+
+        const artifact = yield* trySync("getRunArtifact", () => readFileSync(artifactPath, "utf8"));
+
+        return {
+          runId,
+          artifactPath,
+          artifact,
         };
       }),
 
