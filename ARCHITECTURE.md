@@ -159,6 +159,12 @@ Initial shape:
 {
   "targetRepo": ".",
   "issueTracker": { "kind": "beads" },
+  "gitlab": {
+    "project": "group/project",
+    "readyLabel": "agent:ready",
+    "targetBranch": "main"
+  },
+  "daemon": { "pollIntervalSeconds": 30 },
   "mergeRequests": { "kind": "gitlab-glab" },
   "agentRunner": { "kind": "sandcastle" },
   "ledger": { "path": ".morpheus/ledger.sqlite" },
@@ -188,6 +194,14 @@ Initial shape:
 `prompts` entries are optional. Missing prompt paths use built-in defaults.
 
 Lane `concurrency` values are positive integers.
+
+`gitlab.readyLabel` is an import trigger for GitLab-to-Beads sync only. After an
+issue is imported, Beads remains the lifecycle source of truth through
+`agent:*` labels; Morpheus must not treat GitLab labels as authoritative issue
+state.
+
+`daemon.pollIntervalSeconds` is a positive integer polling interval for daemon
+ticks.
 
 Commands touching target repo require valid config before side effects begin.
 

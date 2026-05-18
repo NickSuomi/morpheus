@@ -7,6 +7,12 @@ import { loadMorpheusConfig } from "../src/index.js"
 const validConfig = {
   targetRepo: ".",
   issueTracker: { kind: "beads" },
+  gitlab: {
+    project: "morpheus/morpheus",
+    readyLabel: "agent:ready",
+    targetBranch: "main"
+  },
+  daemon: { pollIntervalSeconds: 30 },
   mergeRequests: { kind: "gitlab-glab" },
   agentRunner: { kind: "sandcastle" },
   ledger: { path: ".morpheus/ledger.sqlite" },
@@ -155,6 +161,68 @@ describe("Morpheus config", () => {
       })
     })
   })
+
+  it("accepts GitLab sync and daemon polling config", () => {
+    withTempDir((dir) => {
+      const config = {
+        ...validConfig,
+        gitlab: {
+          project: "group/project",
+          readyLabel: "workflow:ready",
+          targetBranch: "develop"
+        },
+        daemon: { pollIntervalSeconds: 60 }
+      }
+      const configPath = writeConfig(dir, config)
+
+      expect(loadMorpheusConfig({ configPath })).toEqual({
+        status: "loaded",
+        path: configPath,
+        config
+      })
+    })
+  })
+
+  it.each([
+    ["project", { project: 123, readyLabel: "agent:ready", targetBranch: "main" }],
+    ["readyLabel", { project: "group/project", readyLabel: 123, targetBranch: "main" }],
+    ["targetBranch", { project: "group/project", readyLabel: "agent:ready", targetBranch: 123 }]
+  ] as const)("rejects invalid GitLab %s values", (_field, gitlab) => {
+    withTempDir((dir) => {
+      const configPath = writeConfig(dir, {
+        ...validConfig,
+        gitlab
+      })
+
+      expect(loadMorpheusConfig({ configPath })).toMatchObject({
+        status: "error",
+        error: {
+          kind: "schema_validation",
+          path: configPath
+        }
+      })
+    })
+  })
+
+  it.each([0, -1, 1.5] as const)(
+    "rejects invalid daemon poll interval %s",
+    (pollIntervalSeconds) => {
+      withTempDir((dir) => {
+        const configPath = writeConfig(dir, {
+          ...validConfig,
+          daemon: { pollIntervalSeconds }
+        })
+
+        expect(loadMorpheusConfig({ configPath })).toMatchObject({
+          status: "error",
+          error: {
+            kind: "schema_validation",
+            path: configPath
+          }
+        })
+      })
+    }
+  )
 
   it.each(laneNames)("rejects invalid %s lane concurrency values", (lane) => {
     withTempDir((dir) => {
