@@ -93,6 +93,8 @@ const formatConfigSummary = (
       `targetRepo: ${config.targetRepo}`,
       `ledger: ${config.ledger.path}`,
       `issueTracker: ${config.issueTracker.kind}`,
+      `gitlab: project=${config.gitlab.project} readyLabel=${config.gitlab.readyLabel} targetBranch=${config.gitlab.targetBranch}`,
+      `daemon: pollIntervalSeconds=${config.daemon.pollIntervalSeconds}`,
       `mergeRequests: ${config.mergeRequests.kind}`,
       `agentRunner: ${config.agentRunner.kind}`,
       `lanes: preparation=${config.lanes.preparation.concurrency} implementation=${config.lanes.implementation.concurrency} review=${config.lanes.review.concurrency}`,

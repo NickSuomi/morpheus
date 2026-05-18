@@ -100,6 +100,12 @@ describe("morpheus cli", () => {
           {
             targetRepo: ".",
             issueTracker: { kind: "beads" },
+            gitlab: {
+              project: "group/project",
+              readyLabel: "agent:ready",
+              targetBranch: "main",
+            },
+            daemon: { pollIntervalSeconds: 30 },
             mergeRequests: { kind: "gitlab-glab" },
             agentRunner: { kind: "sandcastle" },
             ledger: { path: ".morpheus/ledger.sqlite" },
@@ -138,6 +144,10 @@ describe("morpheus cli", () => {
       expect(output).toContain("targetRepo: .");
       expect(output).toContain("ledger: .morpheus/ledger.sqlite");
       expect(output).toContain("issueTracker: beads");
+      expect(output).toContain(
+        "gitlab: project=group/project readyLabel=agent:ready targetBranch=main",
+      );
+      expect(output).toContain("daemon: pollIntervalSeconds=30");
       expect(output).toContain("mergeRequests: gitlab-glab");
       expect(output).toContain("agentRunner: sandcastle");
       expect(output).toContain("lanes: preparation=1 implementation=1 review=1");
@@ -158,6 +168,12 @@ describe("morpheus cli", () => {
           {
             targetRepo: ".",
             issueTracker: { kind: "beads" },
+            gitlab: {
+              project: "group/project",
+              readyLabel: "agent:ready",
+              targetBranch: "main",
+            },
+            daemon: { pollIntervalSeconds: 30 },
             mergeRequests: { kind: "gitlab-glab" },
             agentRunner: { kind: "sandcastle" },
             ledger: { path: ledgerPath },
