@@ -13,6 +13,7 @@
     "test": "vitest run"
   },
   "dependencies": {
+    "@ai-hero/sandcastle": "0.5.10",
     "@effect/sql": "0.51.1",
     "@effect/sql-sqlite-node": "0.52.0",
     "@morpheus/core": "workspace:*",

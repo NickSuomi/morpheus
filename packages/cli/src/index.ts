@@ -5,11 +5,11 @@ import { Console, Effect, Layer, Option } from "effect";
 import { dirname, isAbsolute, resolve } from "node:path";
 import {
   beadsIssueTrackerLayer,
-  fakeAgentRunnerLayer,
   gitWorkspaceRuntimeLayer,
   glabMergeRequestClientLayer,
   nodeProcessRunnerLayer,
   operatorHealthLayer,
+  sandcastleAgentRunnerLayer,
   sqliteRunLedgerLayer,
 } from "@morpheus/adapters";
 import {
@@ -41,6 +41,11 @@ type LoadedCliConfig = {
   readonly configDirectory: string;
   readonly targetRepo: string;
   readonly ledgerPath: string;
+  readonly promptPaths?: {
+    readonly prepare?: string;
+    readonly implement?: string;
+    readonly review?: string;
+  };
 };
 
 const loadCliConfig = (pathOption: Option.Option<string>): LoadedCliConfig => {
@@ -64,6 +69,7 @@ const loadCliConfig = (pathOption: Option.Option<string>): LoadedCliConfig => {
     configDirectory,
     targetRepo,
     ledgerPath,
+    promptPaths: result.config.prompts,
   };
 };
 
@@ -157,7 +163,11 @@ const prepareLayerFromConfig = (
         runsDirectory: resolve(config.configDirectory, ".morpheus", "runs"),
       }),
       issueTrackerLayer,
-      fakeAgentRunnerLayer(),
+      sandcastleAgentRunnerLayer({
+        cwd: config.targetRepo,
+        promptPaths: config.promptPaths,
+        logDirectory: resolve(config.configDirectory, ".morpheus", "sandcastle-logs"),
+      }),
     );
   });
 
@@ -190,7 +200,11 @@ const implementationLayerFromConfig = (
       beadsIssueTrackerLayer.pipe(Layer.provide(processRunnerLayer)),
       gitWorkspaceRuntimeLayer.pipe(Layer.provide(processRunnerLayer)),
       glabMergeRequestClientLayer.pipe(Layer.provide(processRunnerLayer)),
-      fakeAgentRunnerLayer(),
+      sandcastleAgentRunnerLayer({
+        cwd: config.targetRepo,
+        promptPaths: config.promptPaths,
+        logDirectory: resolve(config.configDirectory, ".morpheus", "sandcastle-logs"),
+      }),
     );
   });
 
@@ -229,7 +243,11 @@ const reviewLayerFromConfig = (
       beadsIssueTrackerLayer.pipe(Layer.provide(processRunnerLayer)),
       gitWorkspaceRuntimeLayer.pipe(Layer.provide(processRunnerLayer)),
       glabMergeRequestClientLayer.pipe(Layer.provide(processRunnerLayer)),
-      fakeAgentRunnerLayer(),
+      sandcastleAgentRunnerLayer({
+        cwd: config.targetRepo,
+        promptPaths: config.promptPaths,
+        logDirectory: resolve(config.configDirectory, ".morpheus", "sandcastle-logs"),
+      }),
     );
   });
 
