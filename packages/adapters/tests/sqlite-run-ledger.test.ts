@@ -67,6 +67,13 @@ const insertRawRun = (input: {
     `;
   });
 
+const prunePolicy = {
+  completedIntermediate: { keepDays: 0, keepLast: 0 },
+  failed: "manual",
+  reviewCandidate: "until-mr-closed-or-manual",
+  active: "never",
+} as const;
+
 describe("SqliteRunLedger", () => {
   it("creates a fake preparation run with an ordered start event", async () => {
     await withTempDir(async (dir) => {
@@ -500,6 +507,186 @@ describe("SqliteRunLedger", () => {
           message: "Transcript and artifact written.",
         },
       ]);
+    });
+  });
+
+  it("dry-runs eligible terminal run pruning without mutating events or artifacts", async () => {
+    await withTempDir(async (dir) => {
+      const result = await runWithLedger(
+        dir,
+        Effect.gen(function* () {
+          const ledger = yield* RunLedger;
+          const run = yield* ledger.createPreparationRun({
+            issueId: "morph-51k",
+            summary: "Prune terminal run",
+          });
+          const withArtifacts = yield* ledger.writeRunArtifacts(run.id, {
+            transcript: "dry-run transcript",
+            artifact: JSON.stringify({ prune: "dry-run" }),
+          });
+          yield* ledger.finishRun(run.id, {
+            status: "succeeded",
+            message: "done",
+          });
+          const beforeEvents = yield* ledger.getRunEvents(run.id);
+          const preview = yield* ledger.pruneRuns({
+            apply: false,
+            policy: prunePolicy,
+            prunedBy: "operator",
+            reason: "operator dry-run",
+          });
+
+          return {
+            beforeEvents,
+            preview,
+            run: yield* ledger.getRun(run.id),
+            afterEvents: yield* ledger.getRunEvents(run.id),
+            transcriptPath: withArtifacts.transcriptPath,
+            artifactPath: withArtifacts.artifactPath,
+          };
+        }),
+      );
+
+      expect(result.preview).toMatchObject({
+        applied: false,
+        eligibleRuns: [
+          {
+            issueId: "morph-51k",
+            lane: "preparation",
+            status: "succeeded",
+            artifactBytes:
+              "dry-run transcript".length + JSON.stringify({ prune: "dry-run" }).length,
+          },
+        ],
+        totalArtifactBytes:
+          "dry-run transcript".length + JSON.stringify({ prune: "dry-run" }).length,
+      });
+      expect(result.afterEvents).toEqual(result.beforeEvents);
+      expect(result.run?.transcriptPath).toBe(result.transcriptPath);
+      expect(result.run?.artifactPath).toBe(result.artifactPath);
+      expect(existsSync(result.transcriptPath ?? "")).toBe(true);
+      expect(existsSync(result.artifactPath ?? "")).toBe(true);
+    });
+  });
+
+  it("applies tombstone pruning, replaces detailed events, clears paths, and deletes files", async () => {
+    await withTempDir(async (dir) => {
+      const result = await runWithLedger(
+        dir,
+        Effect.gen(function* () {
+          const ledger = yield* RunLedger;
+          const run = yield* ledger.createPreparationRun({
+            issueId: "morph-51k",
+            summary: "Apply prune",
+          });
+          const withArtifacts = yield* ledger.writeRunArtifacts(run.id, {
+            transcript: "apply transcript",
+            artifact: JSON.stringify({ prune: "apply" }),
+          });
+          const terminal = yield* ledger.finishRun(run.id, {
+            status: "failed",
+            failureKind: "runtime_error",
+            message: "failed",
+          });
+          const pruned = yield* ledger.pruneRuns({
+            apply: true,
+            policy: prunePolicy,
+            prunedBy: "operator",
+            reason: "manual prune",
+          });
+
+          return {
+            terminal,
+            pruned,
+            run: yield* ledger.getRun(run.id),
+            events: yield* ledger.getRunEvents(run.id),
+            transcriptPath: withArtifacts.transcriptPath,
+            artifactPath: withArtifacts.artifactPath,
+          };
+        }),
+      );
+
+      const expectedBytes = "apply transcript".length + JSON.stringify({ prune: "apply" }).length;
+      expect(result.pruned.totalArtifactBytes).toBe(expectedBytes);
+      expect(result.run).toMatchObject({
+        id: result.terminal.id,
+        issueId: "morph-51k",
+        lane: "preparation",
+        status: "failed",
+        failureKind: "runtime_error",
+        prunedBy: "operator",
+        pruneReason: "manual prune",
+        artifactBytesDeleted: expectedBytes,
+        transcriptPath: undefined,
+        artifactPath: undefined,
+      });
+      expect(result.run?.prunedAt).toEqual(expect.any(String));
+      expect(result.run?.eventsPrunedAt).toEqual(result.run?.prunedAt);
+      expect(result.run?.artifactsPrunedAt).toEqual(result.run?.prunedAt);
+      expect(result.events).toMatchObject([
+        {
+          sequence: 1,
+          type: "RunPruned",
+          message: "manual prune",
+        },
+      ]);
+      expect(existsSync(result.transcriptPath ?? "")).toBe(false);
+      expect(existsSync(result.artifactPath ?? "")).toBe(false);
+    });
+  });
+
+  it("does not prune active or already-pruned runs", async () => {
+    await withTempDir(async (dir) => {
+      const result = await runWithLedger(
+        dir,
+        Effect.gen(function* () {
+          const ledger = yield* RunLedger;
+          const active = yield* ledger.createPreparationRun({
+            issueId: "morph-active",
+            summary: "Active run",
+          });
+          const terminal = yield* ledger.createPreparationRun({
+            issueId: "morph-terminal",
+            summary: "Terminal run",
+          });
+          yield* ledger.finishRun(terminal.id, {
+            status: "failed",
+            failureKind: "runtime_error",
+            message: "failed",
+          });
+          yield* ledger.pruneRuns({
+            apply: true,
+            policy: prunePolicy,
+            prunedBy: "operator",
+            reason: "first prune",
+          });
+          const second = yield* ledger.pruneRuns({
+            apply: true,
+            policy: prunePolicy,
+            prunedBy: "operator",
+            reason: "second prune",
+          });
+
+          return {
+            active: yield* ledger.getRun(active.id),
+            activeEvents: yield* ledger.getRunEvents(active.id),
+            second,
+          };
+        }),
+      );
+
+      expect(result.active).toMatchObject({
+        issueId: "morph-active",
+        status: "running",
+        prunedAt: undefined,
+      });
+      expect(result.activeEvents).toMatchObject([
+        {
+          type: "PreparationStarted",
+        },
+      ]);
+      expect(result.second.eligibleRuns).toEqual([]);
+      expect(result.second.totalArtifactBytes).toBe(0);
     });
   });
 
