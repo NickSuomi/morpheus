@@ -137,6 +137,73 @@ export class MergeRequestClient extends Context.Tag("@morpheus/runtime/MergeRequ
 
 export type MergeRequestClientService = Context.Tag.Service<typeof MergeRequestClient>;
 
+export type GitLabIssueInput = {
+  readonly project: string;
+  readonly iid: number;
+  readonly title: string;
+  readonly description: string;
+  readonly webUrl: string;
+  readonly labels: readonly string[];
+};
+
+export type ListGitLabReadyIssuesInput = {
+  readonly project: string;
+  readonly readyLabel: string;
+};
+
+export class GitLabIssueSourceAccessError extends EffectSchema.TaggedError<GitLabIssueSourceAccessError>(
+  "GitLabIssueSourceAccessError",
+)("GitLabIssueSourceAccessError", {
+  operation: EffectSchema.String,
+  failureKind: EffectSchema.Literal("operator_access"),
+  message: EffectSchema.String,
+}) {}
+
+export class GitLabIssueSourceCommandError extends EffectSchema.TaggedError<GitLabIssueSourceCommandError>(
+  "GitLabIssueSourceCommandError",
+)("GitLabIssueSourceCommandError", {
+  operation: EffectSchema.String,
+  command: EffectSchema.String,
+  args: EffectSchema.Array(EffectSchema.String),
+  exitCode: EffectSchema.Number,
+  stderr: EffectSchema.String,
+}) {}
+
+export class GitLabIssueSourceParseError extends EffectSchema.TaggedError<GitLabIssueSourceParseError>(
+  "GitLabIssueSourceParseError",
+)("GitLabIssueSourceParseError", {
+  operation: EffectSchema.String,
+  command: EffectSchema.String,
+  args: EffectSchema.Array(EffectSchema.String),
+  message: EffectSchema.String,
+}) {}
+
+export class GitLabIssueSourceSchemaError extends EffectSchema.TaggedError<GitLabIssueSourceSchemaError>(
+  "GitLabIssueSourceSchemaError",
+)("GitLabIssueSourceSchemaError", {
+  operation: EffectSchema.String,
+  command: EffectSchema.String,
+  args: EffectSchema.Array(EffectSchema.String),
+  message: EffectSchema.String,
+}) {}
+
+export type GitLabIssueSourceError =
+  | GitLabIssueSourceAccessError
+  | GitLabIssueSourceCommandError
+  | GitLabIssueSourceParseError
+  | GitLabIssueSourceSchemaError;
+
+export class GitLabIssueSource extends Context.Tag("@morpheus/runtime/GitLabIssueSource")<
+  GitLabIssueSource,
+  {
+    readonly listReadyIssues: (
+      input: ListGitLabReadyIssuesInput,
+    ) => Effect.Effect<readonly GitLabIssueInput[], GitLabIssueSourceError>;
+  }
+>() {}
+
+export type GitLabIssueSourceService = Context.Tag.Service<typeof GitLabIssueSource>;
+
 export type TrackedIssue = {
   readonly id: string;
   readonly title: string;

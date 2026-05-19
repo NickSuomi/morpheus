@@ -11,6 +11,11 @@ import {
   AgentRunner,
   AgentRunnerError,
   decodeAgentReadyContract,
+  GitLabIssueSource,
+  GitLabIssueSourceAccessError,
+  GitLabIssueSourceCommandError,
+  GitLabIssueSourceParseError,
+  GitLabIssueSourceSchemaError,
   IssueTracker,
   IssueTrackerCommandError,
   IssueTrackerContractSchemaError,
@@ -27,6 +32,8 @@ import {
 import type {
   AgentReadyContract,
   AgentRunnerService,
+  GitLabIssueInput,
+  GitLabIssueSourceService,
   PreparationAgentResult,
   ImplementationAgentInput,
   MergeRequestClientService,
@@ -67,6 +74,20 @@ type GitWorkspaceRuntimeOptions = {
 
 type GlabMergeRequestClientOptions = {
   readonly processRunner: ProcessRunnerService;
+};
+
+type GlabIssueSourceOptions = {
+  readonly processRunner: ProcessRunnerService;
+};
+
+type GitLabIssueJson = {
+  readonly iid?: unknown;
+  readonly title?: unknown;
+  readonly description?: unknown;
+  readonly body?: unknown;
+  readonly web_url?: unknown;
+  readonly webUrl?: unknown;
+  readonly labels?: unknown;
 };
 
 type BeadsIssueJson = {
@@ -186,6 +207,46 @@ const runGlabEffect = (
     }),
   );
 
+const runGlabIssueSourceEffect = (
+  processRunner: ProcessRunnerService,
+  operation: string,
+  args: readonly string[],
+): Effect.Effect<ProcessResult, GitLabIssueSourceAccessError | GitLabIssueSourceCommandError> =>
+  Effect.gen(function* () {
+    const result = yield* processRunner.run("glab", args).pipe(
+      Effect.mapError(
+        (error) =>
+          new GitLabIssueSourceCommandError({
+            operation,
+            command: error.command,
+            args: [...error.args],
+            exitCode: 1,
+            stderr: error.message,
+          }),
+      ),
+    );
+
+    if (result.exitCode === 0) {
+      return result;
+    }
+
+    if (classifyGlabFailureKind(result.stderr) === "operator_access") {
+      return yield* new GitLabIssueSourceAccessError({
+        operation,
+        failureKind: "operator_access",
+        message: result.stderr,
+      });
+    }
+
+    return yield* new GitLabIssueSourceCommandError({
+      operation,
+      command: "glab",
+      args: [...args],
+      exitCode: result.exitCode,
+      stderr: result.stderr,
+    });
+  });
+
 const parseJsonArray = (
   stdout: string,
   command: string,
@@ -247,6 +308,95 @@ const labelsFromIssue = (value: unknown): readonly string[] => {
 
   return value;
 };
+
+const labelsFromGitLabIssue = (value: unknown): readonly string[] => {
+  if (value === undefined) {
+    return [];
+  }
+
+  if (!Array.isArray(value)) {
+    throw new Error("Expected GitLab issue labels to be an array");
+  }
+
+  return value.map((label) => {
+    if (typeof label === "string") {
+      return label;
+    }
+
+    if (isRecord(label) && typeof label.name === "string") {
+      return label.name;
+    }
+
+    throw new Error("Expected GitLab issue labels to contain strings or objects with name");
+  });
+};
+
+const requiredNumber = (value: unknown, field: string): number => {
+  if (typeof value !== "number") {
+    throw new Error(`Expected GitLab issue ${field} to be a number`);
+  }
+
+  return value;
+};
+
+const gitLabIssueFromJson = (project: string, issue: GitLabIssueJson): GitLabIssueInput => ({
+  project,
+  iid: requiredNumber(issue.iid, "iid"),
+  title: requiredString(issue.title, "title"),
+  description: requiredString(issue.description ?? issue.body, "description"),
+  webUrl: requiredString(issue.web_url ?? issue.webUrl, "web_url"),
+  labels: labelsFromGitLabIssue(issue.labels),
+});
+
+const gitLabIssuesFromJson = (
+  project: string,
+  stdout: string,
+  args: readonly string[],
+): Effect.Effect<
+  readonly GitLabIssueInput[],
+  GitLabIssueSourceParseError | GitLabIssueSourceSchemaError
+> =>
+  Effect.try({
+    try: () => JSON.parse(stdout) as unknown,
+    catch: (error) =>
+      new GitLabIssueSourceParseError({
+        operation: "parse_gitlab_issues",
+        command: "glab",
+        args: [...args],
+        message: errorMessage(error),
+      }),
+  }).pipe(
+    Effect.flatMap((parsed) => {
+      if (!Array.isArray(parsed)) {
+        return Effect.fail(
+          new GitLabIssueSourceSchemaError({
+            operation: "parse_gitlab_issues",
+            command: "glab",
+            args: [...args],
+            message: "Expected JSON array",
+          }),
+        );
+      }
+
+      return Effect.try({
+        try: () =>
+          parsed.map((issue) => {
+            if (!isRecord(issue)) {
+              throw new Error("Expected GitLab issue row to be an object");
+            }
+
+            return gitLabIssueFromJson(project, issue);
+          }),
+        catch: (error) =>
+          new GitLabIssueSourceSchemaError({
+            operation: "parse_gitlab_issues",
+            command: "glab",
+            args: [...args],
+            message: errorMessage(error),
+          }),
+      });
+    }),
+  );
 
 const dependencyIdsFromIssue = (issueId: string, value: unknown): readonly string[] => {
   if (value === undefined) {
@@ -1070,6 +1220,43 @@ export const gitWorkspaceRuntimeLayer: Layer.Layer<WorkspaceRuntime, never, Proc
     Effect.gen(function* () {
       const processRunner = yield* ProcessRunner;
       return createGitWorkspaceRuntime({ processRunner });
+    }),
+  );
+
+export const createGlabIssueSource = ({
+  processRunner,
+}: GlabIssueSourceOptions): GitLabIssueSourceService => ({
+  listReadyIssues: ({ project, readyLabel }) =>
+    Effect.gen(function* () {
+      const args = [
+        "issue",
+        "list",
+        "--repo",
+        project,
+        "--opened",
+        "--label",
+        readyLabel,
+        "--output",
+        "json",
+        "--per-page",
+        "100",
+      ] as const;
+      const result = yield* runGlabIssueSourceEffect(
+        processRunner,
+        "listReadyGitLabIssues",
+        args,
+      );
+
+      return yield* gitLabIssuesFromJson(project, result.stdout, args);
+    }),
+});
+
+export const glabIssueSourceLayer: Layer.Layer<GitLabIssueSource, never, ProcessRunner> =
+  Layer.effect(
+    GitLabIssueSource,
+    Effect.gen(function* () {
+      const processRunner = yield* ProcessRunner;
+      return createGlabIssueSource({ processRunner });
     }),
   );
 
