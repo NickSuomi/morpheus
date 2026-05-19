@@ -5,7 +5,7 @@ import { codex, run as sandcastleRun } from "@ai-hero/sandcastle";
 import type { AgentProvider, RunOptions, RunResult } from "@ai-hero/sandcastle";
 import { docker } from "@ai-hero/sandcastle/sandboxes/docker";
 import type { SandboxProvider } from "@ai-hero/sandcastle";
-import { deriveIssueState, deriveLane, planAgentStateTransition } from "@morpheus/core";
+import { agentStates, deriveIssueState, deriveLane, planAgentStateTransition } from "@morpheus/core";
 import type { AgentStateTransitionPlan } from "@morpheus/core";
 import {
   AgentRunner,
@@ -34,6 +34,8 @@ import type {
   AgentRunnerService,
   GitLabIssueInput,
   GitLabIssueSourceService,
+  ImportedGitLabIssue,
+  ImportedGitLabIssueMetadata,
   PreparationAgentResult,
   ImplementationAgentInput,
   MergeRequestClientService,
@@ -101,6 +103,7 @@ type BeadsIssueJson = {
   readonly dependent_count?: unknown;
   readonly dependencies?: unknown;
   readonly metadata?: unknown;
+  readonly description?: unknown;
 };
 
 export {
@@ -471,27 +474,34 @@ const firstIssueFromJson = (
   stdout: string,
   args: readonly string[],
 ): Effect.Effect<BeadsIssueJson, IssueTrackerJsonParseError> =>
-  parseJsonArray(stdout, "bd", args).pipe(
-    Effect.flatMap(([issue]) =>
-      issue === undefined
-        ? Effect.fail(
-            new IssueTrackerJsonParseError({
-              operation: "parse_json",
-              command: "bd",
-              args: [...args],
-              message: "Expected one issue",
-            }),
-          )
-        : Effect.try({
-            try: () => issueJsonFromUnknown(issue),
-            catch: (error) =>
-              new IssueTrackerJsonParseError({
-                operation: "parse_json",
-                command: "bd",
-                args: [...args],
-                message: errorMessage(error),
-              }),
+  Effect.try({
+    try: () => JSON.parse(stdout) as unknown,
+    catch: (error) =>
+      new IssueTrackerJsonParseError({
+        operation: "parse_json",
+        command: "bd",
+        args: [...args],
+        message: errorMessage(error),
+      }),
+  }).pipe(
+    Effect.flatMap((parsed) =>
+      Effect.try({
+        try: () => {
+          const issue = Array.isArray(parsed) ? parsed[0] : parsed;
+          if (issue === undefined) {
+            throw new Error("Expected one issue");
+          }
+
+          return issueJsonFromUnknown(issue);
+        },
+        catch: (error) =>
+          new IssueTrackerJsonParseError({
+            operation: "parse_json",
+            command: "bd",
+            args: [...args],
+            message: errorMessage(error),
           }),
+      }),
     ),
   );
 
@@ -503,6 +513,79 @@ const trackedIssueFromJson = (
     Effect.flatMap((issue) =>
       Effect.try({
         try: () => issueFromJson(issue),
+        catch: (error) =>
+          new IssueTrackerJsonParseError({
+            operation: "parse_json",
+            command: "bd",
+            args: [...args],
+            message: errorMessage(error),
+          }),
+      }),
+    ),
+  );
+
+const importedGitLabMetadataFromRecord = (
+  issueId: string,
+  value: unknown,
+): ImportedGitLabIssueMetadata | undefined => {
+  if (value === undefined) {
+    return undefined;
+  }
+
+  if (!isRecord(value)) {
+    throw new Error(`Expected ${issueId} morpheus.gitlab metadata to be an object`);
+  }
+
+  return {
+    project: requiredString(value.project, "morpheus.gitlab.project"),
+    iid: requiredNumber(value.iid, "morpheus.gitlab.iid"),
+    webUrl: requiredString(value.webUrl, "morpheus.gitlab.webUrl"),
+    labels: labelsFromIssue(value.labels),
+    lastSyncedAt: requiredString(value.lastSyncedAt, "morpheus.gitlab.lastSyncedAt"),
+    title: requiredString(value.title, "morpheus.gitlab.title"),
+    description: requiredString(value.description, "morpheus.gitlab.description"),
+  };
+};
+
+const importedGitLabIssueFromJson = (issue: BeadsIssueJson): ImportedGitLabIssue | undefined => {
+  const id = requiredString(issue.id, "id");
+  const metadata = issue.metadata;
+
+  if (!isRecord(metadata)) {
+    return undefined;
+  }
+
+  const morpheus = metadata.morpheus;
+  if (!isRecord(morpheus)) {
+    return undefined;
+  }
+
+  const gitlab = importedGitLabMetadataFromRecord(id, morpheus.gitlab);
+  if (gitlab === undefined) {
+    return undefined;
+  }
+
+  return {
+    id,
+    title: requiredString(issue.title, "title"),
+    description: optionalString(issue.description) ?? "",
+    labels: labelsFromIssue(issue.labels),
+    metadata: gitlab,
+  };
+};
+
+const importedGitLabIssuesFromJson = (
+  stdout: string,
+  args: readonly string[],
+): Effect.Effect<readonly ImportedGitLabIssue[], IssueTrackerJsonParseError> =>
+  parseJsonArray(stdout, "bd", args).pipe(
+    Effect.flatMap((issues) =>
+      Effect.try({
+        try: () =>
+          issues.flatMap((issue) => {
+            const imported = importedGitLabIssueFromJson(issueJsonFromUnknown(issue));
+            return imported === undefined ? [] : [imported];
+          }),
         catch: (error) =>
           new IssueTrackerJsonParseError({
             operation: "parse_json",
@@ -546,6 +629,49 @@ const rejectPlan = (
 
 const setLabelArgs = (labels: readonly string[]): string[] =>
   labels.flatMap((label) => ["--set-labels", label]);
+
+const activeAgentLabels = new Set<string>(agentStates);
+
+const hasAgentLifecycleLabel = (labels: readonly string[]): boolean =>
+  labels.some((label) => activeAgentLabels.has(label));
+
+const importedMetadataFromGitLabIssue = (
+  source: GitLabIssueInput,
+  syncedAt: string,
+): ImportedGitLabIssueMetadata => ({
+  project: source.project,
+  iid: source.iid,
+  webUrl: source.webUrl,
+  labels: source.labels,
+  lastSyncedAt: syncedAt,
+  title: source.title,
+  description: source.description,
+});
+
+const metadataWithGitLabImport = (
+  current: Record<string, unknown>,
+  source: GitLabIssueInput,
+  syncedAt: string,
+): Record<string, unknown> => ({
+  ...current,
+  morpheus: {
+    ...(isRecord(current.morpheus) ? current.morpheus : {}),
+    gitlab: importedMetadataFromGitLabIssue(source, syncedAt),
+  },
+});
+
+const importedIssueChanged = (
+  issue: ImportedGitLabIssue,
+  source: GitLabIssueInput,
+): boolean =>
+  issue.title !== source.title ||
+  issue.description !== source.description ||
+  issue.metadata.project !== source.project ||
+  issue.metadata.iid !== source.iid ||
+  issue.metadata.webUrl !== source.webUrl ||
+  issue.metadata.title !== source.title ||
+  issue.metadata.description !== source.description ||
+  JSON.stringify(issue.metadata.labels) !== JSON.stringify(source.labels);
 
 export const createNodeProcessRunner = ({
   cwd,
@@ -1157,6 +1283,92 @@ export const createBeadsIssueTracker = ({
         status: "present",
         issueId,
         contract: decoded.contract,
+      };
+    }),
+  listImportedGitLabIssues: () =>
+    Effect.gen(function* () {
+      const args = ["list", "--all", "--limit", "0", "--json"] as const;
+      const result = yield* runBdEffect(processRunner, args);
+      return yield* importedGitLabIssuesFromJson(result.stdout, args);
+    }),
+  upsertImportedGitLabIssue: ({ source, syncedAt }) =>
+    Effect.gen(function* () {
+      const importedIssues = yield* createBeadsIssueTracker({
+        processRunner,
+      }).listImportedGitLabIssues();
+      const existing = importedIssues.find(
+        (issue) => issue.metadata.project === source.project && issue.metadata.iid === source.iid,
+      );
+
+      if (existing === undefined) {
+        const metadata = metadataWithGitLabImport({}, source, syncedAt);
+        const labels = ["agent:ready"];
+        const args = [
+          "create",
+          source.title,
+          "--description",
+          source.description,
+          "--type",
+          "task",
+          "--priority",
+          "P2",
+          "--labels",
+          labels.join(","),
+          "--metadata",
+          JSON.stringify(metadata),
+          "--json",
+        ] as const;
+        const result = yield* runBdEffect(processRunner, args);
+        const issue = yield* trackedIssueFromJson(result.stdout, args);
+
+        return {
+          status: "created",
+          issueId: issue.id,
+          addedReadyLabel: true,
+        };
+      }
+
+      const showArgs = ["show", existing.id, "--json"] as const;
+      const showResult = yield* runBdEffect(processRunner, showArgs);
+      const currentIssueJson = yield* firstIssueFromJson(showResult.stdout, showArgs);
+      const currentMetadata = yield* readMetadata(existing.id, currentIssueJson);
+      const currentLabels = labelsFromIssue(currentIssueJson.labels);
+      const shouldAddReady = !hasAgentLifecycleLabel(currentLabels);
+      const nextLabels = shouldAddReady ? [...currentLabels, "agent:ready"] : currentLabels;
+      const nextMetadata = metadataWithGitLabImport(currentMetadata, source, syncedAt);
+      const contentChanged = importedIssueChanged(existing, source);
+
+      if (!contentChanged && !shouldAddReady) {
+        yield* runBdEffect(processRunner, [
+          "update",
+          existing.id,
+          "--metadata",
+          JSON.stringify(nextMetadata),
+        ]);
+
+        return {
+          status: "skipped",
+          issueId: existing.id,
+          reason: "unchanged",
+        };
+      }
+
+      yield* runBdEffect(processRunner, [
+        "update",
+        existing.id,
+        "--title",
+        source.title,
+        "--description",
+        source.description,
+        "--metadata",
+        JSON.stringify(nextMetadata),
+        ...setLabelArgs(nextLabels),
+      ]);
+
+      return {
+        status: "updated",
+        issueId: existing.id,
+        addedReadyLabel: shouldAddReady,
       };
     }),
 });

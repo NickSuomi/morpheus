@@ -98,6 +98,9 @@ const fakeIssueTracker = (
         contract: validContract,
       });
     },
+    listImportedGitLabIssues: () => Effect.succeed([]),
+    upsertImportedGitLabIssue: () =>
+      Effect.succeed({ status: "skipped", issueId: "morph-skip", reason: "unchanged" }),
   };
 
   return {
@@ -390,6 +393,9 @@ const fakeMissingContractIssueTracker = (initialLabels: readonly string[]) => {
         status: "missing" as const,
         issueId,
       }),
+    listImportedGitLabIssues: () => Effect.succeed([]),
+    upsertImportedGitLabIssue: () =>
+      Effect.succeed({ status: "skipped", issueId: "morph-skip", reason: "unchanged" }),
   };
 
   return Layer.succeed(IssueTracker, service);
