@@ -2638,6 +2638,230 @@ export const reviewIssue = (
     };
   });
 
+export type DaemonLaneExecution =
+  | {
+      readonly lane: "preparation";
+      readonly issueId: string;
+      readonly result: PrepareIssueResult;
+    }
+  | {
+      readonly lane: "implementation";
+      readonly issueId: string;
+      readonly result: StartImplementationResult;
+    }
+  | {
+      readonly lane: "review";
+      readonly issueId: string;
+      readonly result: ReviewIssueResult;
+    }
+  | {
+      readonly lane: RunnableLane;
+      readonly issueId: string;
+      readonly result: {
+        readonly status: "failed";
+        readonly message: string;
+      };
+    };
+
+export type RunDaemonOnceInput = SyncGitLabIssuesInput & {
+  readonly capacities?: LaneCapacityConfig;
+};
+
+export type RunDaemonLoopInput = RunDaemonOnceInput & {
+  readonly pollIntervalSeconds: number;
+};
+
+export type DaemonOnceResult = {
+  readonly sync: SyncGitLabIssuesResult;
+  readonly tick: DaemonTickPlan;
+  readonly executions: readonly DaemonLaneExecution[];
+};
+
+type DaemonRunError =
+  | IssueTrackerError
+  | RunLedgerError
+  | AgentRunnerError
+  | WorkspaceRuntimeError
+  | MergeRequestClientError;
+
+const executeDaemonCommand = (
+  command: ScheduledLaneWorkCommand,
+): Effect.Effect<
+  DaemonLaneExecution,
+  never,
+  IssueTracker | RunLedger | AgentRunner | WorkspaceRuntime | MergeRequestClient
+> =>
+  Effect.gen(function* () {
+    const execution = yield* Effect.either(
+      command.lane === "preparation"
+        ? prepareIssue(command.issueId).pipe(
+            Effect.map(
+              (result): DaemonLaneExecution => ({
+                lane: "preparation",
+                issueId: command.issueId,
+                result,
+              }),
+            ),
+          )
+        : command.lane === "implementation"
+          ? startImplementation(command.issueId).pipe(
+              Effect.map(
+                (result): DaemonLaneExecution => ({
+                  lane: "implementation",
+                  issueId: command.issueId,
+                  result,
+                }),
+              ),
+            )
+          : reviewIssue(command.issueId).pipe(
+              Effect.map(
+                (result): DaemonLaneExecution => ({
+                  lane: "review",
+                  issueId: command.issueId,
+                  result,
+                }),
+              ),
+            ),
+    );
+
+    if (Either.isRight(execution)) {
+      return execution.right;
+    }
+
+    return {
+      lane: command.lane,
+      issueId: command.issueId,
+      result: {
+        status: "failed",
+        message: errorMessage(execution.left),
+      },
+    };
+  });
+
+export const runDaemonOnce = (
+  input: RunDaemonOnceInput,
+): Effect.Effect<
+  DaemonOnceResult,
+  DaemonRunError,
+  IssueTracker | GitLabIssueSource | RunLedger | AgentRunner | WorkspaceRuntime | MergeRequestClient
+> =>
+  Effect.gen(function* () {
+    const sync = yield* syncGitLabIssues(input);
+    const tick = yield* scheduleLaneWork({ capacities: input.capacities });
+    const [preparation, implementation, review] = yield* Effect.all(
+      [
+        Effect.all(tick.commands.preparation.map(executeDaemonCommand), {
+          concurrency: "unbounded",
+        }),
+        Effect.all(tick.commands.implementation.map(executeDaemonCommand), {
+          concurrency: "unbounded",
+        }),
+        Effect.all(tick.commands.review.map(executeDaemonCommand), {
+          concurrency: "unbounded",
+        }),
+      ],
+      { concurrency: "unbounded" },
+    );
+
+    return {
+      sync,
+      tick,
+      executions: [...preparation, ...implementation, ...review],
+    };
+  });
+
+const daemonResultLine = (execution: DaemonLaneExecution): string => {
+  const status = execution.result.status;
+  if (status === "failed") {
+    const failureKind =
+      "failureKind" in execution.result ? ` failureKind=${execution.result.failureKind}` : "";
+    const message = "message" in execution.result ? ` ${execution.result.message}` : "";
+    return `- ${execution.lane} ${execution.issueId}: failed${failureKind}${message}`;
+  }
+
+  if (status === "state_rejected") {
+    return `- ${execution.lane} ${execution.issueId}: state_rejected reason=${execution.result.reason}`;
+  }
+
+  return `- ${execution.lane} ${execution.issueId}: ${status}`;
+};
+
+export const renderDaemonOnceResult = (result: DaemonOnceResult): string => {
+  const noWork = result.executions.length === 0;
+
+  return [
+    "Morpheus daemon tick",
+    `sync: created=${result.sync.created.length} updated=${result.sync.updated.length} skipped=${result.sync.skipped.length} failed=${result.sync.failed.length}`,
+    `selected: preparation=${result.tick.commands.preparation.length} implementation=${result.tick.commands.implementation.length} review=${result.tick.commands.review.length}`,
+    `excluded: ${result.tick.reconciliation.excluded.length}`,
+    noWork ? "work: None" : "work:",
+    ...result.executions.map(daemonResultLine),
+  ].join("\n");
+};
+
+export const runDaemonOnceForCli = (
+  input: RunDaemonOnceInput,
+): Effect.Effect<
+  string,
+  DaemonRunError,
+  IssueTracker | GitLabIssueSource | RunLedger | AgentRunner | WorkspaceRuntime | MergeRequestClient
+> => runDaemonOnce(input).pipe(Effect.map(renderDaemonOnceResult));
+
+const sleepUntilNextDaemonTick = (
+  seconds: number,
+  signal: AbortSignal,
+): Effect.Effect<void, never> =>
+  Effect.promise(
+    () =>
+      new Promise<void>((resolveSleep) => {
+        if (signal.aborted) {
+          resolveSleep();
+          return;
+        }
+
+        const timeout = setTimeout(resolveSleep, seconds * 1000);
+        signal.addEventListener(
+          "abort",
+          () => {
+            clearTimeout(timeout);
+            resolveSleep();
+          },
+          { once: true },
+        );
+      }),
+  );
+
+export const runDaemonLoopForCli = (
+  input: RunDaemonLoopInput,
+  writeOutput: (output: string) => Effect.Effect<void, never>,
+): Effect.Effect<
+  void,
+  DaemonRunError,
+  IssueTracker | GitLabIssueSource | RunLedger | AgentRunner | WorkspaceRuntime | MergeRequestClient
+> =>
+  Effect.gen(function* () {
+    const controller = new AbortController();
+    const stop = () => controller.abort();
+    process.once("SIGINT", stop);
+    process.once("SIGTERM", stop);
+
+    try {
+      while (!controller.signal.aborted) {
+        const output = yield* runDaemonOnceForCli(input);
+        yield* writeOutput(output);
+
+        if (!controller.signal.aborted) {
+          yield* sleepUntilNextDaemonTick(input.pollIntervalSeconds, controller.signal);
+        }
+      }
+    } finally {
+      process.off("SIGINT", stop);
+      process.off("SIGTERM", stop);
+    }
+
+    yield* writeOutput("Morpheus daemon stopped");
+  });
+
 export const renderPrepareIssueResult = (result: PrepareIssueResult): string => {
   if (result.status === "prepared") {
     return [
