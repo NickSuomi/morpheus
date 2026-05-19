@@ -16,6 +16,7 @@ import {
 import {
   AgentRunner,
   GitLabIssueSource,
+  initMorpheusRepo,
   IssueTracker,
   listRunsForCli,
   loadMorpheusConfig,
@@ -182,6 +183,9 @@ const provideSync = <A, E>(
 ): Effect.Effect<A, E | Error> =>
   Effect.flatMap(syncLayerFromConfig(pathOption), (layer) => Effect.provide(program, layer));
 
+const agentLogDirectory = (configDirectory: string): string =>
+  resolve(configDirectory, ".morpheus", "agent-logs");
+
 const prepareLayerFromConfig = (
   pathOption: Option.Option<string>,
 ): Effect.Effect<
@@ -204,7 +208,7 @@ const prepareLayerFromConfig = (
       sandcastleAgentRunnerLayer({
         cwd: config.targetRepo,
         promptPaths: config.promptPaths,
-        logDirectory: resolve(config.configDirectory, ".morpheus", "sandcastle-logs"),
+        logDirectory: agentLogDirectory(config.configDirectory),
       }),
     );
   });
@@ -241,7 +245,7 @@ const implementationLayerFromConfig = (
       sandcastleAgentRunnerLayer({
         cwd: config.targetRepo,
         promptPaths: config.promptPaths,
-        logDirectory: resolve(config.configDirectory, ".morpheus", "sandcastle-logs"),
+        logDirectory: agentLogDirectory(config.configDirectory),
       }),
     );
   });
@@ -284,7 +288,7 @@ const reviewLayerFromConfig = (
       sandcastleAgentRunnerLayer({
         cwd: config.targetRepo,
         promptPaths: config.promptPaths,
-        logDirectory: resolve(config.configDirectory, ".morpheus", "sandcastle-logs"),
+        logDirectory: agentLogDirectory(config.configDirectory),
       }),
     );
   });
@@ -331,7 +335,7 @@ const daemonLayerFromConfig = (
       sandcastleAgentRunnerLayer({
         cwd: config.targetRepo,
         promptPaths: config.promptPaths,
-        logDirectory: resolve(config.configDirectory, ".morpheus", "sandcastle-logs"),
+        logDirectory: agentLogDirectory(config.configDirectory),
       }),
     );
   });
@@ -377,6 +381,53 @@ const config = Command.make("config", {}, () => Console.log("Morpheus config com
   Command.withDescription("Inspect Morpheus config"),
   Command.withSubcommands([configShow]),
 );
+
+const initTarget = Options.text("target");
+const initGitlabProject = Options.text("gitlab-project");
+const initGitlabReadyLabel = Options.text("gitlab-ready-label").pipe(Options.optional);
+const initTargetBranch = Options.text("target-branch").pipe(Options.optional);
+const initForce = Options.boolean("force");
+
+const init = Command.make(
+  "init",
+  {
+    target: initTarget,
+    gitlabProject: initGitlabProject,
+    gitlabReadyLabel: initGitlabReadyLabel,
+    targetBranch: initTargetBranch,
+    force: initForce,
+  },
+  ({ target, gitlabProject, gitlabReadyLabel, targetBranch, force }) =>
+    Effect.gen(function* () {
+      const result = initMorpheusRepo({
+        target,
+        gitlabProject,
+        gitlabReadyLabel: Option.getOrUndefined(gitlabReadyLabel),
+        targetBranch: Option.getOrUndefined(targetBranch),
+        force,
+      });
+
+      if (result.status === "error") {
+        if (result.error.kind === "existing_files") {
+          return yield* Effect.fail(
+            new Error(`Refusing to overwrite existing files:\n${result.error.paths.join("\n")}`),
+          );
+        }
+
+        return yield* Effect.fail(new Error(`${result.error.kind}: ${result.error.path}`));
+      }
+
+      return yield* Console.log(
+        [
+          "Morpheus initialized",
+          `target: ${result.target}`,
+          `config: ${result.configPath}`,
+          `created: ${result.created.length}`,
+          `updated: ${result.updated.length}`,
+        ].join("\n"),
+      );
+    }),
+).pipe(Command.withDescription("Initialize Morpheus files in a target repository"));
 
 const runs = Command.make("runs", { configPath }, ({ configPath }) =>
   provideLedger(configPath, listRunsForCli).pipe(Effect.flatMap((output) => Console.log(output))),
@@ -503,6 +554,7 @@ const command = Command.make("morpheus", {}, () =>
   Command.withDescription("Morpheus local agent orchestration"),
   Command.withSubcommands([
     config,
+    init,
     runs,
     runDetail,
     logs,
