@@ -77,6 +77,59 @@ Most commands load `morpheus.config.json` from the current working directory or
 from `--config`. Run target-repo commands from a repository that has that config,
 or pass an explicit config path.
 
+## Target Repo Quickstart
+
+This is the local flow for a repo such as `private-target-repo`.
+
+```bash
+cd /Users/nicksuomi/sandbox/morpheus
+pnpm install
+pnpm build
+pnpm link --global ./packages/cli
+
+cd /path/to/private-target-repo
+morpheus init --target . --gitlab-project group/private-target-repo
+morpheus config show
+```
+
+Edit `morpheus.config.json` before running agents:
+
+- `gitlab.project` should match the GitLab project path.
+- `gitlab.readyLabel` defaults to `agent:ready` and is only an import trigger.
+- `gitlab.targetBranch` defaults to `main`.
+- `verification.commands` can list repo checks operators expect agents to run.
+
+Sync imports ready GitLab issues into Beads:
+
+```bash
+glab auth status
+bd ready
+morpheus sync
+bd ready
+```
+
+After sync, Beads is the lifecycle source of truth. Morpheus does not treat
+GitLab labels as workflow state after import; Beads `agent:*` labels drive
+prepare, implement, and review.
+
+Run one daemon tick first, then polling mode:
+
+```bash
+morpheus daemon --once
+morpheus status
+morpheus daemon
+```
+
+Inspect transparent state while the daemon works:
+
+```bash
+morpheus slice morph-abc
+morpheus runs
+morpheus run run_01EXAMPLE
+morpheus logs run_01EXAMPLE
+morpheus prune --dry-run
+```
+
 ## Docker Daemon
 
 Build the local image from this repo. This does not require publishing Morpheus
@@ -122,6 +175,22 @@ Required mounts:
 
 The compose file contains only paths and image settings. It does not write glab
 tokens, SSH keys, or other secrets into tracked Morpheus config.
+
+## Troubleshooting
+
+- Missing `morpheus`: run `pnpm build`, then `pnpm link --global ./packages/cli`
+  from this repo, or use `pnpm --filter @morpheus/cli morpheus ...`.
+- Missing config: run `morpheus init --target . --gitlab-project group/project`
+  in the target repo, or pass `--config /path/to/morpheus.config.json`.
+- `glab` auth failures: run `glab auth status` on the host and ensure Docker
+  runs with `${HOME}/.config/glab-cli` mounted read-only.
+- Docker access failures: start Docker, check `/var/run/docker.sock`, and ensure
+  the daemon container has the socket mounted.
+- Agent runtime access failures: verify Docker access from the host first, then
+  inspect `.morpheus/agent-logs/` and the run logs for the failing run.
+- Conflicting `agent:*` labels: keep exactly one active Beads lifecycle label on
+  an issue. Use `morpheus slice <issue-id>` to inspect current state before
+  changing labels.
 
 ## CLI Commands
 
