@@ -27,6 +27,8 @@ import {
   prepareIssueForCli,
   pruneRunsForCli,
   reviewIssueForCli,
+  runDaemonLoopForCli,
+  runDaemonOnceForCli,
   RunLedger,
   showRunForCli,
   showRunLogsForCli,
@@ -48,6 +50,8 @@ type LoadedCliConfig = {
   readonly ledgerPath: string;
   readonly retention: MorpheusConfig["retention"];
   readonly gitlab: MorpheusConfig["gitlab"];
+  readonly daemon: MorpheusConfig["daemon"];
+  readonly lanes: MorpheusConfig["lanes"];
   readonly promptPaths?: {
     readonly prepare?: string;
     readonly implement?: string;
@@ -78,6 +82,8 @@ const loadCliConfig = (pathOption: Option.Option<string>): LoadedCliConfig => {
     ledgerPath,
     retention: result.config.retention,
     gitlab: result.config.gitlab,
+    daemon: result.config.daemon,
+    lanes: result.config.lanes,
     promptPaths: result.config.prompts,
   };
 };
@@ -293,6 +299,72 @@ const provideReview = <A, E>(
 ): Effect.Effect<A, E | RunLedgerPersistenceError | Error> =>
   Effect.flatMap(reviewLayerFromConfig(pathOption), (layer) => Effect.provide(program, layer));
 
+const daemonLayerFromConfig = (
+  pathOption: Option.Option<string>,
+): Effect.Effect<
+  Layer.Layer<
+    | RunLedger
+    | IssueTracker
+    | GitLabIssueSource
+    | WorkspaceRuntime
+    | MergeRequestClient
+    | AgentRunner,
+    RunLedgerPersistenceError
+  >,
+  Error
+> =>
+  Effect.sync(() => {
+    const config = loadCliConfig(pathOption);
+    const processRunnerLayer = nodeProcessRunnerLayer({
+      cwd: config.targetRepo,
+    });
+
+    return Layer.mergeAll(
+      sqliteRunLedgerLayer({
+        ledgerPath: config.ledgerPath,
+        runsDirectory: resolve(config.configDirectory, ".morpheus", "runs"),
+      }),
+      beadsIssueTrackerLayer.pipe(Layer.provide(processRunnerLayer)),
+      glabIssueSourceLayer.pipe(Layer.provide(processRunnerLayer)),
+      gitWorkspaceRuntimeLayer.pipe(Layer.provide(processRunnerLayer)),
+      glabMergeRequestClientLayer.pipe(Layer.provide(processRunnerLayer)),
+      sandcastleAgentRunnerLayer({
+        cwd: config.targetRepo,
+        promptPaths: config.promptPaths,
+        logDirectory: resolve(config.configDirectory, ".morpheus", "sandcastle-logs"),
+      }),
+    );
+  });
+
+const provideDaemon = <A, E>(
+  pathOption: Option.Option<string>,
+  program: Effect.Effect<
+    A,
+    E,
+    | RunLedger
+    | IssueTracker
+    | GitLabIssueSource
+    | WorkspaceRuntime
+    | MergeRequestClient
+    | AgentRunner
+  >,
+): Effect.Effect<A, E | RunLedgerPersistenceError | Error> =>
+  Effect.flatMap(daemonLayerFromConfig(pathOption), (layer) => Effect.provide(program, layer));
+
+const daemonTickForConfig = (config: LoadedCliConfig, configPath: Option.Option<string>) =>
+  provideDaemon(
+    configPath,
+    runDaemonOnceForCli({
+      project: config.gitlab.project,
+      readyLabel: config.gitlab.readyLabel,
+      capacities: {
+        preparation: config.lanes.preparation.concurrency,
+        implementation: config.lanes.implementation.concurrency,
+        review: config.lanes.review.concurrency,
+      },
+    }),
+  );
+
 const configShow = Command.make("show", { configPath }, ({ configPath }) =>
   formatConfigSummary(
     loadMorpheusConfig({
@@ -395,6 +467,36 @@ const review = Command.make("review", { issueId, configPath }, ({ issueId, confi
   ),
 ).pipe(Command.withDescription("Run read-only review for one running issue"));
 
+const once = Options.boolean("once");
+
+const daemon = Command.make("daemon", { configPath, once }, ({ configPath, once }) =>
+  Effect.gen(function* () {
+    const config = loadCliConfig(configPath);
+
+    if (once) {
+      const output = yield* daemonTickForConfig(config, configPath);
+      return yield* Console.log(output);
+    }
+
+    return yield* provideDaemon(
+      configPath,
+      runDaemonLoopForCli(
+        {
+          project: config.gitlab.project,
+          readyLabel: config.gitlab.readyLabel,
+          pollIntervalSeconds: config.daemon.pollIntervalSeconds,
+          capacities: {
+            preparation: config.lanes.preparation.concurrency,
+            implementation: config.lanes.implementation.concurrency,
+            review: config.lanes.review.concurrency,
+          },
+        },
+        Console.log,
+      ),
+    );
+  }),
+).pipe(Command.withDescription("Poll, sync, schedule, and run Morpheus lanes"));
+
 const command = Command.make("morpheus", {}, () =>
   Console.log("Morpheus local agent orchestration"),
 ).pipe(
@@ -412,6 +514,7 @@ const command = Command.make("morpheus", {}, () =>
     prepare,
     implement,
     review,
+    daemon,
   ]),
 );
 
