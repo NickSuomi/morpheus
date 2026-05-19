@@ -1,16 +1,22 @@
 import { deriveIssueState, deriveLane, type AgentReadyContract } from "@morpheus/core";
 import { Effect, Layer } from "effect";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import {
   AgentRunner,
   GitLabIssueSource,
+  initMorpheusRepo,
   IssueTracker,
+  loadMorpheusConfig,
   MergeRequestClient,
   RunLedger,
   runDaemonOnce,
   runDaemonOnceForCli,
   WorkspaceRuntime,
   type AgentRunnerService,
+  type GitLabIssueInput,
   type GitLabIssueSourceService,
   type IssueTrackerService,
   type MergeRequestClientService,
@@ -91,6 +97,9 @@ const fakeIssueTracker = (initialIssues: Record<string, readonly string[]>) => {
     listImportedGitLabIssues: () => Effect.succeed([]),
     upsertImportedGitLabIssue: (input) => {
       const issueId = `morph-gl-${input.source.iid}`;
+      if (labelsByIssue.has(issueId)) {
+        return Effect.succeed({ status: "skipped", issueId, reason: "unchanged" });
+      }
       labelsByIssue.set(issueId, ["agent:ready"]);
       return Effect.succeed({ status: "created", issueId, addedReadyLabel: true });
     },
@@ -302,10 +311,11 @@ const fakeAgentRunner = (
 
 const supportLayer = (
   statuses: Parameters<typeof fakeAgentRunner>[0] = {},
+  gitlabIssues: readonly GitLabIssueInput[] = [],
 ) =>
   Layer.mergeAll(
     Layer.succeed(GitLabIssueSource, {
-      listReadyIssues: () => Effect.succeed([]),
+      listReadyIssues: () => Effect.succeed(gitlabIssues),
     } satisfies GitLabIssueSourceService),
     fakeRunLedger(),
     fakeAgentRunner(statuses),
@@ -333,6 +343,52 @@ const supportLayer = (
   );
 
 describe("runDaemonOnce", () => {
+  it("smokes init to sync to daemon review candidate with fake adapters", async () => {
+    const targetRepo = mkdtempSync(join(tmpdir(), "morpheus-e2e-"));
+    try {
+      const init = initMorpheusRepo({
+        target: targetRepo,
+        gitlabProject: "group/project",
+      });
+      expect(init.status).toBe("initialized");
+
+      const loaded = loadMorpheusConfig({ targetRepo });
+      expect(loaded.status).toBe("loaded");
+      if (loaded.status === "error") {
+        throw new Error(`${loaded.error.kind}: ${loaded.error.path}`);
+      }
+
+      const tracker = fakeIssueTracker({});
+      const layer = Layer.mergeAll(
+        tracker.layer,
+        supportLayer({}, [
+          {
+            project: "group/project",
+            iid: 42,
+            title: "Implement imported issue",
+            description: "Ready for Morpheus.",
+            webUrl: "https://gitlab.example.com/group/project/-/issues/42",
+            labels: ["agent:ready"],
+          },
+        ]),
+      );
+
+      for (let tick = 0; tick < 3; tick += 1) {
+        await Effect.runPromise(
+          runDaemonOnce({
+            project: loaded.config.gitlab.project,
+            readyLabel: loaded.config.gitlab.readyLabel,
+            syncedAt: `2026-05-19T00:00:0${tick}.000Z`,
+          }).pipe(Effect.provide(layer)),
+        );
+      }
+
+      expect(tracker.labelsOf("morph-gl-42")).toEqual(["agent:review-candidate"]);
+    } finally {
+      rmSync(targetRepo, { force: true, recursive: true });
+    }
+  });
+
   it("syncs first, schedules runnable Beads issues, and dispatches selected lanes", async () => {
     const tracker = fakeIssueTracker({
       "morph-prepare": ["agent:ready"],
