@@ -1,5 +1,5 @@
-import { existsSync, readFileSync } from "node:fs";
-import { resolve } from "node:path";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { join, resolve } from "node:path";
 import * as Schema from "@effect/schema/Schema";
 import {
   agentStates,
@@ -3196,6 +3196,32 @@ export type ConfigLoadResult =
       readonly error: ConfigLoadError;
     };
 
+export type InitMorpheusRepoOptions = {
+  readonly target: string;
+  readonly gitlabProject: string;
+  readonly gitlabReadyLabel?: string;
+  readonly targetBranch?: string;
+  readonly force?: boolean;
+};
+
+export type InitMorpheusRepoResult =
+  | {
+      readonly status: "initialized";
+      readonly target: string;
+      readonly configPath: string;
+      readonly created: readonly string[];
+      readonly updated: readonly string[];
+    }
+  | {
+      readonly status: "error";
+      readonly error:
+        | {
+            readonly kind: "existing_files";
+            readonly paths: readonly string[];
+          }
+        | ConfigLoadError;
+    };
+
 const configPathFromOptions = (options: ConfigLoadOptions): string => {
   if (options.configPath !== undefined) {
     return resolve(options.configPath);
@@ -3247,4 +3273,143 @@ export const loadMorpheusConfig = (options: ConfigLoadOptions = {}): ConfigLoadR
       },
     };
   }
+};
+
+const defaultPromptPaths = {
+  prepare: ".morpheus/prompts/prepare.md",
+  implement: ".morpheus/prompts/implement.md",
+  review: ".morpheus/prompts/review.md",
+} as const;
+
+const makeInitialConfig = (options: InitMorpheusRepoOptions): MorpheusConfig => ({
+  targetRepo: ".",
+  issueTracker: { kind: "beads" },
+  gitlab: {
+    project: options.gitlabProject,
+    readyLabel: options.gitlabReadyLabel ?? "agent:ready",
+    targetBranch: options.targetBranch ?? "main",
+  },
+  daemon: { pollIntervalSeconds: 30 },
+  mergeRequests: { kind: "gitlab-glab" },
+  agentRunner: { kind: "sandcastle" },
+  ledger: { path: ".morpheus/ledger.sqlite" },
+  lanes: {
+    preparation: { concurrency: 1 },
+    implementation: { concurrency: 1 },
+    review: { concurrency: 1 },
+  },
+  verification: { commands: [] },
+  retention: {
+    completedIntermediate: {
+      keepDays: 14,
+      keepLast: 100,
+    },
+    failed: "manual",
+    reviewCandidate: "until-mr-closed-or-manual",
+    active: "never",
+  },
+  prompts: defaultPromptPaths,
+});
+
+const starterPrompts = {
+  prepare: [
+    "# Morpheus Prepare Prompt",
+    "",
+    "Read the issue, repo guidance, and relevant code before answering.",
+    "Produce an Agent-Ready Contract with current behavior, desired behavior, key interfaces, acceptance criteria, out of scope, verification plan, blockers, HITL decisions, and risk level.",
+    "If intent is unclear, return a blocked result instead of inventing requirements.",
+    "",
+  ].join("\n"),
+  implement: [
+    "# Morpheus Implement Prompt",
+    "",
+    "Implement the prepared contract only.",
+    "Keep changes scoped, preserve user work, and follow repo guidance.",
+    "Run the configured verification commands or explain why they could not run.",
+    "Return concise evidence: changed behavior, files touched, verification, and remaining risk.",
+    "",
+  ].join("\n"),
+  review: [
+    "# Morpheus Review Prompt",
+    "",
+    "Review the implementation against the Agent-Ready Contract.",
+    "Stay read-only. Report correctness bugs, regressions, missing verification, and risk.",
+    "Return a verdict with actionable findings and verification evidence.",
+    "",
+  ].join("\n"),
+} as const;
+
+const gitignoreEntries = [
+  ".morpheus/ledger.sqlite*",
+  ".morpheus/runs/",
+  ".morpheus/agent-logs/",
+] as const;
+
+export const initMorpheusRepo = (options: InitMorpheusRepoOptions): InitMorpheusRepoResult => {
+  const target = resolve(options.target);
+  const configPath = join(target, "morpheus.config.json");
+  const promptPaths = [
+    join(target, defaultPromptPaths.prepare),
+    join(target, defaultPromptPaths.implement),
+    join(target, defaultPromptPaths.review),
+  ];
+  const managedPaths = [configPath, ...promptPaths];
+  const existingPaths =
+    options.force === true ? [] : managedPaths.filter((path) => existsSync(path));
+
+  if (existingPaths.length > 0) {
+    return {
+      status: "error",
+      error: {
+        kind: "existing_files",
+        paths: existingPaths,
+      },
+    };
+  }
+
+  const config = makeInitialConfig(options);
+  const decodedConfig = Schema.decodeUnknownSync(MorpheusConfigSchema)(config);
+  const created: string[] = [];
+  const updated: string[] = [];
+
+  mkdirSync(join(target, ".morpheus", "prompts"), { recursive: true });
+
+  for (const [path, contents] of [
+    [configPath, `${JSON.stringify(decodedConfig, null, 2)}\n`],
+    [promptPaths[0], starterPrompts.prepare],
+    [promptPaths[1], starterPrompts.implement],
+    [promptPaths[2], starterPrompts.review],
+  ] as const) {
+    const existed = existsSync(path);
+    writeFileSync(path, contents);
+    (existed ? updated : created).push(path);
+  }
+
+  const gitignorePath = join(target, ".gitignore");
+  const gitignoreExisted = existsSync(gitignorePath);
+  const gitignore = gitignoreExisted ? readFileSync(gitignorePath, "utf8") : "";
+  const lines = gitignore.split(/\r?\n/).filter((line) => line.length > 0);
+  const missingEntries = gitignoreEntries.filter((entry) => !lines.includes(entry));
+
+  if (missingEntries.length > 0) {
+    const prefix = gitignore.length > 0 && !gitignore.endsWith("\n") ? "\n" : "";
+    writeFileSync(gitignorePath, `${gitignore}${prefix}${missingEntries.join("\n")}\n`);
+    (gitignoreExisted ? updated : created).push(gitignorePath);
+  }
+
+  const validation = loadMorpheusConfig({ configPath });
+  if (validation.status === "error") {
+    return {
+      status: "error",
+      error: validation.error,
+    };
+  }
+
+  return {
+    status: "initialized",
+    target,
+    configPath,
+    created,
+    updated,
+  };
 };
