@@ -6,6 +6,7 @@ import { dirname, isAbsolute, resolve } from "node:path";
 import {
   beadsIssueTrackerLayer,
   gitWorkspaceRuntimeLayer,
+  glabIssueSourceLayer,
   glabMergeRequestClientLayer,
   nodeProcessRunnerLayer,
   operatorHealthLayer,
@@ -14,6 +15,7 @@ import {
 } from "@morpheus/adapters";
 import {
   AgentRunner,
+  GitLabIssueSource,
   IssueTracker,
   listRunsForCli,
   loadMorpheusConfig,
@@ -29,6 +31,7 @@ import {
   showRunForCli,
   showRunLogsForCli,
   startImplementationForCli,
+  syncGitLabIssuesForCli,
   type MorpheusConfig,
   type RunLedgerPersistenceError,
   WorkspaceRuntime,
@@ -44,6 +47,7 @@ type LoadedCliConfig = {
   readonly targetRepo: string;
   readonly ledgerPath: string;
   readonly retention: MorpheusConfig["retention"];
+  readonly gitlab: MorpheusConfig["gitlab"];
   readonly promptPaths?: {
     readonly prepare?: string;
     readonly implement?: string;
@@ -73,6 +77,7 @@ const loadCliConfig = (pathOption: Option.Option<string>): LoadedCliConfig => {
     targetRepo,
     ledgerPath,
     retention: result.config.retention,
+    gitlab: result.config.gitlab,
     promptPaths: result.config.prompts,
   };
 };
@@ -149,6 +154,27 @@ const provideOperator = <A, E>(
   program: Effect.Effect<A, E, RunLedger | IssueTracker | OperatorHealth>,
 ): Effect.Effect<A, E | RunLedgerPersistenceError | Error> =>
   Effect.flatMap(operatorLayerFromConfig(pathOption), (layer) => Effect.provide(program, layer));
+
+const syncLayerFromConfig = (
+  pathOption: Option.Option<string>,
+): Effect.Effect<Layer.Layer<IssueTracker | GitLabIssueSource>, Error> =>
+  Effect.sync(() => {
+    const config = loadCliConfig(pathOption);
+    const processRunnerLayer = nodeProcessRunnerLayer({
+      cwd: config.targetRepo,
+    });
+
+    return Layer.mergeAll(
+      beadsIssueTrackerLayer.pipe(Layer.provide(processRunnerLayer)),
+      glabIssueSourceLayer.pipe(Layer.provide(processRunnerLayer)),
+    );
+  });
+
+const provideSync = <A, E>(
+  pathOption: Option.Option<string>,
+  program: Effect.Effect<A, E, IssueTracker | GitLabIssueSource>,
+): Effect.Effect<A, E | Error> =>
+  Effect.flatMap(syncLayerFromConfig(pathOption), (layer) => Effect.provide(program, layer));
 
 const prepareLayerFromConfig = (
   pathOption: Option.Option<string>,
@@ -338,6 +364,19 @@ const doctor = Command.make("doctor", { configPath }, ({ configPath }) =>
   ),
 ).pipe(Command.withDescription("Check read-only Morpheus adapter and runtime health"));
 
+const sync = Command.make("sync", { configPath }, ({ configPath }) =>
+  Effect.gen(function* () {
+    const config = loadCliConfig(configPath);
+    return yield* provideSync(
+      configPath,
+      syncGitLabIssuesForCli({
+        project: config.gitlab.project,
+        readyLabel: config.gitlab.readyLabel,
+      }),
+    );
+  }).pipe(Effect.flatMap((output) => Console.log(output))),
+).pipe(Command.withDescription("Import ready GitLab issues into Beads"));
+
 const prepare = Command.make("prepare", { issueId, configPath }, ({ issueId, configPath }) =>
   providePreparation(configPath, prepareIssueForCli(issueId)).pipe(
     Effect.flatMap((output) => Console.log(output)),
@@ -369,6 +408,7 @@ const command = Command.make("morpheus", {}, () =>
     status,
     slice,
     doctor,
+    sync,
     prepare,
     implement,
     review,
