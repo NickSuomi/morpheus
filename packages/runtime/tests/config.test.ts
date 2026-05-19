@@ -371,6 +371,18 @@ describe("Morpheus config", () => {
       expect(readFileSync(join(dir, ".morpheus/prompts/review.md"), "utf8")).toContain(
         "Stay read-only.",
       );
+      const compose = readFileSync(join(dir, ".morpheus/docker-compose.yml"), "utf8");
+      expect(compose).toContain("image: ${MORPHEUS_IMAGE:-morpheus:local}");
+      expect(compose).toContain(
+        'command: ["daemon", "--config", "/workspace/morpheus.config.json"]',
+      );
+      expect(compose).toContain("target: /workspace");
+      expect(compose).toContain("target: /root/.config/glab-cli");
+      expect(compose).toContain("target: /root/.gitconfig");
+      expect(compose).toContain("target: /root/.ssh");
+      expect(compose).toContain("target: /var/run/docker.sock");
+      expect(compose).not.toContain("token");
+      expect(compose).not.toContain("password");
       expect(readFileSync(join(dir, ".gitignore"), "utf8")).toContain(".morpheus/ledger.sqlite*");
       expect(readFileSync(join(dir, ".gitignore"), "utf8")).toContain(".morpheus/runs/");
       expect(readFileSync(join(dir, ".gitignore"), "utf8")).toContain(".morpheus/agent-logs/");
