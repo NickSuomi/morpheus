@@ -77,11 +77,58 @@ Most commands load `morpheus.config.json` from the current working directory or
 from `--config`. Run target-repo commands from a repository that has that config,
 or pass an explicit config path.
 
+## Docker Daemon
+
+Build the local image from this repo. This does not require publishing Morpheus
+to npm:
+
+```bash
+cd /Users/nicksuomi/sandbox/morpheus
+docker build -t morpheus:local .
+docker run --rm morpheus:local --help
+```
+
+Initialize a target repo:
+
+```bash
+morpheus init \
+  --target /path/to/target-repo \
+  --gitlab-project group/project
+```
+
+`morpheus init` writes `/path/to/target-repo/.morpheus/docker-compose.yml`.
+Run the daemon from the target repo so the compose-relative bind mounts resolve
+to the target repo and its `.morpheus` artifact directory:
+
+```bash
+cd /path/to/target-repo
+docker compose -f .morpheus/docker-compose.yml up
+```
+
+The generated compose file runs:
+
+```bash
+morpheus daemon --config /workspace/morpheus.config.json
+```
+
+Required mounts:
+
+- target repo at `/workspace`
+- persistent `.morpheus` artifacts at `/workspace/.morpheus`
+- glab auth from `${HOME}/.config/glab-cli`
+- Git config from `${HOME}/.gitconfig`
+- SSH auth from `${HOME}/.ssh`
+- Docker socket from `/var/run/docker.sock`
+
+The compose file contains only paths and image settings. It does not write glab
+tokens, SSH keys, or other secrets into tracked Morpheus config.
+
 ## CLI Commands
 
 Current command inventory:
 
 - `morpheus config show` - show validated config summary.
+- `morpheus init` - create target repo config, prompts, and Docker compose template.
 - `morpheus doctor` - check read-only adapter and runtime health.
 - `morpheus status` - show read-only operator status.
 - `morpheus slice <issue-id>` - show issue forensics across state and runs.
