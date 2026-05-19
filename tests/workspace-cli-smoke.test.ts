@@ -1,6 +1,14 @@
 import { beforeAll, describe, expect, it } from "vitest";
 import { execFileSync } from "node:child_process";
-import { chmodSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import {
+  chmodSync,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -249,6 +257,38 @@ describe("morpheus cli", () => {
     expect(output).toContain("prepare");
     expect(output).toContain("implement");
     expect(output).toContain("review");
+  });
+
+  it("initializes Morpheus files in a target repo", () => {
+    const dir = mkdtempSync(join(tmpdir(), "morpheus-cli-init-"));
+    try {
+      const output = runPnpm([
+        "--filter",
+        "@morpheus/cli",
+        "morpheus",
+        "init",
+        "--target",
+        dir,
+        "--gitlab-project",
+        "group/project",
+      ]);
+
+      expect(output).toContain("Morpheus initialized");
+      expect(output).toContain(`target: ${dir}`);
+      expect(output).toContain(`config: ${join(dir, "morpheus.config.json")}`);
+      expect(readFileSync(join(dir, "morpheus.config.json"), "utf8")).toContain(
+        '"readyLabel": "agent:ready"',
+      );
+      expect(readFileSync(join(dir, "morpheus.config.json"), "utf8")).toContain(
+        '"targetBranch": "main"',
+      );
+      expect(existsSync(join(dir, ".morpheus/prompts/prepare.md"))).toBe(true);
+      expect(existsSync(join(dir, ".morpheus/prompts/implement.md"))).toBe(true);
+      expect(existsSync(join(dir, ".morpheus/prompts/review.md"))).toBe(true);
+      expect(readFileSync(join(dir, ".gitignore"), "utf8")).toContain(".morpheus/runs/");
+    } finally {
+      rmSync(dir, { force: true, recursive: true });
+    }
   });
 
   it("runs daemon once and reports no work", () => {
