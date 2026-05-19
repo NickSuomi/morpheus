@@ -3345,15 +3345,47 @@ const gitignoreEntries = [
   ".morpheus/agent-logs/",
 ] as const;
 
+const dockerComposeTemplate = [
+  "services:",
+  "  morpheus:",
+  "    image: ${MORPHEUS_IMAGE:-morpheus:local}",
+  "    working_dir: /workspace",
+  '    command: ["daemon", "--config", "/workspace/morpheus.config.json"]',
+  "    volumes:",
+  "      - type: bind",
+  "        source: ..",
+  "        target: /workspace",
+  "      - type: bind",
+  "        source: .",
+  "        target: /workspace/.morpheus",
+  "      - type: bind",
+  "        source: ${HOME}/.config/glab-cli",
+  "        target: /root/.config/glab-cli",
+  "        read_only: true",
+  "      - type: bind",
+  "        source: ${HOME}/.gitconfig",
+  "        target: /root/.gitconfig",
+  "        read_only: true",
+  "      - type: bind",
+  "        source: ${HOME}/.ssh",
+  "        target: /root/.ssh",
+  "        read_only: true",
+  "      - type: bind",
+  "        source: /var/run/docker.sock",
+  "        target: /var/run/docker.sock",
+  "",
+].join("\n");
+
 export const initMorpheusRepo = (options: InitMorpheusRepoOptions): InitMorpheusRepoResult => {
   const target = resolve(options.target);
   const configPath = join(target, "morpheus.config.json");
+  const dockerComposePath = join(target, ".morpheus", "docker-compose.yml");
   const promptPaths = [
     join(target, defaultPromptPaths.prepare),
     join(target, defaultPromptPaths.implement),
     join(target, defaultPromptPaths.review),
   ];
-  const managedPaths = [configPath, ...promptPaths];
+  const managedPaths = [configPath, dockerComposePath, ...promptPaths];
   const existingPaths =
     options.force === true ? [] : managedPaths.filter((path) => existsSync(path));
 
@@ -3376,6 +3408,7 @@ export const initMorpheusRepo = (options: InitMorpheusRepoOptions): InitMorpheus
 
   for (const [path, contents] of [
     [configPath, `${JSON.stringify(decodedConfig, null, 2)}\n`],
+    [dockerComposePath, dockerComposeTemplate],
     [promptPaths[0], starterPrompts.prepare],
     [promptPaths[1], starterPrompts.implement],
     [promptPaths[2], starterPrompts.review],

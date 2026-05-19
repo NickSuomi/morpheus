@@ -1,0 +1,9 @@
+.beads
+.git
+.morpheus
+.scratch
+node_modules
+packages/*/dist
+packages/*/*.tsbuildinfo
+coverage
+*.log
