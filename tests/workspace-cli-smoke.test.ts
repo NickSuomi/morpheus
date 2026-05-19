@@ -1,6 +1,6 @@
 import { beforeAll, describe, expect, it } from "vitest";
 import { execFileSync } from "node:child_process";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -249,5 +249,66 @@ describe("morpheus cli", () => {
     expect(output).toContain("prepare");
     expect(output).toContain("implement");
     expect(output).toContain("review");
+  });
+
+  it("runs daemon once and reports no work", () => {
+    const dir = mkdtempSync(join(tmpdir(), "morpheus-cli-daemon-"));
+    try {
+      const binDir = join(dir, "bin");
+      mkdirSync(binDir);
+      for (const command of ["glab", "bd"]) {
+        const path = join(binDir, command);
+        writeFileSync(path, "#!/bin/sh\nprintf '[]\\n'\n");
+        chmodSync(path, 0o755);
+      }
+
+      const configPath = join(dir, "morpheus.config.json");
+      writeFileSync(
+        configPath,
+        JSON.stringify(
+          {
+            targetRepo: ".",
+            issueTracker: { kind: "beads" },
+            gitlab: {
+              project: "group/project",
+              readyLabel: "agent:ready",
+              targetBranch: "main",
+            },
+            daemon: { pollIntervalSeconds: 30 },
+            mergeRequests: { kind: "gitlab-glab" },
+            agentRunner: { kind: "sandcastle" },
+            ledger: { path: join(dir, ".morpheus", "ledger.sqlite") },
+            lanes: {
+              preparation: { concurrency: 1 },
+              implementation: { concurrency: 1 },
+              review: { concurrency: 1 },
+            },
+            verification: { commands: [] },
+            retention: {
+              completedIntermediate: {
+                keepDays: 14,
+                keepLast: 100,
+              },
+              failed: "manual",
+              reviewCandidate: "until-mr-closed-or-manual",
+              active: "never",
+            },
+          },
+          null,
+          2,
+        ),
+      );
+
+      const output = runPnpm(
+        ["--filter", "@morpheus/cli", "morpheus", "daemon", "--once", "--config", configPath],
+        { PATH: `${binDir}:${process.env.PATH ?? ""}` },
+      );
+
+      expect(output).toContain("Morpheus daemon tick");
+      expect(output).toContain("selected: preparation=0 implementation=0 review=0");
+      expect(output).toContain("work: None");
+    } finally {
+      rmSync(dir, { force: true, recursive: true });
+    }
   });
 });
