@@ -129,6 +129,9 @@ const fakeIssueTracker = (
               contract,
             },
       ),
+    listImportedGitLabIssues: () => Effect.succeed([]),
+    upsertImportedGitLabIssue: () =>
+      Effect.succeed({ status: "skipped", issueId: "morph-skip", reason: "unchanged" }),
   };
 
   return {

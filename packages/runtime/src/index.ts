@@ -2,6 +2,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import * as Schema from "@effect/schema/Schema";
 import {
+  agentStates,
   failureKinds,
   planAgentStateTransition,
   renderDraftReviewArtifact,
@@ -249,6 +250,46 @@ export type IssueTrackerReadContractResult =
       readonly issueId: string;
     };
 
+export type ImportedGitLabIssueMetadata = {
+  readonly project: string;
+  readonly iid: number;
+  readonly webUrl: string;
+  readonly labels: readonly string[];
+  readonly lastSyncedAt: string;
+  readonly title: string;
+  readonly description: string;
+};
+
+export type ImportedGitLabIssue = {
+  readonly id: string;
+  readonly title: string;
+  readonly description: string;
+  readonly labels: readonly string[];
+  readonly metadata: ImportedGitLabIssueMetadata;
+};
+
+export type UpsertImportedGitLabIssueInput = {
+  readonly source: GitLabIssueInput;
+  readonly syncedAt: string;
+};
+
+export type UpsertImportedGitLabIssueResult =
+  | {
+      readonly status: "created";
+      readonly issueId: string;
+      readonly addedReadyLabel: boolean;
+    }
+  | {
+      readonly status: "updated";
+      readonly issueId: string;
+      readonly addedReadyLabel: boolean;
+    }
+  | {
+      readonly status: "skipped";
+      readonly issueId: string;
+      readonly reason: "unchanged";
+    };
+
 export class IssueTrackerCommandError extends EffectSchema.TaggedError<IssueTrackerCommandError>(
   "IssueTrackerCommandError",
 )("IssueTrackerCommandError", {
@@ -330,6 +371,13 @@ export class IssueTracker extends Context.Tag("@morpheus/runtime/IssueTracker")<
       | IssueTrackerMalformedMetadataError
       | IssueTrackerContractSchemaError
     >;
+    readonly listImportedGitLabIssues: () => Effect.Effect<
+      readonly ImportedGitLabIssue[],
+      ProcessRunnerError | IssueTrackerCommandError | IssueTrackerJsonParseError
+    >;
+    readonly upsertImportedGitLabIssue: (
+      input: UpsertImportedGitLabIssueInput,
+    ) => Effect.Effect<UpsertImportedGitLabIssueResult, IssueTrackerError>;
   }
 >() {}
 
@@ -1034,6 +1082,119 @@ export const operatorDoctorForCli: Effect.Effect<
   RunLedgerPersistenceError,
   RunLedger | OperatorHealth
 > = operatorDoctor.pipe(Effect.map(renderOperatorDoctor));
+
+export type SyncGitLabIssuesInput = {
+  readonly project: string;
+  readonly readyLabel: string;
+  readonly syncedAt?: string;
+};
+
+export type SyncGitLabIssueFailure = {
+  readonly project: string;
+  readonly iid?: number;
+  readonly title?: string;
+  readonly message: string;
+};
+
+export type SyncGitLabIssuesResult = {
+  readonly created: readonly UpsertImportedGitLabIssueResult[];
+  readonly updated: readonly UpsertImportedGitLabIssueResult[];
+  readonly skipped: readonly UpsertImportedGitLabIssueResult[];
+  readonly failed: readonly SyncGitLabIssueFailure[];
+};
+
+const activeAgentLabels = new Set<string>(agentStates);
+
+export const hasActiveAgentLifecycleLabel = (labels: readonly string[]): boolean =>
+  labels.some((label) => activeAgentLabels.has(label));
+
+const syncFailureFromError = (
+  error: GitLabIssueSourceError | IssueTrackerError,
+  project: string,
+  source?: GitLabIssueInput,
+): SyncGitLabIssueFailure => ({
+  project: source?.project ?? project,
+  iid: source?.iid,
+  title: source?.title,
+  message: errorMessage(error),
+});
+
+export const syncGitLabIssues = ({
+  project,
+  readyLabel,
+  syncedAt = new Date().toISOString(),
+}: SyncGitLabIssuesInput): Effect.Effect<
+  SyncGitLabIssuesResult,
+  never,
+  GitLabIssueSource | IssueTracker
+> =>
+  Effect.gen(function* () {
+    const source = yield* GitLabIssueSource;
+    const tracker = yield* IssueTracker;
+    const created: UpsertImportedGitLabIssueResult[] = [];
+    const updated: UpsertImportedGitLabIssueResult[] = [];
+    const skipped: UpsertImportedGitLabIssueResult[] = [];
+    const failed: SyncGitLabIssueFailure[] = [];
+
+    const listed = yield* Effect.either(source.listReadyIssues({ project, readyLabel }));
+
+    if (Either.isLeft(listed)) {
+      return {
+        created,
+        updated,
+        skipped,
+        failed: [syncFailureFromError(listed.left, project)],
+      };
+    }
+
+    for (const issue of listed.right) {
+      const result = yield* Effect.either(
+        tracker.upsertImportedGitLabIssue({
+          source: issue,
+          syncedAt,
+        }),
+      );
+
+      if (Either.isLeft(result)) {
+        failed.push(syncFailureFromError(result.left, project, issue));
+        continue;
+      }
+
+      switch (result.right.status) {
+        case "created":
+          created.push(result.right);
+          break;
+        case "updated":
+          updated.push(result.right);
+          break;
+        case "skipped":
+          skipped.push(result.right);
+          break;
+      }
+    }
+
+    return { created, updated, skipped, failed };
+  });
+
+export const renderSyncGitLabIssuesResult = (result: SyncGitLabIssuesResult): string =>
+  [
+    "Morpheus sync",
+    `created=${result.created.length} updated=${result.updated.length} skipped=${result.skipped.length} failed=${result.failed.length}`,
+    ...result.created.map((item) => `CREATED ${item.issueId}`),
+    ...result.updated.map((item) => `UPDATED ${item.issueId}`),
+    ...result.skipped.map((item) =>
+      item.status === "skipped" ? `SKIPPED ${item.issueId} ${item.reason}` : "",
+    ),
+    ...result.failed.map(
+      (item) =>
+        `FAILED ${item.project}${item.iid === undefined ? "" : `#${item.iid}`}: ${item.message}`,
+    ),
+  ].join("\n");
+
+export const syncGitLabIssuesForCli = (
+  input: SyncGitLabIssuesInput,
+): Effect.Effect<string, never, GitLabIssueSource | IssueTracker> =>
+  syncGitLabIssues(input).pipe(Effect.map(renderSyncGitLabIssuesResult));
 
 export type PrepareIssueResult =
   | {

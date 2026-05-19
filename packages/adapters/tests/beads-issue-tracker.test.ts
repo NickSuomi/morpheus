@@ -96,6 +96,7 @@ describe("BeadsIssueTracker", () => {
           ],
         },
       ]),
+      ok([]),
     ]);
 
     const result = await runWithTracker(
@@ -142,6 +143,7 @@ describe("BeadsIssueTracker", () => {
           priority: 2,
         },
       ]),
+      ok([]),
     ]);
 
     const result = await runWithTracker(
@@ -747,5 +749,342 @@ describe("BeadsIssueTracker", () => {
       });
     }
     expect(processRunner.calls).toEqual([{ command: "bd", args: ["show", "morph-kkv", "--json"] }]);
+  });
+
+  it("creates a Beads issue for a new GitLab import with ready metadata", async () => {
+    const processRunner = fakeProcessRunner([
+      ok([]),
+      ok({
+        id: "morph-new",
+        title: "Import me",
+        labels: ["agent:ready"],
+      }),
+    ]);
+
+    const result = await runWithTracker(
+      processRunner.layer,
+      Effect.gen(function* () {
+        const tracker = yield* IssueTracker;
+        return yield* tracker.upsertImportedGitLabIssue({
+          syncedAt: "2026-05-19T10:00:00.000Z",
+          source: {
+            project: "group/project",
+            iid: 42,
+            title: "Import me",
+            description: "Ready for Morpheus.",
+            webUrl: "https://gitlab.example.com/group/project/-/issues/42",
+            labels: ["agent:ready", "backend"],
+          },
+        });
+      }),
+    );
+
+    expect(result).toEqual({
+      status: "created",
+      issueId: "morph-new",
+      addedReadyLabel: true,
+    });
+    expect(processRunner.calls).toEqual([
+      { command: "bd", args: ["list", "--all", "--limit", "0", "--json"] },
+      {
+        command: "bd",
+        args: [
+          "create",
+          "Import me",
+          "--description",
+          "Ready for Morpheus.",
+          "--type",
+          "task",
+          "--priority",
+          "P2",
+          "--labels",
+          "agent:ready",
+          "--metadata",
+          JSON.stringify({
+            morpheus: {
+              gitlab: {
+                project: "group/project",
+                iid: 42,
+                webUrl: "https://gitlab.example.com/group/project/-/issues/42",
+                labels: ["agent:ready", "backend"],
+                lastSyncedAt: "2026-05-19T10:00:00.000Z",
+                title: "Import me",
+                description: "Ready for Morpheus.",
+              },
+            },
+          }),
+          "--json",
+        ],
+      },
+    ]);
+  });
+
+  it("updates imported GitLab issue content and metadata", async () => {
+    const processRunner = fakeProcessRunner([
+      ok([
+        {
+          id: "morph-existing",
+          title: "Old title",
+          description: "Old body",
+          labels: ["triaged"],
+          metadata: {
+            morpheus: {
+              gitlab: {
+                project: "group/project",
+                iid: 42,
+                webUrl: "https://gitlab.example.com/group/project/-/issues/42",
+                labels: ["agent:ready"],
+                lastSyncedAt: "2026-05-19T09:00:00.000Z",
+                title: "Old title",
+                description: "Old body",
+              },
+            },
+          },
+        },
+      ]),
+      ok([
+        {
+          id: "morph-existing",
+          title: "Old title",
+          description: "Old body",
+          labels: ["triaged"],
+          metadata: {
+            external: true,
+            morpheus: {
+              contractVersion: 1,
+            },
+          },
+        },
+      ]),
+      ok([]),
+    ]);
+
+    const result = await runWithTracker(
+      processRunner.layer,
+      Effect.gen(function* () {
+        const tracker = yield* IssueTracker;
+        return yield* tracker.upsertImportedGitLabIssue({
+          syncedAt: "2026-05-19T10:00:00.000Z",
+          source: {
+            project: "group/project",
+            iid: 42,
+            title: "New title",
+            description: "New body",
+            webUrl: "https://gitlab.example.com/group/project/-/issues/42",
+            labels: ["agent:ready", "backend"],
+          },
+        });
+      }),
+    );
+
+    expect(result).toEqual({
+      status: "updated",
+      issueId: "morph-existing",
+      addedReadyLabel: true,
+    });
+    expect(processRunner.calls.at(-1)).toEqual({
+      command: "bd",
+      args: [
+        "update",
+        "morph-existing",
+        "--title",
+        "New title",
+        "--description",
+        "New body",
+        "--metadata",
+        JSON.stringify({
+          external: true,
+          morpheus: {
+            contractVersion: 1,
+            gitlab: {
+              project: "group/project",
+              iid: 42,
+              webUrl: "https://gitlab.example.com/group/project/-/issues/42",
+              labels: ["agent:ready", "backend"],
+              lastSyncedAt: "2026-05-19T10:00:00.000Z",
+              title: "New title",
+              description: "New body",
+            },
+          },
+        }),
+        "--set-labels",
+        "triaged",
+        "--set-labels",
+        "agent:ready",
+      ],
+    });
+  });
+
+  it("does not add ready when an imported issue already has an active lifecycle label", async () => {
+    const processRunner = fakeProcessRunner([
+      ok([
+        {
+          id: "morph-running",
+          title: "Old title",
+          description: "Old body",
+          labels: ["agent:running", "triaged"],
+          metadata: {
+            morpheus: {
+              gitlab: {
+                project: "group/project",
+                iid: 42,
+                webUrl: "https://gitlab.example.com/group/project/-/issues/42",
+                labels: ["agent:ready"],
+                lastSyncedAt: "2026-05-19T09:00:00.000Z",
+                title: "Old title",
+                description: "Old body",
+              },
+            },
+          },
+        },
+      ]),
+      ok([
+        {
+          id: "morph-running",
+          title: "Old title",
+          description: "Old body",
+          labels: ["agent:running", "triaged"],
+          metadata: {
+            morpheus: {},
+          },
+        },
+      ]),
+      ok([]),
+    ]);
+
+    const result = await runWithTracker(
+      processRunner.layer,
+      Effect.gen(function* () {
+        const tracker = yield* IssueTracker;
+        return yield* tracker.upsertImportedGitLabIssue({
+          syncedAt: "2026-05-19T10:00:00.000Z",
+          source: {
+            project: "group/project",
+            iid: 42,
+            title: "New title",
+            description: "New body",
+            webUrl: "https://gitlab.example.com/group/project/-/issues/42",
+            labels: [],
+          },
+        });
+      }),
+    );
+
+    expect(result).toEqual({
+      status: "updated",
+      issueId: "morph-running",
+      addedReadyLabel: false,
+    });
+    expect(processRunner.calls.at(-1)?.args).toEqual([
+      "update",
+      "morph-running",
+      "--title",
+      "New title",
+      "--description",
+      "New body",
+      "--metadata",
+      expect.any(String),
+      "--set-labels",
+      "agent:running",
+      "--set-labels",
+      "triaged",
+    ]);
+  });
+
+  it("skips unchanged imported GitLab issues", async () => {
+    const processRunner = fakeProcessRunner([
+      ok([
+        {
+          id: "morph-existing",
+          title: "Import me",
+          description: "Ready for Morpheus.",
+          labels: ["agent:ready"],
+          metadata: {
+            morpheus: {
+              gitlab: {
+                project: "group/project",
+                iid: 42,
+                webUrl: "https://gitlab.example.com/group/project/-/issues/42",
+                labels: ["agent:ready", "backend"],
+                lastSyncedAt: "2026-05-19T09:00:00.000Z",
+                title: "Import me",
+                description: "Ready for Morpheus.",
+              },
+            },
+          },
+        },
+      ]),
+      ok([
+        {
+          id: "morph-existing",
+          title: "Import me",
+          description: "Ready for Morpheus.",
+          labels: ["agent:ready"],
+          metadata: {
+            morpheus: {
+              gitlab: {
+                project: "group/project",
+                iid: 42,
+                webUrl: "https://gitlab.example.com/group/project/-/issues/42",
+                labels: ["agent:ready", "backend"],
+                lastSyncedAt: "2026-05-19T09:00:00.000Z",
+                title: "Import me",
+                description: "Ready for Morpheus.",
+              },
+            },
+          },
+        },
+      ]),
+      ok([]),
+    ]);
+
+    const result = await runWithTracker(
+      processRunner.layer,
+      Effect.gen(function* () {
+        const tracker = yield* IssueTracker;
+        return yield* tracker.upsertImportedGitLabIssue({
+          syncedAt: "2026-05-19T10:00:00.000Z",
+          source: {
+            project: "group/project",
+            iid: 42,
+            title: "Import me",
+            description: "Ready for Morpheus.",
+            webUrl: "https://gitlab.example.com/group/project/-/issues/42",
+            labels: ["agent:ready", "backend"],
+          },
+        });
+      }),
+    );
+
+    expect(result).toEqual({
+      status: "skipped",
+      issueId: "morph-existing",
+      reason: "unchanged",
+    });
+    expect(processRunner.calls).toEqual([
+      { command: "bd", args: ["list", "--all", "--limit", "0", "--json"] },
+      { command: "bd", args: ["show", "morph-existing", "--json"] },
+      {
+        command: "bd",
+        args: [
+          "update",
+          "morph-existing",
+          "--metadata",
+          JSON.stringify({
+            morpheus: {
+              gitlab: {
+                project: "group/project",
+                iid: 42,
+                webUrl: "https://gitlab.example.com/group/project/-/issues/42",
+                labels: ["agent:ready", "backend"],
+                lastSyncedAt: "2026-05-19T10:00:00.000Z",
+                title: "Import me",
+                description: "Ready for Morpheus.",
+              },
+            },
+          }),
+        ],
+      },
+    ]);
   });
 });

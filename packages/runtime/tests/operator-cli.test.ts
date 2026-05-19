@@ -132,9 +132,12 @@ const issueTrackerLayer = Layer.succeed(IssueTracker, {
       issueId,
       addLabels: transitionPlan.status === "planned" ? transitionPlan.addLabels : [],
       removeLabels: transitionPlan.status === "planned" ? transitionPlan.removeLabels : [],
-    }),
+  }),
   writeContract: (issueId) => Effect.succeed({ status: "written", issueId }),
   readContract: (issueId) => Effect.succeed({ status: "missing", issueId }),
+  listImportedGitLabIssues: () => Effect.succeed([]),
+  upsertImportedGitLabIssue: () =>
+    Effect.succeed({ status: "skipped", issueId: "morph-skip", reason: "unchanged" }),
 } satisfies IssueTrackerService);
 
 const runLedgerLayer = Layer.succeed(RunLedger, {
