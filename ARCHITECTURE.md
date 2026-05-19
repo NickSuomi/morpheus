@@ -50,6 +50,7 @@ Owns:
 Runtime service contracts:
 
 - `IssueTracker`
+- `GitLabIssueSource`
 - `MergeRequestClient`
 - `RunLedger`
 - `AgentRunner`
