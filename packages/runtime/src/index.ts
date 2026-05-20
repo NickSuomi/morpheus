@@ -208,6 +208,7 @@ export type GitLabIssueSourceService = Context.Tag.Service<typeof GitLabIssueSou
 export type TrackedIssue = {
   readonly id: string;
   readonly title: string;
+  readonly description?: string;
   readonly labels: readonly string[];
   readonly priority?: number;
   readonly createdAt?: string;
@@ -3036,11 +3037,41 @@ export type AfkReadyContractValidationResult =
 const errorMessage = (error: unknown): string =>
   error instanceof Error ? error.message : String(error);
 
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+  typeof value === "object" && value !== null;
+
+const withFallback = (
+  value: Record<string, unknown>,
+  canonicalKey: string,
+  fallbackKey: string,
+): unknown => value[canonicalKey] ?? value[fallbackKey];
+
+const normalizeAgentReadyContract = (value: unknown): unknown => {
+  if (!isRecord(value)) {
+    return value;
+  }
+
+  return {
+    ...value,
+    currentBehavior: withFallback(value, "currentBehavior", "current_behavior"),
+    desiredBehavior: withFallback(value, "desiredBehavior", "desired_behavior"),
+    keyInterfaces: withFallback(value, "keyInterfaces", "key_interfaces"),
+    acceptanceCriteria: withFallback(value, "acceptanceCriteria", "acceptance_criteria"),
+    outOfScope: withFallback(value, "outOfScope", "out_of_scope"),
+    verificationPlan: withFallback(value, "verificationPlan", "verification_plan"),
+    blockedBy: withFallback(value, "blockedBy", "blocked_by"),
+    hitlDecisions: withFallback(value, "hitlDecisions", "hitl_decisions"),
+    riskLevel: withFallback(value, "riskLevel", "risk_level"),
+  };
+};
+
 export const decodeAgentReadyContract = (value: unknown): AgentReadyContractDecodeResult => {
   try {
     return {
       status: "valid",
-      contract: Schema.decodeUnknownSync(AgentReadyContractSchema)(value) as AgentReadyContract,
+      contract: Schema.decodeUnknownSync(AgentReadyContractSchema)(
+        normalizeAgentReadyContract(value),
+      ) as AgentReadyContract,
     };
   } catch (error) {
     return {
