@@ -58,6 +58,7 @@ const fakeIssueTracker = (initialIssues: Record<string, readonly string[]>) => {
     Object.entries(initialIssues).map(([id, labels]) => [id, [...labels]]),
   );
   const calls: string[] = [];
+  let importedCreateCount = 0;
   const service: IssueTrackerService = {
     listRunnableIssues: () => {
       calls.push("listRunnableIssues");
@@ -100,6 +101,7 @@ const fakeIssueTracker = (initialIssues: Record<string, readonly string[]>) => {
       if (labelsByIssue.has(issueId)) {
         return Effect.succeed({ status: "skipped", issueId, reason: "unchanged" });
       }
+      importedCreateCount += 1;
       labelsByIssue.set(issueId, ["agent:ready"]);
       return Effect.succeed({ status: "created", issueId, addedReadyLabel: true });
     },
@@ -107,6 +109,7 @@ const fakeIssueTracker = (initialIssues: Record<string, readonly string[]>) => {
 
   return {
     calls,
+    importedCreateCount: () => importedCreateCount,
     labelsOf: (issueId: string) => labelsByIssue.get(issueId) ?? [],
     layer: Layer.succeed(IssueTracker, service),
   };
@@ -384,6 +387,7 @@ describe("runDaemonOnce", () => {
       }
 
       expect(tracker.labelsOf("morph-gl-42")).toEqual(["agent:review-candidate"]);
+      expect(tracker.importedCreateCount()).toBe(1);
     } finally {
       rmSync(targetRepo, { force: true, recursive: true });
     }

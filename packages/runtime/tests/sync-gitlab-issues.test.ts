@@ -179,6 +179,44 @@ describe("syncGitLabIssues", () => {
     ]);
   });
 
+  it("reports duplicate-detected imports as skipped", async () => {
+    const result = await Effect.runPromise(
+      syncGitLabIssues({
+        project: "group/project",
+        readyLabel: "agent:ready",
+        syncedAt: "2026-05-19T10:00:00.000Z",
+      }).pipe(
+        Effect.provide(
+          Layer.mergeAll(
+            issueSourceLayer({
+              listReadyIssues: () => Effect.succeed([gitlabIssue({ iid: 2793 })]),
+            }),
+            issueTrackerLayer({
+              upsertImportedGitLabIssue: () =>
+                Effect.succeed({
+                  status: "skipped",
+                  issueId: "morph-primary",
+                  reason: "duplicate_detected",
+                  duplicateIssueIds: ["morph-duplicate"],
+                }),
+            }),
+          ),
+        ),
+      ),
+    );
+
+    expect(result.skipped).toEqual([
+      {
+        status: "skipped",
+        issueId: "morph-primary",
+        reason: "duplicate_detected",
+        duplicateIssueIds: ["morph-duplicate"],
+      },
+    ]);
+    expect(result.created).toHaveLength(0);
+    expect(result.updated).toHaveLength(0);
+  });
+
   it("reports command failures without throwing", async () => {
     const result = await Effect.runPromise(
       syncGitLabIssues({

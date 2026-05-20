@@ -1331,9 +1331,19 @@ export const createBeadsIssueTracker = ({
       const importedIssues = yield* createBeadsIssueTracker({
         processRunner,
       }).listImportedGitLabIssues();
-      const existing = importedIssues.find(
+      const matching = importedIssues.filter(
         (issue) => issue.metadata.project === source.project && issue.metadata.iid === source.iid,
       );
+      const existing = matching[0];
+
+      if (matching.length > 1 && existing !== undefined) {
+        return {
+          status: "skipped",
+          issueId: existing.id,
+          reason: "duplicate_detected",
+          duplicateIssueIds: matching.slice(1).map((issue) => issue.id),
+        };
+      }
 
       if (existing === undefined) {
         const metadata = metadataWithGitLabImport({}, source, syncedAt);
