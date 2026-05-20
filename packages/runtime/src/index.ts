@@ -47,7 +47,9 @@ export class ProcessRunnerError extends EffectSchema.TaggedError<ProcessRunnerEr
   message: EffectSchema.String,
 }) {}
 
-export class ProcessRunner extends Context.Tag("@morpheus/runtime/ProcessRunner")<
+export class ProcessRunner extends Context.Tag(
+  "@morpheus/runtime/ProcessRunner",
+)<
   ProcessRunner,
   {
     readonly run: (
@@ -81,7 +83,9 @@ export class WorkspaceRuntimeError extends EffectSchema.TaggedError<WorkspaceRun
   message: EffectSchema.String,
 }) {}
 
-export class WorkspaceRuntime extends Context.Tag("@morpheus/runtime/WorkspaceRuntime")<
+export class WorkspaceRuntime extends Context.Tag(
+  "@morpheus/runtime/WorkspaceRuntime",
+)<
   WorkspaceRuntime,
   {
     readonly prepareImplementationWorkspace: (input: {
@@ -96,7 +100,9 @@ export class WorkspaceRuntime extends Context.Tag("@morpheus/runtime/WorkspaceRu
   }
 >() {}
 
-export type WorkspaceRuntimeService = Context.Tag.Service<typeof WorkspaceRuntime>;
+export type WorkspaceRuntimeService = Context.Tag.Service<
+  typeof WorkspaceRuntime
+>;
 
 export type DraftMergeRequestInput = {
   readonly issueId: string;
@@ -124,7 +130,9 @@ export class MergeRequestClientError extends EffectSchema.TaggedError<MergeReque
   message: EffectSchema.String,
 }) {}
 
-export class MergeRequestClient extends Context.Tag("@morpheus/runtime/MergeRequestClient")<
+export class MergeRequestClient extends Context.Tag(
+  "@morpheus/runtime/MergeRequestClient",
+)<
   MergeRequestClient,
   {
     readonly createDraftMergeRequest: (
@@ -136,7 +144,9 @@ export class MergeRequestClient extends Context.Tag("@morpheus/runtime/MergeRequ
   }
 >() {}
 
-export type MergeRequestClientService = Context.Tag.Service<typeof MergeRequestClient>;
+export type MergeRequestClientService = Context.Tag.Service<
+  typeof MergeRequestClient
+>;
 
 export type GitLabIssueInput = {
   readonly project: string;
@@ -194,7 +204,9 @@ export type GitLabIssueSourceError =
   | GitLabIssueSourceParseError
   | GitLabIssueSourceSchemaError;
 
-export class GitLabIssueSource extends Context.Tag("@morpheus/runtime/GitLabIssueSource")<
+export class GitLabIssueSource extends Context.Tag(
+  "@morpheus/runtime/GitLabIssueSource",
+)<
   GitLabIssueSource,
   {
     readonly listReadyIssues: (
@@ -203,7 +215,9 @@ export class GitLabIssueSource extends Context.Tag("@morpheus/runtime/GitLabIssu
   }
 >() {}
 
-export type GitLabIssueSourceService = Context.Tag.Service<typeof GitLabIssueSource>;
+export type GitLabIssueSourceService = Context.Tag.Service<
+  typeof GitLabIssueSource
+>;
 
 export type TrackedIssue = {
   readonly id: string;
@@ -232,7 +246,10 @@ export type IssueTrackerApplyResult =
       readonly status: "rejected";
       readonly issueId: string;
       readonly reason: Exclude<AgentStateTransitionPlan["status"], "planned">;
-      readonly plan: Exclude<AgentStateTransitionPlan, { readonly status: "planned" }>;
+      readonly plan: Exclude<
+        AgentStateTransitionPlan,
+        { readonly status: "planned" }
+      >;
     };
 
 export type IssueTrackerWriteContractResult = {
@@ -416,7 +433,9 @@ export type OperatorHealthCheck = {
   readonly detail: string;
 };
 
-export class OperatorHealth extends Context.Tag("@morpheus/runtime/OperatorHealth")<
+export class OperatorHealth extends Context.Tag(
+  "@morpheus/runtime/OperatorHealth",
+)<
   OperatorHealth,
   {
     readonly check: () => Effect.Effect<readonly OperatorHealthCheck[], never>;
@@ -586,7 +605,9 @@ export class AgentRunner extends Context.Tag("@morpheus/runtime/AgentRunner")<
     readonly implementIssue?: (
       input: ImplementationAgentInput,
     ) => Effect.Effect<unknown, AgentRunnerError>;
-    readonly reviewIssue?: (input: ReviewAgentInput) => Effect.Effect<unknown, AgentRunnerError>;
+    readonly reviewIssue?: (
+      input: ReviewAgentInput,
+    ) => Effect.Effect<unknown, AgentRunnerError>;
   }
 >() {}
 
@@ -774,33 +795,51 @@ export class RunLedger extends Context.Tag("@morpheus/runtime/RunLedger")<
       input: RecordImplementationWorkspaceInput,
     ) => Effect.Effect<
       RunSummary,
-      RunLedgerInvalidStateError | RunLedgerNotFoundError | RunLedgerPersistenceError
+      | RunLedgerInvalidStateError
+      | RunLedgerNotFoundError
+      | RunLedgerPersistenceError
     >;
     readonly recordMergeRequest: (
       runId: string,
       input: RecordMergeRequestInput,
     ) => Effect.Effect<
       RunSummary,
-      RunLedgerInvalidStateError | RunLedgerNotFoundError | RunLedgerPersistenceError
+      | RunLedgerInvalidStateError
+      | RunLedgerNotFoundError
+      | RunLedgerPersistenceError
     >;
     readonly finishRun: (
       runId: string,
       input: FinishRunInput,
     ) => Effect.Effect<
       RunSummary,
-      RunLedgerInvalidStateError | RunLedgerNotFoundError | RunLedgerPersistenceError
+      | RunLedgerInvalidStateError
+      | RunLedgerNotFoundError
+      | RunLedgerPersistenceError
     >;
     readonly writeRunArtifacts: (
       runId: string,
       input: WriteRunArtifactsInput,
-    ) => Effect.Effect<RunSummary, RunLedgerNotFoundError | RunLedgerPersistenceError>;
+    ) => Effect.Effect<
+      RunSummary,
+      RunLedgerNotFoundError | RunLedgerPersistenceError
+    >;
     readonly getRunLogs: (
       runId: string,
-    ) => Effect.Effect<RunLogs, RunLedgerLogsNotFoundError | RunLedgerPersistenceError>;
+    ) => Effect.Effect<
+      RunLogs,
+      RunLedgerLogsNotFoundError | RunLedgerPersistenceError
+    >;
     readonly getRunArtifact: (
       runId: string,
-    ) => Effect.Effect<RunArtifact, RunLedgerArtifactNotFoundError | RunLedgerPersistenceError>;
-    readonly listRuns: () => Effect.Effect<readonly RunSummary[], RunLedgerPersistenceError>;
+    ) => Effect.Effect<
+      RunArtifact,
+      RunLedgerArtifactNotFoundError | RunLedgerPersistenceError
+    >;
+    readonly listRuns: () => Effect.Effect<
+      readonly RunSummary[],
+      RunLedgerPersistenceError
+    >;
     readonly getRun: (
       runId: string,
     ) => Effect.Effect<RunSummary | undefined, RunLedgerPersistenceError>;
@@ -821,11 +860,17 @@ export const renderRunList = (runs: readonly RunSummary[]): string => {
   }
 
   return runs
-    .map((run) => `${run.id} ${run.issueId} ${run.lane} ${run.status} ${run.summary}`)
+    .map(
+      (run) =>
+        `${run.id} ${run.issueId} ${run.lane} ${run.status} ${run.summary}`,
+    )
     .join("\n");
 };
 
-export const renderRunDetail = (run: RunSummary, events: readonly RunEvent[]): string =>
+export const renderRunDetail = (
+  run: RunSummary,
+  events: readonly RunEvent[],
+): string =>
   [
     `Run ${run.id}`,
     `issue: ${run.issueId}`,
@@ -854,15 +899,22 @@ export const renderRunDetail = (run: RunSummary, events: readonly RunEvent[]): s
 
 export const renderRunLogs = (logs: RunLogs): string => logs.transcript;
 
-export const listRunsForCli: Effect.Effect<string, RunLedgerPersistenceError, RunLedger> =
-  Effect.gen(function* () {
-    const ledger = yield* RunLedger;
-    return renderRunList(yield* ledger.listRuns());
-  });
+export const listRunsForCli: Effect.Effect<
+  string,
+  RunLedgerPersistenceError,
+  RunLedger
+> = Effect.gen(function* () {
+  const ledger = yield* RunLedger;
+  return renderRunList(yield* ledger.listRuns());
+});
 
 export const showRunForCli = (
   runId: string,
-): Effect.Effect<string, RunLedgerNotFoundError | RunLedgerPersistenceError, RunLedger> =>
+): Effect.Effect<
+  string,
+  RunLedgerNotFoundError | RunLedgerPersistenceError,
+  RunLedger
+> =>
   Effect.gen(function* () {
     const ledger = yield* RunLedger;
     const run = yield* ledger.getRun(runId);
@@ -876,14 +928,20 @@ export const showRunForCli = (
 
 export const showRunLogsForCli = (
   runId: string,
-): Effect.Effect<string, RunLedgerLogsNotFoundError | RunLedgerPersistenceError, RunLedger> =>
+): Effect.Effect<
+  string,
+  RunLedgerLogsNotFoundError | RunLedgerPersistenceError,
+  RunLedger
+> =>
   Effect.gen(function* () {
     const ledger = yield* RunLedger;
     return renderRunLogs(yield* ledger.getRunLogs(runId));
   });
 
 export const renderRunPruneResult = (result: RunPruneResult): string => {
-  const heading = result.applied ? "Morpheus prune apply" : "Morpheus prune dry-run";
+  const heading = result.applied
+    ? "Morpheus prune apply"
+    : "Morpheus prune dry-run";
   const lines =
     result.eligibleRuns.length === 0
       ? ["eligibleRuns: None"]
@@ -895,7 +953,11 @@ export const renderRunPruneResult = (result: RunPruneResult): string => {
           ]),
         ];
 
-  return [heading, ...lines, `totalArtifactBytes: ${result.totalArtifactBytes}`].join("\n");
+  return [
+    heading,
+    ...lines,
+    `totalArtifactBytes: ${result.totalArtifactBytes}`,
+  ].join("\n");
 };
 
 export const pruneRunsForCli = (
@@ -906,12 +968,19 @@ export const pruneRunsForCli = (
     return renderRunPruneResult(yield* ledger.pruneRuns(input));
   });
 
-const laneCount = (issues: readonly TrackedIssue[], lane: RunnableLane): number =>
-  issues.filter((issue) => issue.lane === lane).length;
+const laneCount = (
+  issues: readonly TrackedIssue[],
+  lane: RunnableLane,
+): number => issues.filter((issue) => issue.lane === lane).length;
 
-const stateCount = (issues: readonly TrackedIssue[], state: AgentState): number =>
+const stateCount = (
+  issues: readonly TrackedIssue[],
+  state: AgentState,
+): number =>
   issues.filter(
-    (issue) => issue.derivedState.status === "active" && issue.derivedState.state === state,
+    (issue) =>
+      issue.derivedState.status === "active" &&
+      issue.derivedState.state === state,
   ).length;
 
 const runLine = (run: RunSummary): string =>
@@ -935,7 +1004,11 @@ export type OperatorDoctor = {
   readonly checks: readonly OperatorHealthCheck[];
 };
 
-export const renderOperatorStatus = ({ issues, schedule, runs }: OperatorStatus): string => {
+export const renderOperatorStatus = ({
+  issues,
+  schedule,
+  runs,
+}: OperatorStatus): string => {
   const runningRuns = runs.filter((run) => run.status === "running");
 
   return [
@@ -945,12 +1018,16 @@ export const renderOperatorStatus = ({ issues, schedule, runs }: OperatorStatus)
     `blocked=${stateCount(issues, "agent:blocked")} failed=${stateCount(issues, "agent:failed")}`,
     `conflicts=${schedule.excluded.filter((issue) => issue.reason === "state_conflict").length}`,
     "currentRuns:",
-    ...(runningRuns.length === 0 ? ["- None"] : runningRuns.map((run) => `- ${runLine(run)}`)),
+    ...(runningRuns.length === 0
+      ? ["- None"]
+      : runningRuns.map((run) => `- ${runLine(run)}`)),
   ].join("\n");
 };
 
-const runForLane = (runs: readonly RunSummary[], lane: RunnableLane): RunSummary | undefined =>
-  runs.find((run) => run.lane === lane);
+const runForLane = (
+  runs: readonly RunSummary[],
+  lane: RunnableLane,
+): RunSummary | undefined => runs.find((run) => run.lane === lane);
 
 const sliceRunLine = (
   lane: RunnableLane,
@@ -962,7 +1039,8 @@ const sliceRunLine = (
   }
 
   const tombstone = events.find((event) => event.type === "RunPruned");
-  const suffix = tombstone === undefined ? "" : ` tombstone=${tombstone.occurredAt}`;
+  const suffix =
+    tombstone === undefined ? "" : ` tombstone=${tombstone.occurredAt}`;
 
   return `${lane}: ${run.status} ${run.id}${suffix}`;
 };
@@ -976,11 +1054,16 @@ export const renderOperatorSlice = ({
 }: OperatorSlice): string => {
   const latestFailure = runs.find((run) => run.failureKind !== undefined);
   const latestMr = runs.find(
-    (run) => run.mergeRequestRef !== undefined || run.mergeRequestUrl !== undefined,
+    (run) =>
+      run.mergeRequestRef !== undefined || run.mergeRequestUrl !== undefined,
   );
   const latestRunsFirst = [...runs].reverse();
-  const latestTranscript = latestRunsFirst.find((run) => run.transcriptPath !== undefined);
-  const latestArtifact = latestRunsFirst.find((run) => run.artifactPath !== undefined);
+  const latestTranscript = latestRunsFirst.find(
+    (run) => run.transcriptPath !== undefined,
+  );
+  const latestArtifact = latestRunsFirst.find(
+    (run) => run.artifactPath !== undefined,
+  );
 
   return [
     `Morpheus slice ${issue.id}`,
@@ -989,8 +1072,16 @@ export const renderOperatorSlice = ({
     `lane: ${issue.lane}`,
     `dependencies: ${dependencyIds.join(", ") || "None"}`,
     `dependents: ${dependentIds.join(", ") || "None"}`,
-    sliceRunLine("preparation", runForLane(runs, "preparation"), events.preparation),
-    sliceRunLine("implementation", runForLane(runs, "implementation"), events.implementation),
+    sliceRunLine(
+      "preparation",
+      runForLane(runs, "preparation"),
+      events.preparation,
+    ),
+    sliceRunLine(
+      "implementation",
+      runForLane(runs, "implementation"),
+      events.implementation,
+    ),
     sliceRunLine("review", runForLane(runs, "review"), events.review),
     `mergeRequest: ${latestMr?.mergeRequestRef ?? "None"}`,
     `mergeRequestUrl: ${latestMr?.mergeRequestUrl ?? "None"}`,
@@ -1003,7 +1094,9 @@ export const renderOperatorSlice = ({
 export const renderOperatorDoctor = ({ checks }: OperatorDoctor): string =>
   [
     "Morpheus doctor",
-    ...checks.map((check) => `${check.status.toUpperCase()} ${check.name}: ${check.detail}`),
+    ...checks.map(
+      (check) => `${check.status.toUpperCase()} ${check.name}: ${check.detail}`,
+    ),
   ].join("\n");
 
 export const operatorStatus = (
@@ -1038,7 +1131,9 @@ export const operatorSlice = (
     const ledger = yield* RunLedger;
     const issue = yield* tracker.getIssue(issueId);
     const issues = yield* tracker.listRunnableIssues();
-    const runs = (yield* ledger.listRuns()).filter((run) => run.issueId === issueId);
+    const runs = (yield* ledger.listRuns()).filter(
+      (run) => run.issueId === issueId,
+    );
     const events: Record<RunnableLane, RunEvent[]> = {
       preparation: [],
       implementation: [],
@@ -1046,7 +1141,10 @@ export const operatorSlice = (
     };
 
     for (const run of runs) {
-      events[run.lane] = [...events[run.lane], ...(yield* ledger.getRunEvents(run.id))];
+      events[run.lane] = [
+        ...events[run.lane],
+        ...(yield* ledger.getRunEvents(run.id)),
+      ];
     }
 
     return {
@@ -1057,7 +1155,9 @@ export const operatorSlice = (
       dependentIds: [
         ...(issue.dependentIds ?? []),
         ...issues
-          .filter((candidate) => candidate.dependencyIds?.includes(issueId) === true)
+          .filter(
+            (candidate) => candidate.dependencyIds?.includes(issueId) === true,
+          )
           .map((candidate) => candidate.id),
       ].filter((id, index, ids) => ids.indexOf(id) === index),
     };
@@ -1084,13 +1184,19 @@ export const operatorDoctor: Effect.Effect<
 
 export const operatorStatusForCli = (
   capacities: LaneCapacityConfig = {},
-): Effect.Effect<string, IssueTrackerError | RunLedgerPersistenceError, IssueTracker | RunLedger> =>
-  operatorStatus(capacities).pipe(Effect.map(renderOperatorStatus));
+): Effect.Effect<
+  string,
+  IssueTrackerError | RunLedgerPersistenceError,
+  IssueTracker | RunLedger
+> => operatorStatus(capacities).pipe(Effect.map(renderOperatorStatus));
 
 export const operatorSliceForCli = (
   issueId: string,
-): Effect.Effect<string, IssueTrackerError | RunLedgerPersistenceError, IssueTracker | RunLedger> =>
-  operatorSlice(issueId).pipe(Effect.map(renderOperatorSlice));
+): Effect.Effect<
+  string,
+  IssueTrackerError | RunLedgerPersistenceError,
+  IssueTracker | RunLedger
+> => operatorSlice(issueId).pipe(Effect.map(renderOperatorSlice));
 
 export const operatorDoctorForCli: Effect.Effect<
   string,
@@ -1120,8 +1226,9 @@ export type SyncGitLabIssuesResult = {
 
 const activeAgentLabels = new Set<string>(agentStates);
 
-export const hasActiveAgentLifecycleLabel = (labels: readonly string[]): boolean =>
-  labels.some((label) => activeAgentLabels.has(label));
+export const hasActiveAgentLifecycleLabel = (
+  labels: readonly string[],
+): boolean => labels.some((label) => activeAgentLabels.has(label));
 
 const syncFailureFromError = (
   error: GitLabIssueSourceError | IssueTrackerError,
@@ -1151,7 +1258,9 @@ export const syncGitLabIssues = ({
     const skipped: SkippedImportedGitLabIssueResult[] = [];
     const failed: SyncGitLabIssueFailure[] = [];
 
-    const listed = yield* Effect.either(source.listReadyIssues({ project, readyLabel }));
+    const listed = yield* Effect.either(
+      source.listReadyIssues({ project, readyLabel }),
+    );
 
     if (Either.isLeft(listed)) {
       return {
@@ -1191,7 +1300,9 @@ export const syncGitLabIssues = ({
     return { created, updated, skipped, failed };
   });
 
-export const renderSyncGitLabIssuesResult = (result: SyncGitLabIssuesResult): string =>
+export const renderSyncGitLabIssuesResult = (
+  result: SyncGitLabIssuesResult,
+): string =>
   [
     "Morpheus sync",
     `created=${result.created.length} updated=${result.updated.length} skipped=${result.skipped.length} failed=${result.failed.length}`,
@@ -1240,11 +1351,16 @@ export type PrepareIssueResult =
   | {
       readonly status: "state_rejected";
       readonly issueId: string;
-      readonly reason: Extract<IssueTrackerApplyResult, { readonly status: "rejected" }>["reason"];
+      readonly reason: Extract<
+        IssueTrackerApplyResult,
+        { readonly status: "rejected" }
+      >["reason"];
       readonly failureKind: FailureKind;
     };
 
-const artifactToString = (artifact: unknown): Effect.Effect<string, RunLedgerPersistenceError> =>
+const artifactToString = (
+  artifact: unknown,
+): Effect.Effect<string, RunLedgerPersistenceError> =>
   Effect.try({
     try: () => JSON.stringify(artifact, null, 2),
     catch: (error) =>
@@ -1353,7 +1469,9 @@ export const decodeImplementationAgentResult = (
   }
 };
 
-const normalizeVerificationStatus = (status: unknown): "passed" | "failed" | undefined => {
+const normalizeVerificationStatus = (
+  status: unknown,
+): "passed" | "failed" | undefined => {
   if (status === "passed" || status === "failed") {
     return status;
   }
@@ -1408,12 +1526,17 @@ const normalizeImplementationAgentResult = (value: unknown): unknown => {
     return value;
   }
 
-  const verificationEvidence = normalizeVerificationEvidence(value.verificationEvidence);
+  const verificationEvidence = normalizeVerificationEvidence(
+    value.verificationEvidence,
+  );
 
   if (status === "failed") {
     return {
       ...value,
-      failureKind: typeof value.failureKind === "string" ? value.failureKind : "agent_contract_error",
+      failureKind:
+        typeof value.failureKind === "string"
+          ? value.failureKind
+          : "agent_contract_error",
       message:
         typeof value.message === "string" && value.message.trim().length > 0
           ? value.message
@@ -1428,11 +1551,15 @@ const normalizeImplementationAgentResult = (value: unknown): unknown => {
   };
 };
 
-export const decodeReviewAgentResult = (value: unknown): ReviewAgentResultDecodeResult => {
+export const decodeReviewAgentResult = (
+  value: unknown,
+): ReviewAgentResultDecodeResult => {
   try {
     return {
       status: "valid",
-      result: Schema.decodeUnknownSync(ReviewAgentResultSchema)(value) as ReviewAgentResult,
+      result: Schema.decodeUnknownSync(ReviewAgentResultSchema)(
+        value,
+      ) as ReviewAgentResult,
     };
   } catch (error) {
     return {
@@ -1452,7 +1579,9 @@ const finishFailed = (
   runId: string,
   failureKind: FailureKind,
   message: string,
-  terminalEvent: "PreparationFailed" | "PreparationBlocked" = "PreparationFailed",
+  terminalEvent:
+    | "PreparationFailed"
+    | "PreparationBlocked" = "PreparationFailed",
 ): Effect.Effect<RunSummary, RunLedgerError> =>
   ledger.finishRun(runId, {
     status: "failed",
@@ -1513,12 +1642,27 @@ const failRunAfterArtifactWriteFailure = (
   issueId: string,
   runId: string,
   writeError: RunLedgerError,
-): Effect.Effect<Extract<PrepareIssueResult, { readonly status: "failed" }>, RunLedgerError> =>
+): Effect.Effect<
+  Extract<PrepareIssueResult, { readonly status: "failed" }>,
+  RunLedgerError
+> =>
   Effect.gen(function* () {
     const message = `Preparation artifact write failed: ${errorMessage(writeError)}`;
-    yield* Effect.either(applyTerminalTransition(tracker, issueId, "PreparationFailed"));
-    const terminalRun = yield* finishHandledFailure(ledger, runId, "runtime_error", message);
-    return failedPreparationResult(issueId, terminalRun, "runtime_error", message);
+    yield* Effect.either(
+      applyTerminalTransition(tracker, issueId, "PreparationFailed"),
+    );
+    const terminalRun = yield* finishHandledFailure(
+      ledger,
+      runId,
+      "runtime_error",
+      message,
+    );
+    return failedPreparationResult(
+      issueId,
+      terminalRun,
+      "runtime_error",
+      message,
+    );
   });
 
 const writeArtifactsOrFailRun = (
@@ -1534,12 +1678,17 @@ const writeArtifactsOrFailRun = (
   | { readonly status: "written" }
   | {
       readonly status: "failed";
-      readonly result: Extract<PrepareIssueResult, { readonly status: "failed" }>;
+      readonly result: Extract<
+        PrepareIssueResult,
+        { readonly status: "failed" }
+      >;
     },
   RunLedgerError
 > =>
   Effect.gen(function* () {
-    const artifactResult = yield* Effect.either(artifactToString(input.artifact));
+    const artifactResult = yield* Effect.either(
+      artifactToString(input.artifact),
+    );
     if (Either.isLeft(artifactResult)) {
       return {
         status: "failed",
@@ -1583,7 +1732,9 @@ const terminalFailureKind = (
     return "runtime_error";
   }
 
-  return terminalResult.right.status === "applied" ? appliedFailureKind : "state_conflict";
+  return terminalResult.right.status === "applied"
+    ? appliedFailureKind
+    : "state_conflict";
 };
 
 const terminalFailureMessage = (
@@ -1595,7 +1746,9 @@ const terminalFailureMessage = (
     return `${rejectedMessage}: ${errorMessage(terminalResult.left)}`;
   }
 
-  return terminalResult.right.status === "applied" ? successMessage : rejectedMessage;
+  return terminalResult.right.status === "applied"
+    ? successMessage
+    : rejectedMessage;
 };
 
 const terminalEventWhenApplied = (
@@ -1619,13 +1772,17 @@ export const prepareIssue = (
     const runner = yield* AgentRunner;
 
     const issue = yield* tracker.getIssue(issueId);
-    const startPlan = planAgentStateTransition(issue.labels, "StartPreparation");
+    const startPlan = planAgentStateTransition(
+      issue.labels,
+      "StartPreparation",
+    );
     if (startPlan.status !== "planned") {
       return {
         status: "state_rejected",
         issueId,
         reason: startPlan.status,
-        failureKind: startPlan.status === "conflict" ? "state_conflict" : "runtime_error",
+        failureKind:
+          startPlan.status === "conflict" ? "state_conflict" : "runtime_error",
       };
     }
 
@@ -1634,7 +1791,9 @@ export const prepareIssue = (
       summary: issue.title,
     });
 
-    const startResult = yield* Effect.either(tracker.applyAgentState(issueId, startPlan));
+    const startResult = yield* Effect.either(
+      tracker.applyAgentState(issueId, startPlan),
+    );
     if (Either.isLeft(startResult) || startResult.right.status === "rejected") {
       const failureKind = terminalFailureKind(startResult, "state_conflict");
       const message = terminalFailureMessage(
@@ -1642,7 +1801,12 @@ export const prepareIssue = (
         "Preparation start rejected.",
         "Preparation start rejected.",
       );
-      const terminalRun = yield* finishHandledFailure(ledger, run.id, failureKind, message);
+      const terminalRun = yield* finishHandledFailure(
+        ledger,
+        run.id,
+        failureKind,
+        message,
+      );
 
       return failedPreparationResult(
         issueId,
@@ -1655,14 +1819,20 @@ export const prepareIssue = (
     const resultEither = yield* Effect.either(runner.prepareIssue({ issue }));
     if (Either.isLeft(resultEither)) {
       const message = `Agent runner failed during preparation: ${resultEither.left.message}`;
-      const artifacts = yield* writeArtifactsOrFailRun(ledger, tracker, issueId, run.id, {
-        transcript: message,
-        artifact: {
-          status: "failed",
-          failureKind: "runtime_error",
-          message,
+      const artifacts = yield* writeArtifactsOrFailRun(
+        ledger,
+        tracker,
+        issueId,
+        run.id,
+        {
+          transcript: message,
+          artifact: {
+            status: "failed",
+            failureKind: "runtime_error",
+            message,
+          },
         },
-      });
+      );
       if (artifacts.status === "failed") {
         return artifacts.result;
       }
@@ -1674,14 +1844,20 @@ export const prepareIssue = (
         ledger,
         run.id,
         terminalFailureKind(terminal, "runtime_error"),
-        terminalFailureMessage(terminal, message, "Preparation failed transition rejected"),
+        terminalFailureMessage(
+          terminal,
+          message,
+          "Preparation failed transition rejected",
+        ),
       );
 
       return {
         status: "failed",
         issueId,
         run: terminalRun,
-        failureKind: terminalRun.failureKind ?? terminalFailureKind(terminal, "runtime_error"),
+        failureKind:
+          terminalRun.failureKind ??
+          terminalFailureKind(terminal, "runtime_error"),
         message,
       };
     }
@@ -1689,10 +1865,16 @@ export const prepareIssue = (
     const result = resultEither.right;
 
     if (result.status === "blocked") {
-      const artifacts = yield* writeArtifactsOrFailRun(ledger, tracker, issueId, run.id, {
-        transcript: result.transcript,
-        artifact: result.artifact,
-      });
+      const artifacts = yield* writeArtifactsOrFailRun(
+        ledger,
+        tracker,
+        issueId,
+        run.id,
+        {
+          transcript: result.transcript,
+          artifact: result.artifact,
+        },
+      );
       if (artifacts.status === "failed") {
         return artifacts.result;
       }
@@ -1705,7 +1887,11 @@ export const prepareIssue = (
         ledger,
         run.id,
         terminalFailureKind(terminal, "agent_contract_error"),
-        terminalFailureMessage(terminal, message, "Preparation blocked transition rejected"),
+        terminalFailureMessage(
+          terminal,
+          message,
+          "Preparation blocked transition rejected",
+        ),
         terminalEventWhenApplied(terminal, "PreparationBlocked"),
       );
 
@@ -1722,10 +1908,16 @@ export const prepareIssue = (
     }
 
     if (result.status === "failed") {
-      const artifacts = yield* writeArtifactsOrFailRun(ledger, tracker, issueId, run.id, {
-        transcript: result.transcript,
-        artifact: result.artifact,
-      });
+      const artifacts = yield* writeArtifactsOrFailRun(
+        ledger,
+        tracker,
+        issueId,
+        run.id,
+        {
+          transcript: result.transcript,
+          artifact: result.artifact,
+        },
+      );
       if (artifacts.status === "failed") {
         return artifacts.result;
       }
@@ -1737,7 +1929,11 @@ export const prepareIssue = (
         ledger,
         run.id,
         terminalFailureKind(terminal, result.failureKind),
-        terminalFailureMessage(terminal, result.message, "Preparation failed transition rejected"),
+        terminalFailureMessage(
+          terminal,
+          result.message,
+          "Preparation failed transition rejected",
+        ),
       );
 
       return failedPreparationResult(
@@ -1748,10 +1944,16 @@ export const prepareIssue = (
       );
     }
 
-    const artifacts = yield* writeArtifactsOrFailRun(ledger, tracker, issueId, run.id, {
-      transcript: result.transcript,
-      artifact: result.artifact,
-    });
+    const artifacts = yield* writeArtifactsOrFailRun(
+      ledger,
+      tracker,
+      issueId,
+      run.id,
+      {
+        transcript: result.transcript,
+        artifact: result.artifact,
+      },
+    );
     if (artifacts.status === "failed") {
       return artifacts.result;
     }
@@ -1766,13 +1968,18 @@ export const prepareIssue = (
         ledger,
         run.id,
         terminalFailureKind(terminal, "agent_contract_error"),
-        terminalFailureMessage(terminal, message, "Preparation failed transition rejected"),
+        terminalFailureMessage(
+          terminal,
+          message,
+          "Preparation failed transition rejected",
+        ),
       );
 
       return failedPreparationResult(
         issueId,
         terminalRun,
-        terminalRun.failureKind ?? terminalFailureKind(terminal, "agent_contract_error"),
+        terminalRun.failureKind ??
+          terminalFailureKind(terminal, "agent_contract_error"),
         message,
       );
     }
@@ -1808,15 +2015,30 @@ export const prepareIssue = (
     }
 
     const readyIssue = yield* tracker.getIssue(issueId);
-    const readyPlan = terminalPlanFromPreparing(readyIssue.labels, "PreparationReady");
+    const readyPlan = terminalPlanFromPreparing(
+      readyIssue.labels,
+      "PreparationReady",
+    );
     if (readyPlan.status !== "planned") {
       const message = "Preparation ready transition rejected.";
-      const terminalRun = yield* finishHandledFailure(ledger, run.id, "state_conflict", message);
+      const terminalRun = yield* finishHandledFailure(
+        ledger,
+        run.id,
+        "state_conflict",
+        message,
+      );
 
-      return failedPreparationResult(issueId, terminalRun, "state_conflict", message);
+      return failedPreparationResult(
+        issueId,
+        terminalRun,
+        "state_conflict",
+        message,
+      );
     }
 
-    const writeContractResult = yield* Effect.either(tracker.writeContract(issueId, afk.contract));
+    const writeContractResult = yield* Effect.either(
+      tracker.writeContract(issueId, afk.contract),
+    );
     if (Either.isLeft(writeContractResult)) {
       const terminal = yield* Effect.either(
         applyTerminalTransition(tracker, issueId, "PreparationFailed"),
@@ -1836,7 +2058,8 @@ export const prepareIssue = (
       return failedPreparationResult(
         issueId,
         terminalRun,
-        terminalRun.failureKind ?? terminalFailureKind(terminal, "runtime_error"),
+        terminalRun.failureKind ??
+          terminalFailureKind(terminal, "runtime_error"),
         message,
       );
     }
@@ -1897,7 +2120,10 @@ export type StartImplementationResult =
   | {
       readonly status: "state_rejected";
       readonly issueId: string;
-      readonly reason: Extract<IssueTrackerApplyResult, { readonly status: "rejected" }>["reason"];
+      readonly reason: Extract<
+        IssueTrackerApplyResult,
+        { readonly status: "rejected" }
+      >["reason"];
       readonly failureKind: FailureKind;
     };
 
@@ -1945,12 +2171,18 @@ const failImplementationStart = (
     };
   });
 
-const implementationEvidenceLines = (items: readonly ImplementationEvidence[]): readonly string[] =>
+const implementationEvidenceLines = (
+  items: readonly ImplementationEvidence[],
+): readonly string[] =>
   items.map((item) =>
-    item.files.length === 0 ? item.summary : `${item.summary} (${item.files.join(", ")})`,
+    item.files.length === 0
+      ? item.summary
+      : `${item.summary} (${item.files.join(", ")})`,
   );
 
-const verificationEvidenceLines = (items: readonly VerificationEvidence[]): readonly string[] =>
+const verificationEvidenceLines = (
+  items: readonly VerificationEvidence[],
+): readonly string[] =>
   items.map((item) => {
     const suffix = item.output === undefined ? "" : ` - ${item.output}`;
     return `${item.status}: ${item.command}${suffix}`;
@@ -1991,13 +2223,17 @@ export const startImplementation = (
     const runner = yield* AgentRunner;
 
     const issue = yield* tracker.getIssue(issueId);
-    const startPlan = planAgentStateTransition(issue.labels, "StartImplementation");
+    const startPlan = planAgentStateTransition(
+      issue.labels,
+      "StartImplementation",
+    );
     if (startPlan.status !== "planned") {
       return {
         status: "state_rejected",
         issueId,
         reason: startPlan.status,
-        failureKind: startPlan.status === "conflict" ? "state_conflict" : "runtime_error",
+        failureKind:
+          startPlan.status === "conflict" ? "state_conflict" : "runtime_error",
       };
     }
 
@@ -2085,7 +2321,9 @@ export const startImplementation = (
     }
 
     const mergeRequest = mergeRequestResult.right;
-    const mrRunResult = yield* Effect.either(ledger.recordMergeRequest(run.id, mergeRequest));
+    const mrRunResult = yield* Effect.either(
+      ledger.recordMergeRequest(run.id, mergeRequest),
+    );
     if (Either.isLeft(mrRunResult)) {
       return yield* failImplementationStart(
         tracker,
@@ -2098,8 +2336,13 @@ export const startImplementation = (
     }
 
     const currentIssue = yield* tracker.getIssue(issueId);
-    const currentStartPlan = planAgentStateTransition(currentIssue.labels, "StartImplementation");
-    const startResult = yield* Effect.either(tracker.applyAgentState(issueId, currentStartPlan));
+    const currentStartPlan = planAgentStateTransition(
+      currentIssue.labels,
+      "StartImplementation",
+    );
+    const startResult = yield* Effect.either(
+      tracker.applyAgentState(issueId, currentStartPlan),
+    );
     if (Either.isLeft(startResult) || startResult.right.status === "rejected") {
       const message = terminalFailureMessage(
         startResult,
@@ -2161,7 +2404,9 @@ export const startImplementation = (
 
     const implementationResult = decodedResult.result;
     const artifactResult = yield* Effect.either(
-      artifactToString(implementationArtifact(implementationResult, mergeRequest)),
+      artifactToString(
+        implementationArtifact(implementationResult, mergeRequest),
+      ),
     );
     if (Either.isLeft(artifactResult)) {
       return yield* failImplementationStart(
@@ -2205,7 +2450,9 @@ export const startImplementation = (
           ),
           reviewVerdict: "pending",
           reviewFindings: [],
-          humanChecklist: ["Review implementation evidence before marking ready."],
+          humanChecklist: [
+            "Review implementation evidence before marking ready.",
+          ],
         }),
       }),
     );
@@ -2280,7 +2527,10 @@ export type ReviewIssueResult =
   | {
       readonly status: "state_rejected";
       readonly issueId: string;
-      readonly reason: Extract<IssueTrackerApplyResult, { readonly status: "rejected" }>["reason"];
+      readonly reason: Extract<
+        IssueTrackerApplyResult,
+        { readonly status: "rejected" }
+      >["reason"];
       readonly failureKind: FailureKind;
     };
 
@@ -2302,7 +2552,10 @@ const ImplementationArtifactForReviewSchema = Schema.Struct({
 const decodeImplementationArtifactForReview = (
   value: unknown,
 ):
-  | { readonly status: "valid"; readonly artifact: ImplementationArtifactForReview }
+  | {
+      readonly status: "valid";
+      readonly artifact: ImplementationArtifactForReview;
+    }
   | {
       readonly status: "invalid";
       readonly message: string;
@@ -2361,7 +2614,10 @@ const findImplementationRunForReview = (
       run.artifactPath !== undefined,
   );
 
-const reviewArtifact = (result: ReviewAgentResult, mergeRequest: MergeRequestReference) => ({
+const reviewArtifact = (
+  result: ReviewAgentResult,
+  mergeRequest: MergeRequestReference,
+) => ({
   status: result.status,
   findings: result.findings,
   mergeRequest,
@@ -2404,8 +2660,13 @@ const finishReview = (
   Effect.gen(function* () {
     const currentIssue = yield* tracker.getIssue(issueId);
     const transition = planAgentStateTransition(currentIssue.labels, event);
-    const transitionResult = yield* Effect.either(tracker.applyAgentState(issueId, transition));
-    if (Either.isLeft(transitionResult) || transitionResult.right.status === "rejected") {
+    const transitionResult = yield* Effect.either(
+      tracker.applyAgentState(issueId, transition),
+    );
+    if (
+      Either.isLeft(transitionResult) ||
+      transitionResult.right.status === "rejected"
+    ) {
       return yield* ledger.finishRun(runId, {
         status: "failed",
         failureKind: terminalFailureKind(transitionResult, "state_conflict"),
@@ -2434,12 +2695,19 @@ const failReviewAfterStart = (
   IssueTrackerError | RunLedgerError
 > =>
   Effect.gen(function* () {
-    const terminalRun = yield* finishReview(tracker, ledger, issueId, runId, "ReviewFailed", {
-      status: "failed",
-      failureKind,
-      terminalEvent: "ReviewFailed",
-      message,
-    });
+    const terminalRun = yield* finishReview(
+      tracker,
+      ledger,
+      issueId,
+      runId,
+      "ReviewFailed",
+      {
+        status: "failed",
+        failureKind,
+        terminalEvent: "ReviewFailed",
+        message,
+      },
+    );
     return reviewFailureResult(
       issueId,
       terminalRun,
@@ -2468,17 +2736,23 @@ export const reviewIssue = (
     const mergeRequests = yield* MergeRequestClient;
 
     const issue = yield* tracker.getIssue(issueId);
-    const startPlan = planAgentStateTransition(issue.labels, "ImplementationReadyForReview");
+    const startPlan = planAgentStateTransition(
+      issue.labels,
+      "ImplementationReadyForReview",
+    );
     if (startPlan.status !== "planned") {
       return {
         status: "state_rejected",
         issueId,
         reason: startPlan.status,
-        failureKind: startPlan.status === "conflict" ? "state_conflict" : "runtime_error",
+        failureKind:
+          startPlan.status === "conflict" ? "state_conflict" : "runtime_error",
       };
     }
 
-    const startResult = yield* Effect.either(tracker.applyAgentState(issueId, startPlan));
+    const startResult = yield* Effect.either(
+      tracker.applyAgentState(issueId, startPlan),
+    );
     if (Either.isLeft(startResult) || startResult.right.status === "rejected") {
       const failureKind = terminalFailureKind(startResult, "state_conflict");
       const message = terminalFailureMessage(
@@ -2522,7 +2796,10 @@ export const reviewIssue = (
     }
     const contract = contractResult.right.contract;
 
-    const implementationRun = findImplementationRunForReview(yield* ledger.listRuns(), issueId);
+    const implementationRun = findImplementationRunForReview(
+      yield* ledger.listRuns(),
+      issueId,
+    );
     if (implementationRun === undefined) {
       return yield* failReviewAfterStart(
         tracker,
@@ -2694,12 +2971,19 @@ export const reviewIssue = (
     }
 
     if (reviewResult.status === "blocked") {
-      const terminalRun = yield* finishReview(tracker, ledger, issueId, run.id, "ReviewBlocked", {
-        status: "failed",
-        failureKind: "agent_contract_error",
-        terminalEvent: "ReviewBlocked",
-        message: `Review blocked: ${reviewResult.reason}`,
-      });
+      const terminalRun = yield* finishReview(
+        tracker,
+        ledger,
+        issueId,
+        run.id,
+        "ReviewBlocked",
+        {
+          status: "failed",
+          failureKind: "agent_contract_error",
+          terminalEvent: "ReviewBlocked",
+          message: `Review blocked: ${reviewResult.reason}`,
+        },
+      );
       return {
         status: "blocked",
         issueId,
@@ -2721,11 +3005,18 @@ export const reviewIssue = (
       );
     }
 
-    const terminalRun = yield* finishReview(tracker, ledger, issueId, run.id, "ReviewPassed", {
-      status: "succeeded",
-      terminalEvent: "ReviewPassed",
-      message: "Review passed.",
-    });
+    const terminalRun = yield* finishReview(
+      tracker,
+      ledger,
+      issueId,
+      run.id,
+      "ReviewPassed",
+      {
+        status: "succeeded",
+        terminalEvent: "ReviewPassed",
+        message: "Review passed.",
+      },
+    );
 
     return {
       status: "review_candidate",
@@ -2841,7 +3132,12 @@ export const runDaemonOnce = (
 ): Effect.Effect<
   DaemonOnceResult,
   DaemonRunError,
-  IssueTracker | GitLabIssueSource | RunLedger | AgentRunner | WorkspaceRuntime | MergeRequestClient
+  | IssueTracker
+  | GitLabIssueSource
+  | RunLedger
+  | AgentRunner
+  | WorkspaceRuntime
+  | MergeRequestClient
 > =>
   Effect.gen(function* () {
     const sync = yield* syncGitLabIssues(input);
@@ -2872,8 +3168,11 @@ const daemonResultLine = (execution: DaemonLaneExecution): string => {
   const status = execution.result.status;
   if (status === "failed") {
     const failureKind =
-      "failureKind" in execution.result ? ` failureKind=${execution.result.failureKind}` : "";
-    const message = "message" in execution.result ? ` ${execution.result.message}` : "";
+      "failureKind" in execution.result
+        ? ` failureKind=${execution.result.failureKind}`
+        : "";
+    const message =
+      "message" in execution.result ? ` ${execution.result.message}` : "";
     return `- ${execution.lane} ${execution.issueId}: failed${failureKind}${message}`;
   }
 
@@ -2902,7 +3201,12 @@ export const runDaemonOnceForCli = (
 ): Effect.Effect<
   string,
   DaemonRunError,
-  IssueTracker | GitLabIssueSource | RunLedger | AgentRunner | WorkspaceRuntime | MergeRequestClient
+  | IssueTracker
+  | GitLabIssueSource
+  | RunLedger
+  | AgentRunner
+  | WorkspaceRuntime
+  | MergeRequestClient
 > => runDaemonOnce(input).pipe(Effect.map(renderDaemonOnceResult));
 
 const sleepUntilNextDaemonTick = (
@@ -2935,7 +3239,12 @@ export const runDaemonLoopForCli = (
 ): Effect.Effect<
   void,
   DaemonRunError,
-  IssueTracker | GitLabIssueSource | RunLedger | AgentRunner | WorkspaceRuntime | MergeRequestClient
+  | IssueTracker
+  | GitLabIssueSource
+  | RunLedger
+  | AgentRunner
+  | WorkspaceRuntime
+  | MergeRequestClient
 > =>
   Effect.gen(function* () {
     const controller = new AbortController();
@@ -2949,7 +3258,10 @@ export const runDaemonLoopForCli = (
         yield* writeOutput(output);
 
         if (!controller.signal.aborted) {
-          yield* sleepUntilNextDaemonTick(input.pollIntervalSeconds, controller.signal);
+          yield* sleepUntilNextDaemonTick(
+            input.pollIntervalSeconds,
+            controller.signal,
+          );
         }
       }
     } finally {
@@ -2960,7 +3272,9 @@ export const runDaemonLoopForCli = (
     yield* writeOutput("Morpheus daemon stopped");
   });
 
-export const renderPrepareIssueResult = (result: PrepareIssueResult): string => {
+export const renderPrepareIssueResult = (
+  result: PrepareIssueResult,
+): string => {
   if (result.status === "prepared") {
     return [
       `Prepared ${result.issueId}`,
@@ -3000,7 +3314,9 @@ export const renderPrepareIssueResult = (result: PrepareIssueResult): string => 
   ].join("\n");
 };
 
-export const renderStartImplementationResult = (result: StartImplementationResult): string => {
+export const renderStartImplementationResult = (
+  result: StartImplementationResult,
+): string => {
   if (result.status === "started") {
     return [
       `Started implementation ${result.issueId}`,
@@ -3083,7 +3399,10 @@ export const startImplementationForCli = (
   | MergeRequestClientError
   | AgentRunnerError,
   IssueTracker | RunLedger | WorkspaceRuntime | MergeRequestClient | AgentRunner
-> => startImplementation(issueId).pipe(Effect.map(renderStartImplementationResult));
+> =>
+  startImplementation(issueId).pipe(
+    Effect.map(renderStartImplementationResult),
+  );
 
 export const reviewIssueForCli = (
   issueId: string,
@@ -3153,16 +3472,26 @@ const normalizeAgentReadyContract = (value: unknown): unknown => {
     currentBehavior: withFallback(value, "currentBehavior", "current_behavior"),
     desiredBehavior: withFallback(value, "desiredBehavior", "desired_behavior"),
     keyInterfaces: withFallback(value, "keyInterfaces", "key_interfaces"),
-    acceptanceCriteria: withFallback(value, "acceptanceCriteria", "acceptance_criteria"),
+    acceptanceCriteria: withFallback(
+      value,
+      "acceptanceCriteria",
+      "acceptance_criteria",
+    ),
     outOfScope: withFallback(value, "outOfScope", "out_of_scope"),
-    verificationPlan: withFallback(value, "verificationPlan", "verification_plan"),
+    verificationPlan: withFallback(
+      value,
+      "verificationPlan",
+      "verification_plan",
+    ),
     blockedBy: withFallback(value, "blockedBy", "blocked_by"),
     hitlDecisions: withFallback(value, "hitlDecisions", "hitl_decisions"),
     riskLevel: withFallback(value, "riskLevel", "risk_level"),
   };
 };
 
-export const decodeAgentReadyContract = (value: unknown): AgentReadyContractDecodeResult => {
+export const decodeAgentReadyContract = (
+  value: unknown,
+): AgentReadyContractDecodeResult => {
   try {
     return {
       status: "valid",
@@ -3189,7 +3518,9 @@ export const validateAfkReadyContract = (
     ["blockedBy", contract.blockedBy],
     ["hitlDecisions", contract.hitlDecisions],
   ] as const;
-  const emptyTextEntry = requiredTextEntries.find(([, value]) => value.trim().length === 0);
+  const emptyTextEntry = requiredTextEntries.find(
+    ([, value]) => value.trim().length === 0,
+  );
   if (emptyTextEntry !== undefined) {
     return {
       status: "invalid",
@@ -3204,7 +3535,8 @@ export const validateAfkReadyContract = (
     ["verificationPlan", contract.verificationPlan],
   ] as const;
   const emptyListEntry = requiredListEntries.find(
-    ([, values]) => values.length === 0 || values.some((value) => value.trim().length === 0),
+    ([, values]) =>
+      values.length === 0 || values.some((value) => value.trim().length === 0),
   );
   if (emptyListEntry !== undefined) {
     return {
@@ -3233,8 +3565,25 @@ export const validateAfkReadyContract = (
   };
 };
 
-const LaneConcurrencySchema = Schema.Number.pipe(Schema.int(), Schema.positive());
-const PositiveIntegerSchema = Schema.Number.pipe(Schema.int(), Schema.positive());
+const LaneConcurrencySchema = Schema.Number.pipe(
+  Schema.int(),
+  Schema.positive(),
+);
+const PositiveIntegerSchema = Schema.Number.pipe(
+  Schema.int(),
+  Schema.positive(),
+);
+
+const ContainerMountSchema = Schema.Struct({
+  hostPath: Schema.String,
+  containerPath: Schema.String,
+  readOnly: Schema.optional(Schema.Boolean),
+});
+
+const SkillMappingSchema = Schema.Struct({
+  name: Schema.String,
+  path: Schema.String,
+});
 
 export const MorpheusConfigSchema = Schema.Struct({
   targetRepo: Schema.String,
@@ -3254,6 +3603,23 @@ export const MorpheusConfigSchema = Schema.Struct({
   }),
   agentRunner: Schema.Struct({
     kind: Schema.Literal("container"),
+    agent: Schema.Struct({
+      provider: Schema.Literal("codex"),
+      model: Schema.String,
+      effort: Schema.Literal("low", "medium", "high", "xhigh"),
+    }),
+    auth: Schema.Struct({
+      envFile: Schema.String,
+    }),
+    container: Schema.Struct({
+      image: Schema.String,
+      profile: Schema.String,
+      mounts: Schema.Array(ContainerMountSchema),
+      setupHooks: Schema.Array(Schema.String),
+    }),
+    skills: Schema.Struct({
+      mappings: Schema.Array(SkillMappingSchema),
+    }),
   }),
   ledger: Schema.Struct({
     path: Schema.String,
@@ -3358,7 +3724,9 @@ const configPathFromOptions = (options: ConfigLoadOptions): string => {
   return resolve(options.targetRepo ?? process.cwd(), "morpheus.config.json");
 };
 
-export const loadMorpheusConfig = (options: ConfigLoadOptions = {}): ConfigLoadResult => {
+export const loadMorpheusConfig = (
+  options: ConfigLoadOptions = {},
+): ConfigLoadResult => {
   const path = configPathFromOptions(options);
 
   if (!existsSync(path)) {
@@ -3409,7 +3777,9 @@ const defaultPromptPaths = {
   review: ".morpheus/prompts/review.md",
 } as const;
 
-const makeInitialConfig = (options: InitMorpheusRepoOptions): MorpheusConfig => ({
+const makeInitialConfig = (
+  options: InitMorpheusRepoOptions,
+): MorpheusConfig => ({
   targetRepo: ".",
   issueTracker: { kind: "beads" },
   gitlab: {
@@ -3419,7 +3789,31 @@ const makeInitialConfig = (options: InitMorpheusRepoOptions): MorpheusConfig => 
   },
   daemon: { pollIntervalSeconds: 30 },
   mergeRequests: { kind: "gitlab-glab" },
-  agentRunner: { kind: "container" },
+  agentRunner: {
+    kind: "container",
+    agent: {
+      provider: "codex",
+      model: "gpt-5.4-nano",
+      effort: "xhigh",
+    },
+    auth: {
+      envFile: ".morpheus/secrets/agent.env",
+    },
+    container: {
+      image: "morpheus-agent:local",
+      profile: ".morpheus/container/Dockerfile",
+      mounts: [
+        {
+          hostPath: ".",
+          containerPath: "/workspace",
+        },
+      ],
+      setupHooks: [],
+    },
+    skills: {
+      mappings: [],
+    },
+  },
   ledger: { path: ".morpheus/ledger.sqlite" },
   lanes: {
     preparation: { concurrency: 1 },
@@ -3551,7 +3945,9 @@ const dockerComposeTemplate = [
   "",
 ].join("\n");
 
-export const initMorpheusRepo = (options: InitMorpheusRepoOptions): InitMorpheusRepoResult => {
+export const initMorpheusRepo = (
+  options: InitMorpheusRepoOptions,
+): InitMorpheusRepoResult => {
   const target = resolve(options.target);
   const configPath = join(target, "morpheus.config.json");
   const dockerComposePath = join(target, ".morpheus", "docker-compose.yml");
@@ -3562,7 +3958,9 @@ export const initMorpheusRepo = (options: InitMorpheusRepoOptions): InitMorpheus
   ];
   const managedPaths = [configPath, dockerComposePath, ...promptPaths];
   const existingPaths =
-    options.force === true ? [] : managedPaths.filter((path) => existsSync(path));
+    options.force === true
+      ? []
+      : managedPaths.filter((path) => existsSync(path));
 
   if (existingPaths.length > 0) {
     return {
@@ -3597,11 +3995,17 @@ export const initMorpheusRepo = (options: InitMorpheusRepoOptions): InitMorpheus
   const gitignoreExisted = existsSync(gitignorePath);
   const gitignore = gitignoreExisted ? readFileSync(gitignorePath, "utf8") : "";
   const lines = gitignore.split(/\r?\n/).filter((line) => line.length > 0);
-  const missingEntries = gitignoreEntries.filter((entry) => !lines.includes(entry));
+  const missingEntries = gitignoreEntries.filter(
+    (entry) => !lines.includes(entry),
+  );
 
   if (missingEntries.length > 0) {
-    const prefix = gitignore.length > 0 && !gitignore.endsWith("\n") ? "\n" : "";
-    writeFileSync(gitignorePath, `${gitignore}${prefix}${missingEntries.join("\n")}\n`);
+    const prefix =
+      gitignore.length > 0 && !gitignore.endsWith("\n") ? "\n" : "";
+    writeFileSync(
+      gitignorePath,
+      `${gitignore}${prefix}${missingEntries.join("\n")}\n`,
+    );
     (gitignoreExisted ? updated : created).push(gitignorePath);
   }
 

@@ -14,7 +14,31 @@ const validConfig = {
   },
   daemon: { pollIntervalSeconds: 30 },
   mergeRequests: { kind: "gitlab-glab" },
-  agentRunner: { kind: "container" },
+  agentRunner: {
+    kind: "container",
+    agent: {
+      provider: "codex",
+      model: "gpt-5.4-nano",
+      effort: "xhigh",
+    },
+    auth: {
+      envFile: ".morpheus/secrets/agent.env",
+    },
+    container: {
+      image: "morpheus-agent:local",
+      profile: ".morpheus/container/Dockerfile",
+      mounts: [
+        {
+          hostPath: ".",
+          containerPath: "/workspace",
+        },
+      ],
+      setupHooks: [],
+    },
+    skills: {
+      mappings: [],
+    },
+  },
   ledger: { path: ".morpheus/ledger.sqlite" },
   lanes: {
     preparation: { concurrency: 1 },
@@ -179,6 +203,104 @@ describe("Morpheus config", () => {
         status: "loaded",
         path: configPath,
         config,
+      });
+    });
+  });
+
+  it("accepts declarative container agent config", () => {
+    withTempDir((dir) => {
+      const config = {
+        ...validConfig,
+        agentRunner: {
+          kind: "container",
+          agent: {
+            provider: "codex",
+            model: "gpt-5.4-nano",
+            effort: "xhigh",
+          },
+          auth: {
+            envFile: ".morpheus/secrets/custom-agent.env",
+          },
+          container: {
+            image: "registry.example/morpheus-agent:latest",
+            profile: ".morpheus/container/Dockerfile",
+            mounts: [
+              {
+                hostPath: ".",
+                containerPath: "/workspace",
+              },
+              {
+                hostPath: ".morpheus/cache",
+                containerPath: "/cache",
+                readOnly: true,
+              },
+            ],
+            setupHooks: ["pnpm install"],
+          },
+          skills: {
+            mappings: [
+              {
+                name: "project-caveman",
+                path: ".morpheus/skills/caveman/SKILL.md",
+              },
+            ],
+          },
+        },
+      };
+      const configPath = writeConfig(dir, config);
+
+      expect(loadMorpheusConfig({ configPath })).toEqual({
+        status: "loaded",
+        path: configPath,
+        config,
+      });
+    });
+  });
+
+  it.each([
+    ["runner kind", { ...validConfig.agentRunner, kind: "sandcastle" }],
+    [
+      "agent provider",
+      {
+        ...validConfig.agentRunner,
+        agent: { ...validConfig.agentRunner.agent, provider: "openai" },
+      },
+    ],
+    [
+      "agent effort",
+      {
+        ...validConfig.agentRunner,
+        agent: { ...validConfig.agentRunner.agent, effort: "extreme" },
+      },
+    ],
+    ["auth env file", { ...validConfig.agentRunner, auth: { envFile: 123 } }],
+    [
+      "mount path",
+      {
+        ...validConfig.agentRunner,
+        container: {
+          ...validConfig.agentRunner.container,
+          mounts: [{ hostPath: ".", containerPath: 123 }],
+        },
+      },
+    ],
+    [
+      "skill mapping",
+      { ...validConfig.agentRunner, skills: { mappings: [{ name: "x", path: 123 }] } },
+    ],
+  ] as const)("rejects invalid declarative container agent config: %s", (_field, agentRunner) => {
+    withTempDir((dir) => {
+      const configPath = writeConfig(dir, {
+        ...validConfig,
+        agentRunner,
+      });
+
+      expect(loadMorpheusConfig({ configPath })).toMatchObject({
+        status: "error",
+        error: {
+          kind: "schema_validation",
+          path: configPath,
+        },
       });
     });
   });
@@ -354,6 +476,31 @@ describe("Morpheus config", () => {
             project: "group/project",
             readyLabel: "agent:ready",
             targetBranch: "main",
+          },
+          agentRunner: {
+            kind: "container",
+            agent: {
+              provider: "codex",
+              model: "gpt-5.4-nano",
+              effort: "xhigh",
+            },
+            auth: {
+              envFile: ".morpheus/secrets/agent.env",
+            },
+            container: {
+              image: "morpheus-agent:local",
+              profile: ".morpheus/container/Dockerfile",
+              mounts: [
+                {
+                  hostPath: ".",
+                  containerPath: "/workspace",
+                },
+              ],
+              setupHooks: [],
+            },
+            skills: {
+              mappings: [],
+            },
           },
           prompts: {
             prepare: ".morpheus/prompts/prepare.md",

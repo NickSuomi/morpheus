@@ -5,7 +5,12 @@ import { codex, run as sandcastleRun } from "@ai-hero/sandcastle";
 import type { AgentProvider, RunOptions, RunResult } from "@ai-hero/sandcastle";
 import { docker } from "@ai-hero/sandcastle/sandboxes/docker";
 import type { SandboxProvider } from "@ai-hero/sandcastle";
-import { agentStates, deriveIssueState, deriveLane, planAgentStateTransition } from "@morpheus/core";
+import {
+  agentStates,
+  deriveIssueState,
+  deriveLane,
+  planAgentStateTransition,
+} from "@morpheus/core";
 import type { AgentStateTransitionPlan } from "@morpheus/core";
 import {
   AgentRunner,
@@ -662,10 +667,7 @@ const metadataWithGitLabImport = (
   },
 });
 
-const importedIssueChanged = (
-  issue: ImportedGitLabIssue,
-  source: GitLabIssueInput,
-): boolean =>
+const importedIssueChanged = (issue: ImportedGitLabIssue, source: GitLabIssueInput): boolean =>
   issue.title !== source.title ||
   issue.description !== source.description ||
   issue.metadata.project !== source.project ||
@@ -741,10 +743,30 @@ type SandcastlePhase = "prepare" | "implement" | "review";
 
 type SandcastleRun = (options: RunOptions) => Promise<RunResult>;
 
+export type ContainerAgentConfig = {
+  readonly provider: "codex";
+  readonly model: string;
+  readonly effort: "low" | "medium" | "high" | "xhigh";
+};
+
+export type ContainerMountConfig = {
+  readonly hostPath: string;
+  readonly containerPath: string;
+  readonly readOnly?: boolean;
+};
+
+export type ContainerRuntimeConfig = {
+  readonly image: string;
+  readonly mounts: readonly ContainerMountConfig[];
+};
+
 export type SandcastleAgentRunnerOptions = {
   readonly cwd: string;
   readonly promptPaths?: Partial<Record<SandcastlePhase, string>>;
   readonly logDirectory: string;
+  readonly agentConfig?: ContainerAgentConfig;
+  readonly authEnvFile?: string;
+  readonly containerConfig?: ContainerRuntimeConfig;
   readonly run?: SandcastleRun;
   readonly agent?: AgentProvider;
   readonly sandbox?: SandboxProvider;
@@ -982,7 +1004,7 @@ const builtInPrompt = (input: SandcastlePhaseInput): string => {
     return [
       ...base,
       'AgentReadyContract fields: {"category":"task|bug|feature|chore","summary":"...","currentBehavior":"...","desiredBehavior":"...","keyInterfaces":["..."],"acceptanceCriteria":["..."],"outOfScope":["..."],"verificationPlan":["..."],"blockedBy":"None or ...","hitlDecisions":"None or ...","riskLevel":"low|medium|high"}. Use these exact camelCase keys.',
-      "JSON shape: {\"status\":\"prepared\",\"contract\":AgentReadyContract,\"transcript\":\"...\",\"artifact\":{}} or blocked/failed variant.",
+      'JSON shape: {"status":"prepared","contract":AgentReadyContract,"transcript":"...","artifact":{}} or blocked/failed variant.',
     ].join("\n");
   }
 
@@ -997,7 +1019,7 @@ const builtInPrompt = (input: SandcastlePhaseInput): string => {
       `Merge request: ${input.mergeRequest.reference}`,
       `Merge request URL: ${input.mergeRequest.url ?? "None"}`,
       `Contract: ${JSON.stringify(input.contract)}`,
-      "JSON shape: {\"status\":\"implemented\",\"implementationEvidence\":[{\"summary\":\"...\",\"files\":[]}],\"verificationEvidence\":[{\"command\":\"...\",\"status\":\"passed\"}],\"transcript\":\"...\",\"artifact\":{}} or failed variant.",
+      'JSON shape: {"status":"implemented","implementationEvidence":[{"summary":"...","files":[]}],"verificationEvidence":[{"command":"...","status":"passed"}],"transcript":"...","artifact":{}} or failed variant.',
     ].join("\n");
   }
 
@@ -1012,7 +1034,7 @@ const builtInPrompt = (input: SandcastlePhaseInput): string => {
     `Contract: ${JSON.stringify(input.contract)}`,
     `Implementation evidence: ${JSON.stringify(input.implementationEvidence)}`,
     `Verification evidence: ${JSON.stringify(input.verificationEvidence)}`,
-    "JSON shape: {\"status\":\"passed\",\"findings\":[],\"transcript\":\"...\",\"artifact\":{}} or blocked/failed variant.",
+    'JSON shape: {"status":"passed","findings":[],"transcript":"...","artifact":{}} or blocked/failed variant.',
   ].join("\n");
 };
 
@@ -1046,6 +1068,56 @@ const extractTaggedJson = (stdout: string): unknown => {
   return JSON.parse(match[1]);
 };
 
+const parseEnvFile = (contents: string): Record<string, string> =>
+  Object.fromEntries(
+    contents
+      .split(/\r?\n/)
+      .map((line) => line.trim())
+      .filter((line) => line.length > 0 && !line.startsWith("#"))
+      .map((line) => {
+        const separator = line.indexOf("=");
+        if (separator === -1) {
+          return undefined;
+        }
+
+        const key = line.slice(0, separator).trim();
+        const rawValue = line.slice(separator + 1).trim();
+        const value =
+          (rawValue.startsWith('"') && rawValue.endsWith('"')) ||
+          (rawValue.startsWith("'") && rawValue.endsWith("'"))
+            ? rawValue.slice(1, -1)
+            : rawValue;
+        return key.length === 0 || value.length === 0 ? undefined : [key, value];
+      })
+      .filter((entry): entry is [string, string] => entry !== undefined),
+  );
+
+const readAuthEnv = (
+  cwd: string,
+  agentConfig: ContainerAgentConfig,
+  authEnvFile?: string,
+): Record<string, string> => {
+  if (authEnvFile === undefined) {
+    return {};
+  }
+
+  const path = resolve(cwd, authEnvFile);
+  if (!existsSync(path)) {
+    throw new Error(`Agent auth env file not found: ${path}`);
+  }
+
+  const env = parseEnvFile(readFileSync(path, "utf8"));
+  if (Object.keys(env).length === 0) {
+    throw new Error(`Agent auth env file has no variables: ${path}`);
+  }
+
+  if (agentConfig.provider === "codex" && env.OPENAI_API_KEY === undefined) {
+    throw new Error(`Agent auth env file missing OPENAI_API_KEY: ${path}`);
+  }
+
+  return env;
+};
+
 const runSandcastlePhase = (
   options: SandcastleAgentRunnerOptions,
   input: SandcastlePhaseInput,
@@ -1057,12 +1129,28 @@ const runSandcastlePhase = (
         phase === "implement" || phase === "review" ? input.workspace.workspacePath : options.cwd;
       mkdirSync(options.logDirectory, { recursive: true });
       const runner = options.run ?? sandcastleRun;
+      const agentConfig = options.agentConfig ?? {
+        provider: "codex" as const,
+        model: "gpt-5.4-nano",
+        effort: "xhigh" as const,
+      };
+      const authEnv = readAuthEnv(options.cwd, agentConfig, options.authEnvFile);
+      const containerConfig = options.containerConfig ?? {
+        image: "morpheus-agent:local",
+        mounts: [],
+      };
       const result = await runner({
-        agent: options.agent ?? codex("gpt-5.4-mini", { effort: "medium" }),
+        agent: options.agent ?? codex(agentConfig.model, { effort: agentConfig.effort }),
         sandbox:
           options.sandbox ??
           docker({
-            mounts: [{ hostPath: "~/.codex", sandboxPath: "/home/agent/.codex" }],
+            imageName: containerConfig.image,
+            mounts: containerConfig.mounts.map((mount) => ({
+              hostPath: mount.hostPath,
+              sandboxPath: mount.containerPath,
+              readonly: mount.readOnly,
+            })),
+            env: authEnv,
           }),
         cwd,
         prompt: resolvePromptText(input, options.promptPaths, options.cwd),
@@ -1164,9 +1252,27 @@ export const createOperatorHealth = ({
         "docker reachable",
         dockerOperatorAction,
       ),
-      checkCommand(processRunner, "workspace", "git", ["rev-parse", "--show-toplevel"], "workspace readable"),
-      checkCommand(processRunner, "labels", "bd", ["list", "--label-pattern", "agent:*", "--limit", "1", "--json"], "agent labels readable"),
-      checkCommand(processRunner, "daemon", "git", ["status", "--short"], "daemon assumptions readable"),
+      checkCommand(
+        processRunner,
+        "workspace",
+        "git",
+        ["rev-parse", "--show-toplevel"],
+        "workspace readable",
+      ),
+      checkCommand(
+        processRunner,
+        "labels",
+        "bd",
+        ["list", "--label-pattern", "agent:*", "--limit", "1", "--json"],
+        "agent labels readable",
+      ),
+      checkCommand(
+        processRunner,
+        "daemon",
+        "git",
+        ["status", "--short"],
+        "daemon assumptions readable",
+      ),
       checkCommand(
         processRunner,
         "containers",
@@ -1175,7 +1281,13 @@ export const createOperatorHealth = ({
         "containers readable",
         dockerOperatorAction,
       ),
-      checkCommand(processRunner, "worktrees", "git", ["worktree", "list", "--porcelain"], "worktrees readable"),
+      checkCommand(
+        processRunner,
+        "worktrees",
+        "git",
+        ["worktree", "list", "--porcelain"],
+        "worktrees readable",
+      ),
       Effect.succeed({
         name: "config",
         status: "ok",
@@ -1497,11 +1609,7 @@ export const createGlabIssueSource = ({
         "--per-page",
         "100",
       ] as const;
-      const result = yield* runGlabIssueSourceEffect(
-        processRunner,
-        "listReadyGitLabIssues",
-        args,
-      );
+      const result = yield* runGlabIssueSourceEffect(processRunner, "listReadyGitLabIssues", args);
 
       return yield* gitLabIssuesFromJson(project, result.stdout, args);
     }),

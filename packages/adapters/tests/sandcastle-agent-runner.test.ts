@@ -16,7 +16,10 @@ const trackedIssue = (): TrackedIssue => {
     title: "Add real Sandcastle agent runner adapter",
     labels,
     derivedState,
-    lane: derivedState.status === "active" ? deriveLane(derivedState.state) : "none",
+    lane:
+      derivedState.status === "active"
+        ? deriveLane(derivedState.state)
+        : "none",
   };
 };
 
@@ -27,8 +30,18 @@ describe("SandcastleAgentRunner", () => {
     const runner = createSandcastleAgentRunner({
       cwd: dir,
       logDirectory: join(dir, ".morpheus", "sandcastle-logs"),
-      agent: { name: "fake", env: {}, captureSessions: false, buildPrintCommand: () => ({ command: "fake" }), parseStreamLine: () => [] },
-      sandbox: { kind: "none", exec: async () => ({ stdout: "", stderr: "", exitCode: 0 }), close: async () => ({}) } as never,
+      agent: {
+        name: "fake",
+        env: {},
+        captureSessions: false,
+        buildPrintCommand: () => ({ command: "fake" }),
+        parseStreamLine: () => [],
+      },
+      sandbox: {
+        kind: "none",
+        exec: async () => ({ stdout: "", stderr: "", exitCode: 0 }),
+        close: async () => ({}),
+      } as never,
       run: async (options) => {
         calls.push(options);
         return {
@@ -53,18 +66,30 @@ describe("SandcastleAgentRunner", () => {
           })}</morpheus_result>`,
           commits: [],
           branch: "agent/morph-bbp",
-          logFilePath: join(dir, ".morpheus", "sandcastle-logs", "morph-bbp-prepare.log"),
+          logFilePath: join(
+            dir,
+            ".morpheus",
+            "sandcastle-logs",
+            "morph-bbp-prepare.log",
+          ),
         };
       },
     });
 
-    const result = await Effect.runPromise(runner.prepareIssue({ issue: trackedIssue() }));
+    const result = await Effect.runPromise(
+      runner.prepareIssue({ issue: trackedIssue() }),
+    );
 
     expect(result.status).toBe("prepared");
     expect(result.transcript).toContain("<morpheus_result>");
     expect(result.artifact).toMatchObject({
       branch: "agent/morph-bbp",
-      logFilePath: join(dir, ".morpheus", "sandcastle-logs", "morph-bbp-prepare.log"),
+      logFilePath: join(
+        dir,
+        ".morpheus",
+        "sandcastle-logs",
+        "morph-bbp-prepare.log",
+      ),
     });
     expect(calls).toHaveLength(1);
     expect(calls[0]).toMatchObject({
@@ -72,7 +97,12 @@ describe("SandcastleAgentRunner", () => {
       name: "morpheus-prepare-morph-bbp",
       logging: {
         type: "file",
-        path: join(dir, ".morpheus", "sandcastle-logs", "morph-bbp-prepare.log"),
+        path: join(
+          dir,
+          ".morpheus",
+          "sandcastle-logs",
+          "morph-bbp-prepare.log",
+        ),
       },
       maxIterations: 1,
     });
@@ -88,8 +118,18 @@ describe("SandcastleAgentRunner", () => {
       promptPaths: {
         prepare: "prepare.md",
       },
-      agent: { name: "fake", env: {}, captureSessions: false, buildPrintCommand: () => ({ command: "fake" }), parseStreamLine: () => [] },
-      sandbox: { kind: "none", exec: async () => ({ stdout: "", stderr: "", exitCode: 0 }), close: async () => ({}) } as never,
+      agent: {
+        name: "fake",
+        env: {},
+        captureSessions: false,
+        buildPrintCommand: () => ({ command: "fake" }),
+        parseStreamLine: () => [],
+      },
+      sandbox: {
+        kind: "none",
+        exec: async () => ({ stdout: "", stderr: "", exitCode: 0 }),
+        close: async () => ({}),
+      } as never,
       run: async (options) => {
         calls.push({ prompt: options.prompt });
         return {
@@ -104,11 +144,109 @@ describe("SandcastleAgentRunner", () => {
     await Effect.runPromise(runner.prepareIssue({ issue: trackedIssue() }));
 
     expect(calls).toHaveLength(1);
-    expect(calls[0]?.prompt).toContain("Return only JSON inside <morpheus_result>");
+    expect(calls[0]?.prompt).toContain(
+      "Return only JSON inside <morpheus_result>",
+    );
     expect(calls[0]?.prompt).toContain("Default Morpheus Agent Skills");
     expect(calls[0]?.prompt).toContain("Caveman");
     expect(calls[0]?.prompt).toContain("Additional instructions:");
     expect(calls[0]?.prompt).toContain("custom prompt");
+  });
+
+  it("constructs Codex provider from configured model and effort", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "morpheus-sandcastle-"));
+    writeFileSync(join(dir, "agent.env"), "OPENAI_API_KEY=test-token\n");
+    const commands: string[] = [];
+    const runner = createSandcastleAgentRunner({
+      cwd: dir,
+      logDirectory: join(dir, ".morpheus", "sandcastle-logs"),
+      authEnvFile: "agent.env",
+      containerConfig: {
+        image: "morpheus-agent:test",
+        mounts: [{ hostPath: ".cache", containerPath: "/cache", readOnly: true }],
+      },
+      agentConfig: {
+        provider: "codex",
+        model: "gpt-5.4-nano",
+        effort: "xhigh",
+      },
+      sandbox: {
+        kind: "none",
+        exec: async () => ({ stdout: "", stderr: "", exitCode: 0 }),
+        close: async () => ({}),
+      } as never,
+      run: async (options) => {
+        commands.push(
+          options.agent.buildPrintCommand({
+            prompt: "prompt",
+            dangerouslySkipPermissions: true,
+          }).command,
+        );
+        return {
+          iterations: [],
+          stdout: `<morpheus_result>{"status":"blocked","reason":"x","transcript":"","artifact":{}}</morpheus_result>`,
+          commits: [],
+          branch: "agent/morph-bbp",
+        };
+      },
+    });
+
+    await Effect.runPromise(runner.prepareIssue({ issue: trackedIssue() }));
+
+    expect(commands).toEqual([
+      `codex exec --json --dangerously-bypass-approvals-and-sandbox -m 'gpt-5.4-nano' -c 'model_reasoning_effort="xhigh"'`,
+    ]);
+  });
+
+  it("fails before running when configured auth env file is missing", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "morpheus-sandcastle-"));
+    let runCalled = false;
+    const runner = createSandcastleAgentRunner({
+      cwd: dir,
+      logDirectory: join(dir, ".morpheus", "sandcastle-logs"),
+      authEnvFile: ".morpheus/secrets/agent.env",
+      run: async () => {
+        runCalled = true;
+        return {
+          iterations: [],
+          stdout: `<morpheus_result>{"status":"blocked","reason":"x","transcript":"","artifact":{}}</morpheus_result>`,
+          commits: [],
+          branch: "agent/morph-bbp",
+        };
+      },
+    });
+
+    const result = await Effect.runPromiseExit(runner.prepareIssue({ issue: trackedIssue() }));
+
+    expect(runCalled).toBe(false);
+    expect(result._tag).toBe("Failure");
+    expect(String(result)).toContain("Agent auth env file not found");
+  });
+
+  it("fails before running when Codex auth env file lacks OPENAI_API_KEY", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "morpheus-sandcastle-"));
+    writeFileSync(join(dir, "agent.env"), "OTHER_TOKEN=test\n");
+    let runCalled = false;
+    const runner = createSandcastleAgentRunner({
+      cwd: dir,
+      logDirectory: join(dir, ".morpheus", "sandcastle-logs"),
+      authEnvFile: "agent.env",
+      run: async () => {
+        runCalled = true;
+        return {
+          iterations: [],
+          stdout: `<morpheus_result>{"status":"blocked","reason":"x","transcript":"","artifact":{}}</morpheus_result>`,
+          commits: [],
+          branch: "agent/morph-bbp",
+        };
+      },
+    });
+
+    const result = await Effect.runPromiseExit(runner.prepareIssue({ issue: trackedIssue() }));
+
+    expect(runCalled).toBe(false);
+    expect(result._tag).toBe("Failure");
+    expect(String(result)).toContain("Agent auth env file missing OPENAI_API_KEY");
   });
 
   it("runs implementation in the prepared workspace with MR and contract context", async () => {
@@ -117,10 +255,24 @@ describe("SandcastleAgentRunner", () => {
     const runner = createSandcastleAgentRunner({
       cwd: dir,
       logDirectory: join(dir, ".morpheus", "sandcastle-logs"),
-      agent: { name: "fake", env: {}, captureSessions: false, buildPrintCommand: () => ({ command: "fake" }), parseStreamLine: () => [] },
-      sandbox: { kind: "none", exec: async () => ({ stdout: "", stderr: "", exitCode: 0 }), close: async () => ({}) } as never,
+      agent: {
+        name: "fake",
+        env: {},
+        captureSessions: false,
+        buildPrintCommand: () => ({ command: "fake" }),
+        parseStreamLine: () => [],
+      },
+      sandbox: {
+        kind: "none",
+        exec: async () => ({ stdout: "", stderr: "", exitCode: 0 }),
+        close: async () => ({}),
+      } as never,
       run: async (options) => {
-        calls.push({ cwd: options.cwd, prompt: options.prompt, name: options.name });
+        calls.push({
+          cwd: options.cwd,
+          prompt: options.prompt,
+          name: options.name,
+        });
         return {
           iterations: [],
           stdout: `<morpheus_result>{"status":"implemented","implementationEvidence":[{"summary":"Done","files":["src/index.ts"]}],"verificationEvidence":[{"command":"pnpm check","status":"passed"}],"transcript":"","artifact":{}}</morpheus_result>`,
@@ -174,10 +326,24 @@ describe("SandcastleAgentRunner", () => {
     const runner = createSandcastleAgentRunner({
       cwd: dir,
       logDirectory: join(dir, ".morpheus", "sandcastle-logs"),
-      agent: { name: "fake", env: {}, captureSessions: false, buildPrintCommand: () => ({ command: "fake" }), parseStreamLine: () => [] },
-      sandbox: { kind: "none", exec: async () => ({ stdout: "", stderr: "", exitCode: 0 }), close: async () => ({}) } as never,
+      agent: {
+        name: "fake",
+        env: {},
+        captureSessions: false,
+        buildPrintCommand: () => ({ command: "fake" }),
+        parseStreamLine: () => [],
+      },
+      sandbox: {
+        kind: "none",
+        exec: async () => ({ stdout: "", stderr: "", exitCode: 0 }),
+        close: async () => ({}),
+      } as never,
       run: async (options) => {
-        calls.push({ cwd: options.cwd, prompt: options.prompt, name: options.name });
+        calls.push({
+          cwd: options.cwd,
+          prompt: options.prompt,
+          name: options.name,
+        });
         return {
           iterations: [],
           stdout: `<morpheus_result>{"status":"passed","findings":[],"transcript":"","artifact":{}}</morpheus_result>`,
@@ -211,7 +377,12 @@ describe("SandcastleAgentRunner", () => {
         mergeRequest: {
           reference: "!42",
         },
-        implementationEvidence: [{ summary: "Adapter added", files: ["packages/adapters/src/index.ts"] }],
+        implementationEvidence: [
+          {
+            summary: "Adapter added",
+            files: ["packages/adapters/src/index.ts"],
+          },
+        ],
         verificationEvidence: [{ command: "pnpm check", status: "passed" }],
       }) ?? Effect.die("missing reviewIssue"),
     );

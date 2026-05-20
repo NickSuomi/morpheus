@@ -40,6 +40,7 @@ import {
   WorkspaceRuntime,
 } from "@morpheus/runtime";
 import pkg from "../package.json" with { type: "json" };
+import { formatConfigSummaryText } from "./config-summary.js";
 
 const configPath = Options.text("config").pipe(Options.optional);
 const runId = Args.text({ name: "runId" });
@@ -53,6 +54,7 @@ type LoadedCliConfig = {
   readonly gitlab: MorpheusConfig["gitlab"];
   readonly daemon: MorpheusConfig["daemon"];
   readonly lanes: MorpheusConfig["lanes"];
+  readonly agentRunner: MorpheusConfig["agentRunner"];
   readonly promptPaths?: {
     readonly prepare?: string;
     readonly implement?: string;
@@ -85,6 +87,7 @@ const loadCliConfig = (pathOption: Option.Option<string>): LoadedCliConfig => {
     gitlab: result.config.gitlab,
     daemon: result.config.daemon,
     lanes: result.config.lanes,
+    agentRunner: result.config.agentRunner,
     promptPaths: result.config.prompts,
   };
 };
@@ -96,22 +99,7 @@ const formatConfigSummary = (
     return Effect.fail(new Error(`${result.error.kind}: ${result.error.path}`));
   }
 
-  const { config } = result;
-
-  return Console.log(
-    [
-      "Morpheus config",
-      `path: ${result.path}`,
-      `targetRepo: ${config.targetRepo}`,
-      `ledger: ${config.ledger.path}`,
-      `issueTracker: ${config.issueTracker.kind}`,
-      `gitlab: project=${config.gitlab.project} readyLabel=${config.gitlab.readyLabel} targetBranch=${config.gitlab.targetBranch}`,
-      `daemon: pollIntervalSeconds=${config.daemon.pollIntervalSeconds}`,
-      `mergeRequests: ${config.mergeRequests.kind}`,
-      `agentRunner: ${config.agentRunner.kind}`,
-      `lanes: preparation=${config.lanes.preparation.concurrency} implementation=${config.lanes.implementation.concurrency} review=${config.lanes.review.concurrency}`,
-    ].join("\n"),
-  );
+  return Console.log(formatConfigSummaryText(result));
 };
 
 const ledgerLayerFromConfig = (
@@ -186,6 +174,18 @@ const provideSync = <A, E>(
 const agentLogDirectory = (configDirectory: string): string =>
   resolve(configDirectory, ".morpheus", "agent-logs");
 
+const agentRunnerOptionsFromConfig = (config: LoadedCliConfig) => ({
+  cwd: config.targetRepo,
+  promptPaths: config.promptPaths,
+  logDirectory: agentLogDirectory(config.configDirectory),
+  agentConfig: config.agentRunner.agent,
+  authEnvFile: config.agentRunner.auth.envFile,
+  containerConfig: {
+    image: config.agentRunner.container.image,
+    mounts: config.agentRunner.container.mounts,
+  },
+});
+
 const prepareLayerFromConfig = (
   pathOption: Option.Option<string>,
 ): Effect.Effect<
@@ -205,11 +205,7 @@ const prepareLayerFromConfig = (
         runsDirectory: resolve(config.configDirectory, ".morpheus", "runs"),
       }),
       issueTrackerLayer,
-      sandcastleAgentRunnerLayer({
-        cwd: config.targetRepo,
-        promptPaths: config.promptPaths,
-        logDirectory: agentLogDirectory(config.configDirectory),
-      }),
+      sandcastleAgentRunnerLayer(agentRunnerOptionsFromConfig(config)),
     );
   });
 
@@ -242,11 +238,7 @@ const implementationLayerFromConfig = (
       beadsIssueTrackerLayer.pipe(Layer.provide(processRunnerLayer)),
       gitWorkspaceRuntimeLayer.pipe(Layer.provide(processRunnerLayer)),
       glabMergeRequestClientLayer.pipe(Layer.provide(processRunnerLayer)),
-      sandcastleAgentRunnerLayer({
-        cwd: config.targetRepo,
-        promptPaths: config.promptPaths,
-        logDirectory: agentLogDirectory(config.configDirectory),
-      }),
+      sandcastleAgentRunnerLayer(agentRunnerOptionsFromConfig(config)),
     );
   });
 
@@ -285,11 +277,7 @@ const reviewLayerFromConfig = (
       beadsIssueTrackerLayer.pipe(Layer.provide(processRunnerLayer)),
       gitWorkspaceRuntimeLayer.pipe(Layer.provide(processRunnerLayer)),
       glabMergeRequestClientLayer.pipe(Layer.provide(processRunnerLayer)),
-      sandcastleAgentRunnerLayer({
-        cwd: config.targetRepo,
-        promptPaths: config.promptPaths,
-        logDirectory: agentLogDirectory(config.configDirectory),
-      }),
+      sandcastleAgentRunnerLayer(agentRunnerOptionsFromConfig(config)),
     );
   });
 
@@ -332,11 +320,7 @@ const daemonLayerFromConfig = (
       glabIssueSourceLayer.pipe(Layer.provide(processRunnerLayer)),
       gitWorkspaceRuntimeLayer.pipe(Layer.provide(processRunnerLayer)),
       glabMergeRequestClientLayer.pipe(Layer.provide(processRunnerLayer)),
-      sandcastleAgentRunnerLayer({
-        cwd: config.targetRepo,
-        promptPaths: config.promptPaths,
-        logDirectory: agentLogDirectory(config.configDirectory),
-      }),
+      sandcastleAgentRunnerLayer(agentRunnerOptionsFromConfig(config)),
     );
   });
 
