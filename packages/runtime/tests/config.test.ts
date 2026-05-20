@@ -23,6 +23,7 @@ const validConfig = {
     },
     auth: {
       envFile: ".morpheus/secrets/agent.env",
+      requiredKeys: ["OPENAI_API_KEY"],
     },
     container: {
       image: "morpheus-agent:local",
@@ -220,6 +221,7 @@ describe("Morpheus config", () => {
           },
           auth: {
             envFile: ".morpheus/secrets/custom-agent.env",
+            requiredKeys: ["OPENAI_API_KEY", "EXTRA_TOKEN"],
           },
           container: {
             image: "registry.example/morpheus-agent:latest",
@@ -273,7 +275,14 @@ describe("Morpheus config", () => {
         agent: { ...validConfig.agentRunner.agent, effort: "extreme" },
       },
     ],
-    ["auth env file", { ...validConfig.agentRunner, auth: { envFile: 123 } }],
+    [
+      "auth env file",
+      { ...validConfig.agentRunner, auth: { ...validConfig.agentRunner.auth, envFile: 123 } },
+    ],
+    [
+      "auth required key",
+      { ...validConfig.agentRunner, auth: { ...validConfig.agentRunner.auth, requiredKeys: [""] } },
+    ],
     [
       "mount path",
       {
@@ -486,6 +495,7 @@ describe("Morpheus config", () => {
             },
             auth: {
               envFile: ".morpheus/secrets/agent.env",
+              requiredKeys: ["OPENAI_API_KEY"],
             },
             container: {
               image: "morpheus-agent:local",
@@ -539,6 +549,10 @@ describe("Morpheus config", () => {
       expect(readFileSync(join(dir, ".gitignore"), "utf8")).toContain(".morpheus/ledger.sqlite*");
       expect(readFileSync(join(dir, ".gitignore"), "utf8")).toContain(".morpheus/runs/");
       expect(readFileSync(join(dir, ".gitignore"), "utf8")).toContain(".morpheus/agent-logs/");
+      expect(readFileSync(join(dir, ".gitignore"), "utf8")).toContain(".morpheus/secrets/agent.env");
+      expect(readFileSync(join(dir, ".morpheus/secrets/agent.env.example"), "utf8")).toContain(
+        "OPENAI_API_KEY=",
+      );
     });
   });
 

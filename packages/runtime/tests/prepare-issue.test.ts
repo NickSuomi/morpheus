@@ -302,6 +302,12 @@ const fakeAgentRunner = (service: AgentRunnerService) => {
   return {
     calls,
     layer: Layer.succeed(AgentRunner, {
+      checkAccess: service.checkAccess
+        ? () => {
+            calls.push("checkAccess");
+            return service.checkAccess?.() ?? Effect.void;
+          }
+        : undefined,
       prepareIssue: (input) => {
         calls.push("prepareIssue");
         return service.prepareIssue(input);
@@ -326,6 +332,34 @@ const runPrepare = (
   );
 
 describe("prepareIssue", () => {
+  it("fails agent access before lane mutation", async () => {
+    const tracker = fakeIssueTracker(["agent:ready"]);
+    const ledger = fakeRunLedger();
+    const runner = fakeAgentRunner({
+      checkAccess: () =>
+        Effect.fail(
+          new AgentRunnerError({
+            operation: "sandcastle.auth",
+            failureKind: "operator_access",
+            message: "Agent auth env file not found: /repo/.morpheus/secrets/agent.env",
+          }),
+        ),
+      prepareIssue: () => Effect.die("prepare should not run"),
+    });
+
+    const result = await runPrepare(tracker.layer, ledger.layer, runner.layer);
+
+    expect(result).toMatchObject({
+      status: "failed",
+      failureKind: "operator_access",
+      message: expect.stringContaining("Agent auth env file not found"),
+    });
+    expect(tracker.labels).toEqual(["agent:ready"]);
+    expect(tracker.calls).toEqual([]);
+    expect(ledger.calls).toEqual([]);
+    expect(runner.calls).toEqual(["checkAccess"]);
+  });
+
   it("writes a valid fake preparation contract and moves to prepared", async () => {
     const tracker = fakeIssueTracker(["agent:ready", "ready-for-agent"]);
     const ledger = fakeRunLedger();

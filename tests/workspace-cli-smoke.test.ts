@@ -38,6 +38,7 @@ const validAgentRunnerConfig = {
   },
   auth: {
     envFile: ".morpheus/secrets/agent.env",
+    requiredKeys: ["OPENAI_API_KEY"],
   },
   container: {
     image: "morpheus-agent:local",

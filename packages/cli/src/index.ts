@@ -140,7 +140,11 @@ const operatorLayerFromConfig = (
         runsDirectory: resolve(config.configDirectory, ".morpheus", "runs"),
       }),
       beadsIssueTrackerLayer.pipe(Layer.provide(processRunnerLayer)),
-      operatorHealthLayer.pipe(Layer.provide(processRunnerLayer)),
+      operatorHealthLayer({
+        cwd: config.targetRepo,
+        authEnvFile: config.agentRunner.auth.envFile,
+        authRequiredKeys: config.agentRunner.auth.requiredKeys,
+      }).pipe(Layer.provide(processRunnerLayer)),
     );
   });
 
@@ -180,6 +184,7 @@ const agentRunnerOptionsFromConfig = (config: LoadedCliConfig) => ({
   logDirectory: agentLogDirectory(config.configDirectory),
   agentConfig: config.agentRunner.agent,
   authEnvFile: config.agentRunner.auth.envFile,
+  authRequiredKeys: config.agentRunner.auth.requiredKeys,
   containerConfig: {
     image: config.agentRunner.container.image,
     mounts: config.agentRunner.container.mounts,

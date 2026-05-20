@@ -24,6 +24,7 @@ describe("config summary", () => {
           },
           auth: {
             envFile: ".morpheus/secrets/agent.env",
+            requiredKeys: ["OPENAI_API_KEY"],
           },
           container: {
             image: "morpheus-agent:local",
@@ -66,7 +67,9 @@ describe("config summary", () => {
 
     expect(output).toContain("agentRunner: container");
     expect(output).toContain("agent: provider=codex model=gpt-5.4-nano effort=xhigh");
-    expect(output).toContain("auth: envFile=.morpheus/secrets/agent.env");
+    expect(output).toContain(
+      "auth: envFile=.morpheus/secrets/agent.env requiredKeys=OPENAI_API_KEY",
+    );
     expect(output).toContain(
       "container: image=morpheus-agent:local profile=.morpheus/container/Dockerfile mounts=1 setupHooks=1",
     );
