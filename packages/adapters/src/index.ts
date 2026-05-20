@@ -431,6 +431,7 @@ const issueFromJson = (issue: BeadsIssueJson): TrackedIssue => {
   return {
     id,
     title: requiredString(issue.title, "title"),
+    description: optionalString(issue.description),
     labels,
     priority: optionalNumber(issue.priority),
     createdAt: optionalString(issue.created_at),
@@ -970,6 +971,7 @@ const builtInPrompt = (input: SandcastlePhaseInput): string => {
     `You are a Morpheus ${phase} agent.`,
     `Issue: ${issue.id}`,
     `Title: ${issue.title}`,
+    `Description: ${issue.description ?? "None"}`,
     "Do not commit. Do not close Beads issues.",
     `Return only JSON inside <${resultTag}>...</${resultTag}>.`,
   ];
@@ -977,6 +979,7 @@ const builtInPrompt = (input: SandcastlePhaseInput): string => {
   if (phase === "prepare") {
     return [
       ...base,
+      'AgentReadyContract fields: {"category":"task|bug|feature|chore","summary":"...","currentBehavior":"...","desiredBehavior":"...","keyInterfaces":["..."],"acceptanceCriteria":["..."],"outOfScope":["..."],"verificationPlan":["..."],"blockedBy":"None or ...","hitlDecisions":"None or ...","riskLevel":"low|medium|high"}. Use these exact camelCase keys.',
       "JSON shape: {\"status\":\"prepared\",\"contract\":AgentReadyContract,\"transcript\":\"...\",\"artifact\":{}} or blocked/failed variant.",
     ].join("\n");
   }
@@ -1027,7 +1030,9 @@ const resolvePromptText = (
     throw new Error(`Prompt override not found: ${promptPath}`);
   }
 
-  return readFileSync(promptPath, "utf8");
+  return [builtInPrompt(input), "Additional instructions:", readFileSync(promptPath, "utf8")].join(
+    "\n\n",
+  );
 };
 
 const extractTaggedJson = (stdout: string): unknown => {
@@ -1052,7 +1057,11 @@ const runSandcastlePhase = (
       const runner = options.run ?? sandcastleRun;
       const result = await runner({
         agent: options.agent ?? codex("gpt-5.4-mini", { effort: "medium" }),
-        sandbox: options.sandbox ?? docker(),
+        sandbox:
+          options.sandbox ??
+          docker({
+            mounts: [{ hostPath: "~/.codex", sandboxPath: "/home/agent/.codex" }],
+          }),
         cwd,
         prompt: resolvePromptText(input, options.promptPaths, options.cwd),
         logging: {

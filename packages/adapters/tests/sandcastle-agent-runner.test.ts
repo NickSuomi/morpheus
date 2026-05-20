@@ -103,7 +103,10 @@ describe("SandcastleAgentRunner", () => {
 
     await Effect.runPromise(runner.prepareIssue({ issue: trackedIssue() }));
 
-    expect(calls).toEqual([{ prompt: "custom prompt" }]);
+    expect(calls).toHaveLength(1);
+    expect(calls[0]?.prompt).toContain("Return only JSON inside <morpheus_result>");
+    expect(calls[0]?.prompt).toContain("Additional instructions:");
+    expect(calls[0]?.prompt).toContain("custom prompt");
   });
 
   it("runs implementation in the prepared workspace with MR and contract context", async () => {
