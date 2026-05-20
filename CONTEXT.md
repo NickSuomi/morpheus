@@ -42,6 +42,26 @@ Curated GitLab MR description rendered by Morpheus. It includes contract, eviden
 
 Concrete implementation of an effectful runtime port, such as Beads, GitLab via `glab`, SQLite, `SandcastleAgentRunner`, process execution, or workspace operations.
 
+### Container Runtime
+
+Morpheus-owned sandbox execution surface for agents. Target repository artifacts use Morpheus vocabulary, such as `.morpheus/` paths and `agentRunner.kind = "container"`. Low-level libraries may be used inside adapters, but target repositories should not need user-visible `.sandcastle/` setup for the normal Morpheus flow.
+
+### Docker-Compatible Runtime
+
+Container runtime reachable through Docker CLI/API semantics, such as Docker Desktop, OrbStack, Colima, or a remote Docker context. Morpheus should check runtime availability through Docker-compatible commands like `docker info` rather than assuming a specific macOS app.
+
+### Agent Auth File
+
+Explicit target/runtime environment file containing the token an agent may use, such as Codex API credentials. Default path is `.morpheus/secrets/agent.env`, with `.morpheus/secrets/agent.env.example` as the non-secret template. Morpheus must not silently use global host Codex authentication like `~/.codex` for agent runs. If the configured auth file is missing or lacks the required token, agent execution fails with an operator-auth error before work starts.
+
+### Container Profile
+
+Editable Morpheus-owned container setup generated for a target repository, such as `.morpheus/container/Dockerfile` and supporting docs. Morpheus may detect likely repo capabilities like Node, Android, or iOS and generate guidance/probes, but v1 does not auto-install heavyweight toolchains such as Android SDK or Xcode. Operators opt in by editing the container profile.
+
+### Declarative Target Config
+
+Target repository configuration stays in `morpheus.config.json`, not a target-owned TypeScript runtime file. Agent model, explicit auth file, container image/profile, mounts, setup hooks, prompt paths, and bundled skill mapping should be represented declaratively in config. Old repo-local TypeScript runtime config files are reference material only.
+
 ### Fake Agent Runner
 
 Local deterministic runner used in early slices to exercise orchestration without Docker, external sandbox runtime, or real agents.
