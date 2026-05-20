@@ -288,8 +288,22 @@ export type UpsertImportedGitLabIssueResult =
   | {
       readonly status: "skipped";
       readonly issueId: string;
-      readonly reason: "unchanged";
+      readonly reason: "unchanged" | "duplicate_detected";
+      readonly duplicateIssueIds?: readonly string[];
     };
+
+type CreatedImportedGitLabIssueResult = Extract<
+  UpsertImportedGitLabIssueResult,
+  { readonly status: "created" }
+>;
+type UpdatedImportedGitLabIssueResult = Extract<
+  UpsertImportedGitLabIssueResult,
+  { readonly status: "updated" }
+>;
+type SkippedImportedGitLabIssueResult = Extract<
+  UpsertImportedGitLabIssueResult,
+  { readonly status: "skipped" }
+>;
 
 export class IssueTrackerCommandError extends EffectSchema.TaggedError<IssueTrackerCommandError>(
   "IssueTrackerCommandError",
@@ -1098,9 +1112,9 @@ export type SyncGitLabIssueFailure = {
 };
 
 export type SyncGitLabIssuesResult = {
-  readonly created: readonly UpsertImportedGitLabIssueResult[];
-  readonly updated: readonly UpsertImportedGitLabIssueResult[];
-  readonly skipped: readonly UpsertImportedGitLabIssueResult[];
+  readonly created: readonly CreatedImportedGitLabIssueResult[];
+  readonly updated: readonly UpdatedImportedGitLabIssueResult[];
+  readonly skipped: readonly SkippedImportedGitLabIssueResult[];
   readonly failed: readonly SyncGitLabIssueFailure[];
 };
 
@@ -1132,9 +1146,9 @@ export const syncGitLabIssues = ({
   Effect.gen(function* () {
     const source = yield* GitLabIssueSource;
     const tracker = yield* IssueTracker;
-    const created: UpsertImportedGitLabIssueResult[] = [];
-    const updated: UpsertImportedGitLabIssueResult[] = [];
-    const skipped: UpsertImportedGitLabIssueResult[] = [];
+    const created: CreatedImportedGitLabIssueResult[] = [];
+    const updated: UpdatedImportedGitLabIssueResult[] = [];
+    const skipped: SkippedImportedGitLabIssueResult[] = [];
     const failed: SyncGitLabIssueFailure[] = [];
 
     const listed = yield* Effect.either(source.listReadyIssues({ project, readyLabel }));
@@ -1183,9 +1197,15 @@ export const renderSyncGitLabIssuesResult = (result: SyncGitLabIssuesResult): st
     `created=${result.created.length} updated=${result.updated.length} skipped=${result.skipped.length} failed=${result.failed.length}`,
     ...result.created.map((item) => `CREATED ${item.issueId}`),
     ...result.updated.map((item) => `UPDATED ${item.issueId}`),
-    ...result.skipped.map((item) =>
-      item.status === "skipped" ? `SKIPPED ${item.issueId} ${item.reason}` : "",
-    ),
+    ...result.skipped.map((item) => {
+      const duplicates =
+        item.status === "skipped" &&
+        item.reason === "duplicate_detected" &&
+        item.duplicateIssueIds !== undefined
+          ? ` duplicates=${item.duplicateIssueIds.join(",")}`
+          : "";
+      return `SKIPPED ${item.issueId} ${item.reason}${duplicates}`;
+    }),
     ...result.failed.map(
       (item) =>
         `FAILED ${item.project}${item.iid === undefined ? "" : `#${item.iid}`}: ${item.message}`,
