@@ -187,6 +187,7 @@ const agentRunnerOptionsFromConfig = (config: LoadedCliConfig) => ({
   authRequiredKeys: config.agentRunner.auth.requiredKeys,
   containerConfig: {
     image: config.agentRunner.container.image,
+    profile: config.agentRunner.container.profile,
     mounts: config.agentRunner.container.mounts,
   },
 });

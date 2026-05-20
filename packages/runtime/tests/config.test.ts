@@ -534,21 +534,20 @@ describe("Morpheus config", () => {
       expect(readFileSync(join(dir, ".morpheus/prompts/review.md"), "utf8")).toContain(
         "Stay read-only.",
       );
-      const compose = readFileSync(join(dir, ".morpheus/docker-compose.yml"), "utf8");
-      expect(compose).toContain("image: ${MORPHEUS_IMAGE:-morpheus:local}");
-      expect(compose).toContain(
-        'command: ["daemon", "--config", "/workspace/morpheus.config.json"]',
+      const dockerfile = readFileSync(join(dir, ".morpheus/container/Dockerfile"), "utf8");
+      expect(dockerfile).toContain("FROM node:22-bookworm-slim");
+      expect(dockerfile).toContain("Morpheus container profile");
+      const containerReadme = readFileSync(join(dir, ".morpheus/container/README.md"), "utf8");
+      expect(containerReadme).toContain("Morpheus container profile");
+      expect(containerReadme).toContain("Docker-compatible runtime");
+      expect(containerReadme).toContain(
+        "docker build -f .morpheus/container/Dockerfile -t morpheus-agent:local .",
       );
-      expect(compose).toContain("target: /workspace");
-      expect(compose).toContain("target: /root/.config/glab-cli");
-      expect(compose).toContain("target: /root/.gitconfig");
-      expect(compose).toContain("target: /root/.ssh");
-      expect(compose).toContain("target: /var/run/docker.sock");
-      expect(compose).not.toContain("token");
-      expect(compose).not.toContain("password");
+      expect(containerReadme).not.toContain("sandcastle");
       expect(readFileSync(join(dir, ".gitignore"), "utf8")).toContain(".morpheus/ledger.sqlite*");
       expect(readFileSync(join(dir, ".gitignore"), "utf8")).toContain(".morpheus/runs/");
       expect(readFileSync(join(dir, ".gitignore"), "utf8")).toContain(".morpheus/agent-logs/");
+      expect(readFileSync(join(dir, ".gitignore"), "utf8")).toContain(".morpheus/cache/");
       expect(readFileSync(join(dir, ".gitignore"), "utf8")).toContain(".morpheus/secrets/agent.env");
       expect(readFileSync(join(dir, ".morpheus/secrets/agent.env.example"), "utf8")).toContain(
         "OPENAI_API_KEY=",
@@ -578,12 +577,17 @@ describe("Morpheus config", () => {
     });
   });
 
-  it("overwrites existing config and prompts with force", () => {
+  it("overwrites existing config, prompts, and container profile with force", () => {
     withTempDir((dir) => {
       writeConfig(dir, validConfig);
       const promptPath = join(dir, ".morpheus/prompts/prepare.md");
+      const dockerfilePath = join(dir, ".morpheus/container/Dockerfile");
+      const readmePath = join(dir, ".morpheus/container/README.md");
       mkdirSync(join(dir, ".morpheus/prompts"), { recursive: true });
+      mkdirSync(join(dir, ".morpheus/container"), { recursive: true });
       writeFileSync(promptPath, "old prompt");
+      writeFileSync(dockerfilePath, "old dockerfile");
+      writeFileSync(readmePath, "old readme");
 
       const result = initMorpheusRepo({
         target: dir,
@@ -595,7 +599,12 @@ describe("Morpheus config", () => {
 
       expect(result).toMatchObject({
         status: "initialized",
-        updated: expect.arrayContaining([join(dir, "morpheus.config.json"), promptPath]),
+        updated: expect.arrayContaining([
+          join(dir, "morpheus.config.json"),
+          promptPath,
+          dockerfilePath,
+          readmePath,
+        ]),
       });
       expect(loadMorpheusConfig({ targetRepo: dir })).toMatchObject({
         status: "loaded",
@@ -608,6 +617,8 @@ describe("Morpheus config", () => {
         },
       });
       expect(readFileSync(promptPath, "utf8")).toContain("Agent-Ready Contract");
+      expect(readFileSync(dockerfilePath, "utf8")).toContain("Morpheus container profile");
+      expect(readFileSync(readmePath, "utf8")).toContain("Docker-compatible runtime");
     });
   });
 });

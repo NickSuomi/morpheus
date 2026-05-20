@@ -164,6 +164,7 @@ describe("SandcastleAgentRunner", () => {
       authEnvFile: "agent.env",
       containerConfig: {
         image: "morpheus-agent:test",
+        profile: ".morpheus/container/Dockerfile",
         mounts: [{ hostPath: ".cache", containerPath: "/cache", readOnly: true }],
       },
       agentConfig: {
@@ -203,7 +204,8 @@ describe("SandcastleAgentRunner", () => {
     expect(dockerOptions).toEqual([
       {
         imageName: "morpheus-agent:test",
-        mounts: [{ hostPath: ".cache", sandboxPath: "/cache", readonly: true }],
+        dockerfilePath: join(dir, ".morpheus/container/Dockerfile"),
+        mounts: [{ hostPath: join(dir, ".cache"), sandboxPath: "/cache", readonly: true }],
         env: { OPENAI_API_KEY: "test-token" },
       },
     ]);

@@ -149,32 +149,38 @@ morpheus init \
   --gitlab-project group/project
 ```
 
-`morpheus init` writes `/path/to/target-repo/.morpheus/docker-compose.yml`.
-Run the daemon from the target repo so the compose-relative bind mounts resolve
-to the target repo and its `.morpheus` artifact directory:
+`morpheus init` writes the target repo container profile at
+`/path/to/target-repo/.morpheus/container/Dockerfile` and documents local runtime
+setup in `/path/to/target-repo/.morpheus/container/README.md`. Build the default
+agent image from the target repo so relative paths resolve to the target repo and
+its `.morpheus` artifact directory:
 
 ```bash
 cd /path/to/target-repo
-docker compose -f .morpheus/docker-compose.yml up
+docker build -f .morpheus/container/Dockerfile -t morpheus-agent:local .
 ```
 
-The generated compose file runs:
+The generated `morpheus.config.json` points container-backed agent runs at:
 
-```bash
-morpheus daemon --config /workspace/morpheus.config.json
+```json
+{
+  "agentRunner": {
+    "kind": "container",
+    "container": {
+      "image": "morpheus-agent:local",
+      "profile": ".morpheus/container/Dockerfile"
+    }
+  }
+}
 ```
 
-Required mounts:
+Default container mount:
 
 - target repo at `/workspace`
-- persistent `.morpheus` artifacts at `/workspace/.morpheus`
-- glab auth from `${HOME}/.config/glab-cli`
-- Git config from `${HOME}/.gitconfig`
-- SSH auth from `${HOME}/.ssh`
-- Docker socket from `/var/run/docker.sock`
 
-The compose file contains only paths and image settings. It does not write glab
-tokens, SSH keys, or other secrets into tracked Morpheus config.
+The generated container profile and README are editable templates intended to be
+tracked. Local runtime data, cache, ledger files, logs, and agent secrets remain
+ignored by generated `.gitignore` entries.
 
 ## Troubleshooting
 
@@ -182,10 +188,10 @@ tokens, SSH keys, or other secrets into tracked Morpheus config.
   from this repo, or use `pnpm --filter @morpheus/cli morpheus ...`.
 - Missing config: run `morpheus init --target . --gitlab-project group/project`
   in the target repo, or pass `--config /path/to/morpheus.config.json`.
-- `glab` auth failures: run `glab auth status` on the host and ensure Docker
-  runs with `${HOME}/.config/glab-cli` mounted read-only.
-- Docker access failures: start Docker, check `/var/run/docker.sock`, and ensure
-  the daemon container has the socket mounted.
+- `glab` auth failures: run `glab auth status` on the host and ensure Morpheus
+  CLI commands can access that host auth before starting lanes.
+- Docker access failures: start Docker and verify `docker info` succeeds from
+  the host before running container-backed agents.
 - Agent runtime access failures: verify Docker access from the host first, then
   inspect `.morpheus/agent-logs/` and the run logs for the failing run.
 - Conflicting `agent:*` labels: keep exactly one active Beads lifecycle label on
@@ -197,7 +203,7 @@ tokens, SSH keys, or other secrets into tracked Morpheus config.
 Current command inventory:
 
 - `morpheus config show` - show validated config summary.
-- `morpheus init` - create target repo config, prompts, and Docker compose template.
+- `morpheus init` - create target repo config, prompts, and Morpheus container profile.
 - `morpheus doctor` - check read-only adapter and runtime health.
 - `morpheus status` - show read-only operator status.
 - `morpheus slice <issue-id>` - show issue forensics across state and runs.
