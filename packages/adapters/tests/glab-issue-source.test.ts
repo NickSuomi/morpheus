@@ -98,7 +98,6 @@ describe("GlabIssueSource", () => {
           "list",
           "--repo",
           "group/project",
-          "--opened",
           "--label",
           "agent:ready",
           "--output",
