@@ -9,6 +9,7 @@ import {
   MergeRequestClientError,
   RunLedger,
   RunLedgerPersistenceError,
+  decodeImplementationAgentResult,
   startImplementation,
   WorkspaceRuntime,
   type IssueTrackerService,
@@ -410,6 +411,37 @@ const testLayer = (
 ) => Layer.mergeAll(tracker, ledger, workspace, mergeRequests, runner);
 
 describe("startImplementation", () => {
+  it("normalizes common failed implementation contract drift", () => {
+    const result = decodeImplementationAgentResult({
+      status: "failed",
+      message: "Android release build blocked.",
+      implementationEvidence: [{ summary: "Scanned source tarballs.", files: [] }],
+      verificationEvidence: [
+        {
+          command: "./gradlew :app:bundleProdRelease",
+          status: "skipped: JAVA_HOME and Android SDK missing",
+        },
+      ],
+      transcript: "raw transcript",
+      artifact: {},
+    });
+
+    expect(result).toMatchObject({
+      status: "valid",
+      result: {
+        status: "failed",
+        failureKind: "agent_contract_error",
+        verificationEvidence: [
+          {
+            command: "./gradlew :app:bundleProdRelease",
+            status: "failed",
+            output: "skipped: JAVA_HOME and Android SDK missing",
+          },
+        ],
+      },
+    });
+  });
+
   it("prepares workspace, creates Draft MR, records refs, then moves issue to running", async () => {
     const tracker = fakeIssueTracker(["agent:prepared", "ready-for-agent"]);
     const ledger = fakeRunLedger();

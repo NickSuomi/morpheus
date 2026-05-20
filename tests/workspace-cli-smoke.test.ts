@@ -115,7 +115,7 @@ describe("morpheus cli", () => {
             },
             daemon: { pollIntervalSeconds: 30 },
             mergeRequests: { kind: "gitlab-glab" },
-            agentRunner: { kind: "sandcastle" },
+            agentRunner: { kind: "container" },
             ledger: { path: ".morpheus/ledger.sqlite" },
             lanes: {
               preparation: { concurrency: 1 },
@@ -157,7 +157,7 @@ describe("morpheus cli", () => {
       );
       expect(output).toContain("daemon: pollIntervalSeconds=30");
       expect(output).toContain("mergeRequests: gitlab-glab");
-      expect(output).toContain("agentRunner: sandcastle");
+      expect(output).toContain("agentRunner: container");
       expect(output).toContain("lanes: preparation=1 implementation=1 review=1");
     } finally {
       rmSync(dir, { force: true, recursive: true });
@@ -183,7 +183,7 @@ describe("morpheus cli", () => {
             },
             daemon: { pollIntervalSeconds: 30 },
             mergeRequests: { kind: "gitlab-glab" },
-            agentRunner: { kind: "sandcastle" },
+            agentRunner: { kind: "container" },
             ledger: { path: ledgerPath },
             lanes: {
               preparation: { concurrency: 1 },
@@ -316,7 +316,7 @@ describe("morpheus cli", () => {
             },
             daemon: { pollIntervalSeconds: 30 },
             mergeRequests: { kind: "gitlab-glab" },
-            agentRunner: { kind: "sandcastle" },
+            agentRunner: { kind: "container" },
             ledger: { path: join(dir, ".morpheus", "ledger.sqlite") },
             lanes: {
               preparation: { concurrency: 1 },

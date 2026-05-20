@@ -1316,11 +1316,13 @@ const ReviewAgentResultSchema = Schema.Union(
 export const decodeImplementationAgentResult = (
   value: unknown,
 ): ImplementationAgentResultDecodeResult => {
+  const normalizedValue = normalizeImplementationAgentResult(value);
+
   try {
     return {
       status: "valid",
       result: Schema.decodeUnknownSync(ImplementationAgentResultSchema)(
-        value,
+        normalizedValue,
       ) as ImplementationAgentResult,
     };
   } catch (error) {
@@ -1329,6 +1331,81 @@ export const decodeImplementationAgentResult = (
       message: errorMessage(error),
     };
   }
+};
+
+const normalizeVerificationStatus = (status: unknown): "passed" | "failed" | undefined => {
+  if (status === "passed" || status === "failed") {
+    return status;
+  }
+
+  if (typeof status !== "string") {
+    return undefined;
+  }
+
+  const normalized = status.trim().toLowerCase();
+  if (normalized.startsWith("passed")) {
+    return "passed";
+  }
+
+  return "failed";
+};
+
+const normalizeVerificationEvidence = (value: unknown): unknown => {
+  if (!Array.isArray(value)) {
+    return value;
+  }
+
+  return value.map((item) => {
+    if (!isRecord(item)) {
+      return item;
+    }
+
+    const status = normalizeVerificationStatus(item.status);
+    if (status === undefined) {
+      return item;
+    }
+
+    return {
+      ...item,
+      status,
+      output:
+        typeof item.output === "string"
+          ? item.output
+          : typeof item.status === "string" && item.status !== status
+            ? item.status
+            : item.output,
+    };
+  });
+};
+
+const normalizeImplementationAgentResult = (value: unknown): unknown => {
+  if (!isRecord(value)) {
+    return value;
+  }
+
+  const status = value.status;
+  if (status !== "implemented" && status !== "failed") {
+    return value;
+  }
+
+  const verificationEvidence = normalizeVerificationEvidence(value.verificationEvidence);
+
+  if (status === "failed") {
+    return {
+      ...value,
+      failureKind: typeof value.failureKind === "string" ? value.failureKind : "agent_contract_error",
+      message:
+        typeof value.message === "string" && value.message.trim().length > 0
+          ? value.message
+          : "Implementation agent returned failed status without required failureKind/message.",
+      verificationEvidence,
+    };
+  }
+
+  return {
+    ...value,
+    verificationEvidence,
+  };
 };
 
 export const decodeReviewAgentResult = (value: unknown): ReviewAgentResultDecodeResult => {
@@ -3156,7 +3233,7 @@ export const MorpheusConfigSchema = Schema.Struct({
     kind: Schema.Literal("gitlab-glab"),
   }),
   agentRunner: Schema.Struct({
-    kind: Schema.Literal("sandcastle"),
+    kind: Schema.Literal("container"),
   }),
   ledger: Schema.Struct({
     path: Schema.String,
@@ -3322,7 +3399,7 @@ const makeInitialConfig = (options: InitMorpheusRepoOptions): MorpheusConfig => 
   },
   daemon: { pollIntervalSeconds: 30 },
   mergeRequests: { kind: "gitlab-glab" },
-  agentRunner: { kind: "sandcastle" },
+  agentRunner: { kind: "container" },
   ledger: { path: ".morpheus/ledger.sqlite" },
   lanes: {
     preparation: { concurrency: 1 },
@@ -3342,9 +3419,52 @@ const makeInitialConfig = (options: InitMorpheusRepoOptions): MorpheusConfig => 
   prompts: defaultPromptPaths,
 });
 
+export const defaultAgentSkillInstructions = [
+  "## Default Morpheus Agent Skills",
+  "",
+  "These instructions are bundled by Morpheus. Do not depend on user-local skill paths.",
+  "",
+  "### Caveman",
+  "",
+  "Respond terse. Drop filler. Keep technical accuracy. Use fragments when clear. Code and exact errors stay unchanged.",
+  "",
+  "### Nick Suomi Flow",
+  "",
+  "No code before durable intent, issue context, decisions, task contract, failing test when practical, and verification evidence.",
+  "Use Beads as default tracker. Read repo guidance first. Do not create markdown TODO trackers.",
+  "Pipeline: restate intent, PRD/spec, grill ambiguity, slice issues, align architecture/docs, define task contract, TDD/red-green-refactor, verify before done.",
+  "Per issue: claim/show issue, ensure contract, implement only contract, run verification, update evidence.",
+  "",
+  "### PRD/Spec",
+  "",
+  "Capture problem, goals, non-goals, behavior, acceptance criteria, risks, and verification before implementation.",
+  "",
+  "### Grill",
+  "",
+  "If intent, acceptance, ownership, or risk is unclear, return blocked with concrete questions instead of inventing requirements.",
+  "",
+  "### Issue Slicing",
+  "",
+  "Work must be independently grabbable. Use dependencies for ordering. Keep scope small and observable.",
+  "",
+  "### Architecture",
+  "",
+  "Read docs and ADRs. Prefer existing architecture. If change contradicts an ADR, surface that explicitly.",
+  "",
+  "### TDD",
+  "",
+  "Prefer observed failing test before production code. Keep tests focused on behavior and public interfaces.",
+  "",
+  "### Verification Before Completion",
+  "",
+  "Completion requires exact verification commands and results. If verification is blocked, report blocker as failed evidence with cause and next action.",
+].join("\n");
+
 const starterPrompts = {
   prepare: [
     "# Morpheus Prepare Prompt",
+    "",
+    defaultAgentSkillInstructions,
     "",
     "Read the issue, repo guidance, and relevant code before answering.",
     "Produce an Agent-Ready Contract with current behavior, desired behavior, key interfaces, acceptance criteria, out of scope, verification plan, blockers, HITL decisions, and risk level.",
@@ -3354,6 +3474,8 @@ const starterPrompts = {
   implement: [
     "# Morpheus Implement Prompt",
     "",
+    defaultAgentSkillInstructions,
+    "",
     "Implement the prepared contract only.",
     "Keep changes scoped, preserve user work, and follow repo guidance.",
     "Run the configured verification commands or explain why they could not run.",
@@ -3362,6 +3484,8 @@ const starterPrompts = {
   ].join("\n"),
   review: [
     "# Morpheus Review Prompt",
+    "",
+    defaultAgentSkillInstructions,
     "",
     "Review the implementation against the Agent-Ready Contract.",
     "Stay read-only. Report correctness bugs, regressions, missing verification, and risk.",

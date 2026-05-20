@@ -14,7 +14,7 @@ const validConfig = {
   },
   daemon: { pollIntervalSeconds: 30 },
   mergeRequests: { kind: "gitlab-glab" },
-  agentRunner: { kind: "sandcastle" },
+  agentRunner: { kind: "container" },
   ledger: { path: ".morpheus/ledger.sqlite" },
   lanes: {
     preparation: { concurrency: 1 },
@@ -365,8 +365,14 @@ describe("Morpheus config", () => {
       expect(readFileSync(join(dir, ".morpheus/prompts/prepare.md"), "utf8")).toContain(
         "Agent-Ready Contract",
       );
+      expect(readFileSync(join(dir, ".morpheus/prompts/prepare.md"), "utf8")).toContain(
+        "Default Morpheus Agent Skills",
+      );
       expect(readFileSync(join(dir, ".morpheus/prompts/implement.md"), "utf8")).toContain(
         "Implement the prepared contract only.",
+      );
+      expect(readFileSync(join(dir, ".morpheus/prompts/implement.md"), "utf8")).toContain(
+        "Nick Suomi Flow",
       );
       expect(readFileSync(join(dir, ".morpheus/prompts/review.md"), "utf8")).toContain(
         "Stay read-only.",
