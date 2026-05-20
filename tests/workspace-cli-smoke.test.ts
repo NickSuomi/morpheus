@@ -29,6 +29,32 @@ const buildCli = () => {
   runPnpm(["--filter", "@morpheus/cli", "build"]);
 };
 
+const validAgentRunnerConfig = {
+  kind: "container",
+  agent: {
+    provider: "codex",
+    model: "gpt-5.4-nano",
+    effort: "xhigh",
+  },
+  auth: {
+    envFile: ".morpheus/secrets/agent.env",
+  },
+  container: {
+    image: "morpheus-agent:local",
+    profile: ".morpheus/container/Dockerfile",
+    mounts: [
+      {
+        hostPath: ".",
+        containerPath: "/workspace",
+      },
+    ],
+    setupHooks: [],
+  },
+  skills: {
+    mappings: [],
+  },
+} as const;
+
 const seedLedger = (ledgerPath: string, runsDirectory: string): string =>
   execFileSync(
     "pnpm",
@@ -115,7 +141,7 @@ describe("morpheus cli", () => {
             },
             daemon: { pollIntervalSeconds: 30 },
             mergeRequests: { kind: "gitlab-glab" },
-            agentRunner: { kind: "container" },
+            agentRunner: validAgentRunnerConfig,
             ledger: { path: ".morpheus/ledger.sqlite" },
             lanes: {
               preparation: { concurrency: 1 },
@@ -183,7 +209,7 @@ describe("morpheus cli", () => {
             },
             daemon: { pollIntervalSeconds: 30 },
             mergeRequests: { kind: "gitlab-glab" },
-            agentRunner: { kind: "container" },
+            agentRunner: validAgentRunnerConfig,
             ledger: { path: ledgerPath },
             lanes: {
               preparation: { concurrency: 1 },
@@ -316,7 +342,7 @@ describe("morpheus cli", () => {
             },
             daemon: { pollIntervalSeconds: 30 },
             mergeRequests: { kind: "gitlab-glab" },
-            agentRunner: { kind: "container" },
+            agentRunner: validAgentRunnerConfig,
             ledger: { path: join(dir, ".morpheus", "ledger.sqlite") },
             lanes: {
               preparation: { concurrency: 1 },
