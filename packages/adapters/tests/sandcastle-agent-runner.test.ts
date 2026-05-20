@@ -153,10 +153,11 @@ describe("SandcastleAgentRunner", () => {
     expect(calls[0]?.prompt).toContain("custom prompt");
   });
 
-  it("constructs Codex provider from configured model and effort", async () => {
+  it("constructs Codex provider and Docker sandbox from configured auth and container settings", async () => {
     const dir = mkdtempSync(join(tmpdir(), "morpheus-sandcastle-"));
     writeFileSync(join(dir, "agent.env"), "OPENAI_API_KEY=test-token\n");
     const commands: string[] = [];
+    const dockerOptions: unknown[] = [];
     const runner = createSandcastleAgentRunner({
       cwd: dir,
       logDirectory: join(dir, ".morpheus", "sandcastle-logs"),
@@ -170,11 +171,14 @@ describe("SandcastleAgentRunner", () => {
         model: "gpt-5.4-nano",
         effort: "xhigh",
       },
-      sandbox: {
-        kind: "none",
-        exec: async () => ({ stdout: "", stderr: "", exitCode: 0 }),
-        close: async () => ({}),
-      } as never,
+      dockerFactory: (options) => {
+        dockerOptions.push(options);
+        return {
+          kind: "none",
+          exec: async () => ({ stdout: "", stderr: "", exitCode: 0 }),
+          close: async () => ({}),
+        } as never;
+      },
       run: async (options) => {
         commands.push(
           options.agent.buildPrintCommand({
@@ -195,6 +199,13 @@ describe("SandcastleAgentRunner", () => {
 
     expect(commands).toEqual([
       `codex exec --json --dangerously-bypass-approvals-and-sandbox -m 'gpt-5.4-nano' -c 'model_reasoning_effort="xhigh"'`,
+    ]);
+    expect(dockerOptions).toEqual([
+      {
+        imageName: "morpheus-agent:test",
+        mounts: [{ hostPath: ".cache", sandboxPath: "/cache", readonly: true }],
+        env: { OPENAI_API_KEY: "test-token" },
+      },
     ]);
   });
 
@@ -246,7 +257,7 @@ describe("SandcastleAgentRunner", () => {
 
     expect(runCalled).toBe(false);
     expect(result._tag).toBe("Failure");
-    expect(String(result)).toContain("Agent auth env file missing OPENAI_API_KEY");
+    expect(String(result)).toContain("Agent auth env file missing required keys: OPENAI_API_KEY");
   });
 
   it("runs implementation in the prepared workspace with MR and contract context", async () => {

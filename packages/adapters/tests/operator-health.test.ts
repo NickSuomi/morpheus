@@ -1,3 +1,6 @@
+import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { OperatorHealth, ProcessRunner, type ProcessResult, type ProcessRunnerService } from "@morpheus/runtime";
 import { Effect, Layer } from "effect";
 import { describe, expect, it } from "vitest";
@@ -33,7 +36,24 @@ const fakeProcessRunner = (results: readonly ProcessResult[]) => {
 const runWithHealth = <A, E>(
   processRunnerLayer: Layer.Layer<ProcessRunner>,
   program: Effect.Effect<A, E, OperatorHealth>,
-) => Effect.runPromise(program.pipe(Effect.provide(operatorHealthLayer.pipe(Layer.provide(processRunnerLayer)))));
+) => Effect.runPromise(program.pipe(Effect.provide(operatorHealthLayer().pipe(Layer.provide(processRunnerLayer)))));
+
+const runWithAuthHealth = <A, E>(
+  processRunnerLayer: Layer.Layer<ProcessRunner>,
+  cwd: string,
+  program: Effect.Effect<A, E, OperatorHealth>,
+) =>
+  Effect.runPromise(
+    program.pipe(
+      Effect.provide(
+        operatorHealthLayer({
+          cwd,
+          authEnvFile: ".morpheus/secrets/agent.env",
+          authRequiredKeys: ["OPENAI_API_KEY"],
+        }).pipe(Layer.provide(processRunnerLayer)),
+      ),
+    ),
+  );
 
 describe("OperatorHealth", () => {
   it("checks read-only adapter health through process runner commands", async () => {
@@ -102,5 +122,51 @@ describe("OperatorHealth", () => {
       detail:
         "Cannot connect to the Docker daemon. Start Docker Desktop or Docker daemon, then rerun morpheus doctor.",
     });
+  });
+
+  it("validates configured agent auth env without printing secret values", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "morpheus-operator-health-"));
+    mkdirSync(join(dir, ".morpheus/secrets"), { recursive: true });
+    writeFileSync(join(dir, ".morpheus/secrets/agent.env"), "OPENAI_API_KEY=secret-value\n");
+    const processRunner = fakeProcessRunner([ok(), ok(), ok(), ok(), ok(), ok(), ok(), ok()]);
+
+    const checks = await runWithAuthHealth(
+      processRunner.layer,
+      dir,
+      Effect.gen(function* () {
+        const health = yield* OperatorHealth;
+        return yield* health.check();
+      }),
+    );
+
+    expect(checks).toContainEqual({
+      name: "config",
+      status: "ok",
+      detail: "agent auth env file contains required keys: OPENAI_API_KEY",
+    });
+    expect(JSON.stringify(checks)).not.toContain("secret-value");
+  });
+
+  it("fails health when configured agent auth env misses required keys", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "morpheus-operator-health-"));
+    mkdirSync(join(dir, ".morpheus/secrets"), { recursive: true });
+    writeFileSync(join(dir, ".morpheus/secrets/agent.env"), "OTHER_TOKEN=value\n");
+    const processRunner = fakeProcessRunner([ok(), ok(), ok(), ok(), ok(), ok(), ok(), ok()]);
+
+    const checks = await runWithAuthHealth(
+      processRunner.layer,
+      dir,
+      Effect.gen(function* () {
+        const health = yield* OperatorHealth;
+        return yield* health.check();
+      }),
+    );
+
+    expect(checks).toContainEqual({
+      name: "config",
+      status: "fail",
+      detail: expect.stringContaining("Agent auth env file missing required keys: OPENAI_API_KEY"),
+    });
+    expect(JSON.stringify(checks)).not.toContain("value");
   });
 });

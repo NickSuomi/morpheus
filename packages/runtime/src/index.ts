@@ -593,12 +593,14 @@ export class AgentRunnerError extends EffectSchema.TaggedError<AgentRunnerError>
   "AgentRunnerError",
 )("AgentRunnerError", {
   operation: EffectSchema.String,
+  failureKind: EffectSchema.optional(EffectSchema.Literal("operator_access", "runtime_error")),
   message: EffectSchema.String,
 }) {}
 
 export class AgentRunner extends Context.Tag("@morpheus/runtime/AgentRunner")<
   AgentRunner,
   {
+    readonly checkAccess?: () => Effect.Effect<void, AgentRunnerError>;
     readonly prepareIssue: (
       input: PreparationAgentInput,
     ) => Effect.Effect<PreparationAgentResult, AgentRunnerError>;
@@ -1771,6 +1773,18 @@ export const prepareIssue = (
     const ledger = yield* RunLedger;
     const runner = yield* AgentRunner;
 
+    const accessResult = yield* Effect.either(
+      runner.checkAccess?.() ?? Effect.void,
+    );
+    if (Either.isLeft(accessResult)) {
+      return {
+        status: "failed",
+        issueId,
+        failureKind: accessResult.left.failureKind ?? "runtime_error",
+        message: `Agent runner access check failed: ${accessResult.left.message}`,
+      };
+    }
+
     const issue = yield* tracker.getIssue(issueId);
     const startPlan = planAgentStateTransition(
       issue.labels,
@@ -2221,6 +2235,18 @@ export const startImplementation = (
     const workspaceRuntime = yield* WorkspaceRuntime;
     const mergeRequests = yield* MergeRequestClient;
     const runner = yield* AgentRunner;
+
+    const accessResult = yield* Effect.either(
+      runner.checkAccess?.() ?? Effect.void,
+    );
+    if (Either.isLeft(accessResult)) {
+      return {
+        status: "failed",
+        issueId,
+        failureKind: accessResult.left.failureKind ?? "runtime_error",
+        message: `Agent runner access check failed: ${accessResult.left.message}`,
+      };
+    }
 
     const issue = yield* tracker.getIssue(issueId);
     const startPlan = planAgentStateTransition(
@@ -2734,6 +2760,18 @@ export const reviewIssue = (
     const workspaceRuntime = yield* WorkspaceRuntime;
     const runner = yield* AgentRunner;
     const mergeRequests = yield* MergeRequestClient;
+
+    const accessResult = yield* Effect.either(
+      runner.checkAccess?.() ?? Effect.void,
+    );
+    if (Either.isLeft(accessResult)) {
+      return {
+        status: "failed",
+        issueId,
+        failureKind: accessResult.left.failureKind ?? "runtime_error",
+        message: `Agent runner access check failed: ${accessResult.left.message}`,
+      };
+    }
 
     const issue = yield* tracker.getIssue(issueId);
     const startPlan = planAgentStateTransition(
@@ -3610,6 +3648,7 @@ export const MorpheusConfigSchema = Schema.Struct({
     }),
     auth: Schema.Struct({
       envFile: Schema.String,
+      requiredKeys: Schema.Array(Schema.NonEmptyString),
     }),
     container: Schema.Struct({
       image: Schema.String,
@@ -3798,6 +3837,7 @@ const makeInitialConfig = (
     },
     auth: {
       envFile: ".morpheus/secrets/agent.env",
+      requiredKeys: ["OPENAI_API_KEY"],
     },
     container: {
       image: "morpheus-agent:local",
@@ -3912,7 +3952,15 @@ const gitignoreEntries = [
   ".morpheus/ledger.sqlite*",
   ".morpheus/runs/",
   ".morpheus/agent-logs/",
+  ".morpheus/secrets/agent.env",
 ] as const;
+
+const agentEnvExample = [
+  "# Copy to .morpheus/secrets/agent.env and fill with a real token.",
+  "# Morpheus requires this explicit file for agent runs.",
+  "OPENAI_API_KEY=",
+  "",
+].join("\n");
 
 const dockerComposeTemplate = [
   "services:",
@@ -3951,12 +3999,13 @@ export const initMorpheusRepo = (
   const target = resolve(options.target);
   const configPath = join(target, "morpheus.config.json");
   const dockerComposePath = join(target, ".morpheus", "docker-compose.yml");
+  const agentEnvExamplePath = join(target, ".morpheus", "secrets", "agent.env.example");
   const promptPaths = [
     join(target, defaultPromptPaths.prepare),
     join(target, defaultPromptPaths.implement),
     join(target, defaultPromptPaths.review),
   ];
-  const managedPaths = [configPath, dockerComposePath, ...promptPaths];
+  const managedPaths = [configPath, dockerComposePath, agentEnvExamplePath, ...promptPaths];
   const existingPaths =
     options.force === true
       ? []
@@ -3978,10 +4027,12 @@ export const initMorpheusRepo = (
   const updated: string[] = [];
 
   mkdirSync(join(target, ".morpheus", "prompts"), { recursive: true });
+  mkdirSync(join(target, ".morpheus", "secrets"), { recursive: true });
 
   for (const [path, contents] of [
     [configPath, `${JSON.stringify(decodedConfig, null, 2)}\n`],
     [dockerComposePath, dockerComposeTemplate],
+    [agentEnvExamplePath, agentEnvExample],
     [promptPaths[0], starterPrompts.prepare],
     [promptPaths[1], starterPrompts.implement],
     [promptPaths[2], starterPrompts.review],

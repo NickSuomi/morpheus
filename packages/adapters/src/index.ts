@@ -76,6 +76,13 @@ type BeadsIssueTrackerOptions = {
   readonly processRunner: ProcessRunnerService;
 };
 
+type OperatorHealthOptions = {
+  readonly processRunner: ProcessRunnerService;
+  readonly cwd?: string;
+  readonly authEnvFile?: string;
+  readonly authRequiredKeys?: readonly string[];
+};
+
 type GitWorkspaceRuntimeOptions = {
   readonly processRunner: ProcessRunnerService;
 };
@@ -742,6 +749,7 @@ type FakeAgentRunnerOptions = {
 type SandcastlePhase = "prepare" | "implement" | "review";
 
 type SandcastleRun = (options: RunOptions) => Promise<RunResult>;
+type DockerFactory = typeof docker;
 
 export type ContainerAgentConfig = {
   readonly provider: "codex";
@@ -766,8 +774,10 @@ export type SandcastleAgentRunnerOptions = {
   readonly logDirectory: string;
   readonly agentConfig?: ContainerAgentConfig;
   readonly authEnvFile?: string;
+  readonly authRequiredKeys?: readonly string[];
   readonly containerConfig?: ContainerRuntimeConfig;
   readonly run?: SandcastleRun;
+  readonly dockerFactory?: DockerFactory;
   readonly agent?: AgentProvider;
   readonly sandbox?: SandboxProvider;
 };
@@ -1094,7 +1104,7 @@ const parseEnvFile = (contents: string): Record<string, string> =>
 
 const readAuthEnv = (
   cwd: string,
-  agentConfig: ContainerAgentConfig,
+  requiredKeys: readonly string[],
   authEnvFile?: string,
 ): Record<string, string> => {
   if (authEnvFile === undefined) {
@@ -1111,12 +1121,21 @@ const readAuthEnv = (
     throw new Error(`Agent auth env file has no variables: ${path}`);
   }
 
-  if (agentConfig.provider === "codex" && env.OPENAI_API_KEY === undefined) {
-    throw new Error(`Agent auth env file missing OPENAI_API_KEY: ${path}`);
+  const missingKeys = requiredKeys.filter((key) => env[key] === undefined);
+  if (missingKeys.length > 0) {
+    throw new Error(`Agent auth env file missing required keys: ${missingKeys.join(", ")}: ${path}`);
   }
 
   return env;
 };
+
+const defaultAuthRequiredKeys = (agentConfig: ContainerAgentConfig): readonly string[] =>
+  agentConfig.provider === "codex" ? ["OPENAI_API_KEY"] : [];
+
+const authRequiredKeysForOptions = (
+  agentConfig: ContainerAgentConfig,
+  options: Pick<SandcastleAgentRunnerOptions, "authRequiredKeys">,
+): readonly string[] => options.authRequiredKeys ?? defaultAuthRequiredKeys(agentConfig);
 
 const runSandcastlePhase = (
   options: SandcastleAgentRunnerOptions,
@@ -1134,7 +1153,11 @@ const runSandcastlePhase = (
         model: "gpt-5.4-nano",
         effort: "xhigh" as const,
       };
-      const authEnv = readAuthEnv(options.cwd, agentConfig, options.authEnvFile);
+      const authEnv = readAuthEnv(
+        options.cwd,
+        authRequiredKeysForOptions(agentConfig, options),
+        options.authEnvFile,
+      );
       const containerConfig = options.containerConfig ?? {
         image: "morpheus-agent:local",
         mounts: [],
@@ -1143,7 +1166,7 @@ const runSandcastlePhase = (
         agent: options.agent ?? codex(agentConfig.model, { effort: agentConfig.effort }),
         sandbox:
           options.sandbox ??
-          docker({
+          (options.dockerFactory ?? docker)({
             imageName: containerConfig.image,
             mounts: containerConfig.mounts.map((mount) => ({
               hostPath: mount.hostPath,
@@ -1178,6 +1201,8 @@ const runSandcastlePhase = (
     catch: (error) =>
       new AgentRunnerError({
         operation: `sandcastle.${input.phase}`,
+        failureKind:
+          errorMessage(error).startsWith("Agent auth env file") ? "operator_access" : "runtime_error",
         message: errorMessage(error),
       }),
   });
@@ -1185,6 +1210,23 @@ const runSandcastlePhase = (
 export const createSandcastleAgentRunner = (
   options: SandcastleAgentRunnerOptions,
 ): AgentRunnerService => ({
+  checkAccess: () =>
+    Effect.try({
+      try: () => {
+        const agentConfig = options.agentConfig ?? {
+          provider: "codex" as const,
+          model: "gpt-5.4-nano",
+          effort: "xhigh" as const,
+        };
+        readAuthEnv(options.cwd, authRequiredKeysForOptions(agentConfig, options), options.authEnvFile);
+      },
+      catch: (error) =>
+        new AgentRunnerError({
+          operation: "sandcastle.auth",
+          failureKind: "operator_access",
+          message: errorMessage(error),
+        }),
+    }),
   prepareIssue: ({ issue }) =>
     runSandcastlePhase(options, { phase: "prepare", issue }) as Effect.Effect<
       PreparationAgentResult,
@@ -1237,9 +1279,37 @@ const checkCommand = (
 const dockerOperatorAction = (detail: string): string =>
   `${detail}. Start Docker Desktop or Docker daemon, then rerun morpheus doctor.`;
 
+const checkAgentAuth = (options: OperatorHealthOptions): OperatorHealthCheck => {
+  if (options.authEnvFile === undefined || options.cwd === undefined) {
+    return {
+      name: "config",
+      status: "ok",
+      detail: "config loaded",
+    };
+  }
+
+  try {
+    readAuthEnv(options.cwd, options.authRequiredKeys ?? ["OPENAI_API_KEY"], options.authEnvFile);
+    return {
+      name: "config",
+      status: "ok",
+      detail: `agent auth env file contains required keys: ${options.authRequiredKeys?.join(", ") ?? "OPENAI_API_KEY"}`,
+    };
+  } catch (error) {
+    return {
+      name: "config",
+      status: "fail",
+      detail: errorMessage(error),
+    };
+  }
+};
+
 export const createOperatorHealth = ({
   processRunner,
-}: BeadsIssueTrackerOptions): OperatorHealthService => ({
+  cwd,
+  authEnvFile,
+  authRequiredKeys,
+}: OperatorHealthOptions): OperatorHealthService => ({
   check: () =>
     Effect.all([
       checkCommand(processRunner, "beads", "bd", ["list", "--limit", "1", "--json"], "bd readable"),
@@ -1288,18 +1358,17 @@ export const createOperatorHealth = ({
         ["worktree", "list", "--porcelain"],
         "worktrees readable",
       ),
-      Effect.succeed({
-        name: "config",
-        status: "ok",
-        detail: "config loaded",
-      } satisfies OperatorHealthCheck),
+      Effect.succeed(checkAgentAuth({ processRunner, cwd, authEnvFile, authRequiredKeys })),
     ]),
 });
 
-export const operatorHealthLayer: Layer.Layer<OperatorHealth, never, ProcessRunner> = Layer.effect(
-  OperatorHealth,
-  Effect.map(ProcessRunner, (processRunner) => createOperatorHealth({ processRunner })),
-);
+export const operatorHealthLayer = (
+  options: Omit<OperatorHealthOptions, "processRunner"> = {},
+): Layer.Layer<OperatorHealth, never, ProcessRunner> =>
+  Layer.effect(
+    OperatorHealth,
+    Effect.map(ProcessRunner, (processRunner) => createOperatorHealth({ processRunner, ...options })),
+  );
 
 export const createBeadsIssueTracker = ({
   processRunner,
