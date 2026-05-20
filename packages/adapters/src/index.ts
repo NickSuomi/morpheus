@@ -28,6 +28,7 @@ import {
   ProcessRunnerError,
   WorkspaceRuntime,
   WorkspaceRuntimeError,
+  defaultAgentSkillInstructions,
 } from "@morpheus/runtime";
 import type {
   AgentReadyContract,
@@ -972,6 +973,7 @@ const builtInPrompt = (input: SandcastlePhaseInput): string => {
     `Issue: ${issue.id}`,
     `Title: ${issue.title}`,
     `Description: ${issue.description ?? "None"}`,
+    defaultAgentSkillInstructions,
     "Do not commit. Do not close Beads issues.",
     `Return only JSON inside <${resultTag}>...</${resultTag}>.`,
   ];
@@ -1114,14 +1116,18 @@ const checkCommand = (
   command: string,
   args: readonly string[],
   okDetail: string,
+  failureDetail?: (detail: string) => string,
 ): Effect.Effect<OperatorHealthCheck, never> =>
   processRunner.run(command, args).pipe(
     Effect.match({
-      onFailure: (error) => ({
-        name,
-        status: "warn" as const,
-        detail: error.message,
-      }),
+      onFailure: (error) => {
+        const detail = failureDetail?.(error.message) ?? error.message;
+        return {
+          name,
+          status: "warn" as const,
+          detail,
+        };
+      },
       onSuccess: (result) =>
         result.exitCode === 0
           ? {
@@ -1129,13 +1135,19 @@ const checkCommand = (
               status: "ok" as const,
               detail: okDetail,
             }
-          : {
-              name,
-              status: "warn" as const,
-              detail: result.stderr || `${command} exited ${result.exitCode}`,
-            },
+          : (() => {
+              const rawDetail = result.stderr || `${command} exited ${result.exitCode}`;
+              return {
+                name,
+                status: "warn" as const,
+                detail: failureDetail?.(rawDetail) ?? rawDetail,
+              };
+            })(),
     }),
   );
+
+const dockerOperatorAction = (detail: string): string =>
+  `${detail}. Start Docker Desktop or Docker daemon, then rerun morpheus doctor.`;
 
 export const createOperatorHealth = ({
   processRunner,
@@ -1144,11 +1156,25 @@ export const createOperatorHealth = ({
     Effect.all([
       checkCommand(processRunner, "beads", "bd", ["list", "--limit", "1", "--json"], "bd readable"),
       checkCommand(processRunner, "gitlab", "glab", ["auth", "status"], "glab authenticated"),
-      checkCommand(processRunner, "docker", "docker", ["info"], "docker reachable"),
+      checkCommand(
+        processRunner,
+        "docker",
+        "docker",
+        ["info"],
+        "docker reachable",
+        dockerOperatorAction,
+      ),
       checkCommand(processRunner, "workspace", "git", ["rev-parse", "--show-toplevel"], "workspace readable"),
       checkCommand(processRunner, "labels", "bd", ["list", "--label-pattern", "agent:*", "--limit", "1", "--json"], "agent labels readable"),
       checkCommand(processRunner, "daemon", "git", ["status", "--short"], "daemon assumptions readable"),
-      checkCommand(processRunner, "containers", "docker", ["ps", "--format", "{{.ID}}"], "containers readable"),
+      checkCommand(
+        processRunner,
+        "containers",
+        "docker",
+        ["ps", "--format", "{{.ID}}"],
+        "containers readable",
+        dockerOperatorAction,
+      ),
       checkCommand(processRunner, "worktrees", "git", ["worktree", "list", "--porcelain"], "worktrees readable"),
       Effect.succeed({
         name: "config",

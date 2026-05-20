@@ -69,4 +69,38 @@ describe("OperatorHealth", () => {
       { command: "git", args: ["worktree", "list", "--porcelain"] },
     ]);
   });
+
+  it("reports Docker failures with operator action", async () => {
+    const processRunner = fakeProcessRunner([
+      ok(),
+      ok(),
+      failed("Cannot connect to the Docker daemon"),
+      ok(),
+      ok(),
+      ok(),
+      failed("Cannot connect to the Docker daemon"),
+      ok(),
+    ]);
+
+    const checks = await runWithHealth(
+      processRunner.layer,
+      Effect.gen(function* () {
+        const health = yield* OperatorHealth;
+        return yield* health.check();
+      }),
+    );
+
+    expect(checks).toContainEqual({
+      name: "docker",
+      status: "warn",
+      detail:
+        "Cannot connect to the Docker daemon. Start Docker Desktop or Docker daemon, then rerun morpheus doctor.",
+    });
+    expect(checks).toContainEqual({
+      name: "containers",
+      status: "warn",
+      detail:
+        "Cannot connect to the Docker daemon. Start Docker Desktop or Docker daemon, then rerun morpheus doctor.",
+    });
+  });
 });
