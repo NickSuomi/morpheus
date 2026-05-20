@@ -1445,7 +1445,6 @@ export const createGlabIssueSource = ({
         "list",
         "--repo",
         project,
-        "--opened",
         "--label",
         readyLabel,
         "--output",
