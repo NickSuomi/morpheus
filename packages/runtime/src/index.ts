@@ -3952,6 +3952,7 @@ const gitignoreEntries = [
   ".morpheus/ledger.sqlite*",
   ".morpheus/runs/",
   ".morpheus/agent-logs/",
+  ".morpheus/cache/",
   ".morpheus/secrets/agent.env",
 ] as const;
 
@@ -3962,34 +3963,31 @@ const agentEnvExample = [
   "",
 ].join("\n");
 
-const dockerComposeTemplate = [
-  "services:",
-  "  morpheus:",
-  "    image: ${MORPHEUS_IMAGE:-morpheus:local}",
-  "    working_dir: /workspace",
-  '    command: ["daemon", "--config", "/workspace/morpheus.config.json"]',
-  "    volumes:",
-  "      - type: bind",
-  "        source: ..",
-  "        target: /workspace",
-  "      - type: bind",
-  "        source: .",
-  "        target: /workspace/.morpheus",
-  "      - type: bind",
-  "        source: ${HOME}/.config/glab-cli",
-  "        target: /root/.config/glab-cli",
-  "        read_only: true",
-  "      - type: bind",
-  "        source: ${HOME}/.gitconfig",
-  "        target: /root/.gitconfig",
-  "        read_only: true",
-  "      - type: bind",
-  "        source: ${HOME}/.ssh",
-  "        target: /root/.ssh",
-  "        read_only: true",
-  "      - type: bind",
-  "        source: /var/run/docker.sock",
-  "        target: /var/run/docker.sock",
+const containerDockerfileTemplate = [
+  "# Morpheus container profile",
+  "# Edit this Dockerfile to add target-repository toolchains needed by agents.",
+  "FROM node:22-bookworm-slim",
+  "",
+  "WORKDIR /workspace",
+  "",
+  "RUN corepack enable",
+  "",
+].join("\n");
+
+const containerReadmeTemplate = [
+  "# Morpheus container profile",
+  "",
+  "This directory is the editable Morpheus container runtime surface for this target repository.",
+  "Morpheus uses Docker-compatible runtime semantics, so Docker Desktop, OrbStack, Colima, or a remote Docker context may provide the runtime.",
+  "",
+  "Build the default image before running container-backed agents:",
+  "",
+  "```bash",
+  "docker build -f .morpheus/container/Dockerfile -t morpheus-agent:local .",
+  "```",
+  "",
+  "The generated `morpheus.config.json` points `agentRunner.container.profile` at `.morpheus/container/Dockerfile` and `agentRunner.container.image` at `morpheus-agent:local`.",
+  "Keep this profile tracked. Local runtime data, logs, cache, ledger files, and secrets are ignored by the generated `.gitignore` entries.",
   "",
 ].join("\n");
 
@@ -3998,14 +3996,21 @@ export const initMorpheusRepo = (
 ): InitMorpheusRepoResult => {
   const target = resolve(options.target);
   const configPath = join(target, "morpheus.config.json");
-  const dockerComposePath = join(target, ".morpheus", "docker-compose.yml");
+  const containerDockerfilePath = join(target, ".morpheus", "container", "Dockerfile");
+  const containerReadmePath = join(target, ".morpheus", "container", "README.md");
   const agentEnvExamplePath = join(target, ".morpheus", "secrets", "agent.env.example");
   const promptPaths = [
     join(target, defaultPromptPaths.prepare),
     join(target, defaultPromptPaths.implement),
     join(target, defaultPromptPaths.review),
   ];
-  const managedPaths = [configPath, dockerComposePath, agentEnvExamplePath, ...promptPaths];
+  const managedPaths = [
+    configPath,
+    containerDockerfilePath,
+    containerReadmePath,
+    agentEnvExamplePath,
+    ...promptPaths,
+  ];
   const existingPaths =
     options.force === true
       ? []
@@ -4028,10 +4033,12 @@ export const initMorpheusRepo = (
 
   mkdirSync(join(target, ".morpheus", "prompts"), { recursive: true });
   mkdirSync(join(target, ".morpheus", "secrets"), { recursive: true });
+  mkdirSync(join(target, ".morpheus", "container"), { recursive: true });
 
   for (const [path, contents] of [
     [configPath, `${JSON.stringify(decodedConfig, null, 2)}\n`],
-    [dockerComposePath, dockerComposeTemplate],
+    [containerDockerfilePath, containerDockerfileTemplate],
+    [containerReadmePath, containerReadmeTemplate],
     [agentEnvExamplePath, agentEnvExample],
     [promptPaths[0], starterPrompts.prepare],
     [promptPaths[1], starterPrompts.implement],

@@ -765,6 +765,7 @@ export type ContainerMountConfig = {
 
 export type ContainerRuntimeConfig = {
   readonly image: string;
+  readonly profile?: string;
   readonly mounts: readonly ContainerMountConfig[];
 };
 
@@ -1168,8 +1169,11 @@ const runSandcastlePhase = (
           options.sandbox ??
           (options.dockerFactory ?? docker)({
             imageName: containerConfig.image,
+            ...(containerConfig.profile === undefined
+              ? {}
+              : { dockerfilePath: resolve(options.cwd, containerConfig.profile) }),
             mounts: containerConfig.mounts.map((mount) => ({
-              hostPath: mount.hostPath,
+              hostPath: resolve(options.cwd, mount.hostPath),
               sandboxPath: mount.containerPath,
               readonly: mount.readOnly,
             })),

@@ -312,7 +312,10 @@ describe("morpheus cli", () => {
       expect(existsSync(join(dir, ".morpheus/prompts/prepare.md"))).toBe(true);
       expect(existsSync(join(dir, ".morpheus/prompts/implement.md"))).toBe(true);
       expect(existsSync(join(dir, ".morpheus/prompts/review.md"))).toBe(true);
+      expect(existsSync(join(dir, ".morpheus/container/Dockerfile"))).toBe(true);
+      expect(existsSync(join(dir, ".morpheus/container/README.md"))).toBe(true);
       expect(readFileSync(join(dir, ".gitignore"), "utf8")).toContain(".morpheus/runs/");
+      expect(readFileSync(join(dir, ".gitignore"), "utf8")).toContain(".morpheus/cache/");
     } finally {
       rmSync(dir, { force: true, recursive: true });
     }
