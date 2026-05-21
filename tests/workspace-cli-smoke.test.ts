@@ -64,7 +64,46 @@ const validAgentRunnerConfig = {
   },
   skills: {
     directory: ".morpheus/skills",
-    mappings: [],
+    mappings: [
+      {
+        name: "matt-pocock-caveman",
+        path: ".morpheus/skills/matt-pocock-caveman/SKILL.md",
+      },
+      {
+        name: "matt-pocock-to-prd",
+        path: ".morpheus/skills/matt-pocock-to-prd/SKILL.md",
+      },
+      {
+        name: "matt-pocock-grill-me",
+        path: ".morpheus/skills/matt-pocock-grill-me/SKILL.md",
+      },
+      {
+        name: "matt-pocock-grill-with-docs",
+        path: ".morpheus/skills/matt-pocock-grill-with-docs/SKILL.md",
+      },
+      {
+        name: "matt-pocock-to-issues",
+        path: ".morpheus/skills/matt-pocock-to-issues/SKILL.md",
+      },
+      {
+        name: "matt-pocock-tdd",
+        path: ".morpheus/skills/matt-pocock-tdd/SKILL.md",
+      },
+      {
+        name: "matt-pocock-diagnose",
+        path: ".morpheus/skills/matt-pocock-diagnose/SKILL.md",
+      },
+    ],
+    stageMappings: {
+      prepare: [
+        "matt-pocock-to-prd",
+        "matt-pocock-grill-me",
+        "matt-pocock-grill-with-docs",
+        "matt-pocock-to-issues",
+      ],
+      implement: ["matt-pocock-caveman", "matt-pocock-tdd", "matt-pocock-diagnose"],
+      review: ["matt-pocock-caveman", "matt-pocock-diagnose"],
+    },
   },
 } as const;
 

@@ -5,6 +5,21 @@ import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import { initMorpheusRepo, loadMorpheusConfig } from "../src/index.js";
 
+const bundledSkillNames = [
+  "matt-pocock-caveman",
+  "matt-pocock-to-prd",
+  "matt-pocock-grill-me",
+  "matt-pocock-to-issues",
+  "matt-pocock-grill-with-docs",
+  "matt-pocock-tdd",
+  "matt-pocock-diagnose",
+] as const;
+
+const bundledSkillMappings = bundledSkillNames.map((name) => ({
+  name,
+  path: `.morpheus/skills/${name}/SKILL.md`,
+}));
+
 const validConfig = {
   targetRepo: ".",
   issueTracker: { kind: "beads" },
@@ -39,7 +54,17 @@ const validConfig = {
     },
     skills: {
       directory: ".morpheus/skills",
-      mappings: [],
+      mappings: bundledSkillMappings,
+      stageMappings: {
+        prepare: [
+          "matt-pocock-to-prd",
+          "matt-pocock-grill-me",
+          "matt-pocock-grill-with-docs",
+          "matt-pocock-to-issues",
+        ],
+        implement: ["matt-pocock-caveman", "matt-pocock-tdd", "matt-pocock-diagnose"],
+        review: ["matt-pocock-caveman", "matt-pocock-diagnose"],
+      },
     },
   },
   ledger: { path: ".morpheus/ledger.sqlite" },
@@ -62,21 +87,6 @@ const validConfig = {
 
 const laneNames = ["preparation", "implementation", "review"] as const;
 const packageRoot = dirname(dirname(fileURLToPath(import.meta.url)));
-
-const bundledSkillNames = [
-  "matt-pocock-caveman",
-  "matt-pocock-to-prd",
-  "matt-pocock-grill-me",
-  "matt-pocock-to-issues",
-  "matt-pocock-grill-with-docs",
-  "matt-pocock-tdd",
-  "matt-pocock-diagnose",
-] as const;
-
-const bundledSkillMappings = bundledSkillNames.map((name) => ({
-  name,
-  path: `.morpheus/skills/${name}/SKILL.md`,
-}));
 
 type LaneName = (typeof laneNames)[number];
 
@@ -261,10 +271,23 @@ describe("Morpheus config", () => {
             directory: ".morpheus/skills",
             mappings: [
               {
+                name: "project-planning",
+                path: ".morpheus/skills/planning/SKILL.md",
+              },
+              {
                 name: "project-caveman",
                 path: ".morpheus/skills/caveman/SKILL.md",
               },
+              {
+                name: "project-diagnose",
+                path: ".morpheus/skills/diagnose/SKILL.md",
+              },
             ],
+            stageMappings: {
+              prepare: ["project-planning"],
+              implement: ["project-caveman"],
+              review: ["project-caveman", "project-diagnose"],
+            },
           },
         },
       };
@@ -342,7 +365,58 @@ describe("Morpheus config", () => {
       "skill mapping",
       {
         ...validConfig.agentRunner,
-        skills: { directory: ".morpheus/skills", mappings: [{ name: "x", path: 123 }] },
+        skills: {
+          ...validConfig.agentRunner.skills,
+          mappings: [{ name: "x", path: 123 }],
+        },
+      },
+    ],
+    [
+      "empty skill mapping path",
+      {
+        ...validConfig.agentRunner,
+        skills: {
+          ...validConfig.agentRunner.skills,
+          mappings: [{ name: "x", path: "" }],
+        },
+      },
+    ],
+    [
+      "stage skill mapping",
+      {
+        ...validConfig.agentRunner,
+        skills: {
+          ...validConfig.agentRunner.skills,
+          stageMappings: { prepare: ["x"], implement: [""], review: ["z"] },
+        },
+      },
+    ],
+    [
+      "unknown stage skill mapping",
+      {
+        ...validConfig.agentRunner,
+        skills: {
+          ...validConfig.agentRunner.skills,
+          mappings: [{ name: "known", path: ".morpheus/skills/known/SKILL.md" }],
+          stageMappings: {
+            prepare: ["known"],
+            implement: ["missing"],
+            review: ["known"],
+          },
+        },
+      },
+    ],
+    [
+      "empty stage skill mapping",
+      {
+        ...validConfig.agentRunner,
+        skills: {
+          ...validConfig.agentRunner.skills,
+          stageMappings: {
+            ...validConfig.agentRunner.skills.stageMappings,
+            prepare: [],
+          },
+        },
       },
     ],
   ] as const)("rejects invalid declarative container agent config: %s", (_field, agentRunner) => {
@@ -559,6 +633,16 @@ describe("Morpheus config", () => {
             skills: {
               directory: ".morpheus/skills",
               mappings: bundledSkillMappings,
+              stageMappings: {
+                prepare: [
+                  "matt-pocock-to-prd",
+                  "matt-pocock-grill-me",
+                  "matt-pocock-grill-with-docs",
+                  "matt-pocock-to-issues",
+                ],
+                implement: ["matt-pocock-caveman", "matt-pocock-tdd", "matt-pocock-diagnose"],
+                review: ["matt-pocock-caveman", "matt-pocock-diagnose"],
+              },
             },
           },
           prompts: {
@@ -802,10 +886,7 @@ describe("Morpheus config", () => {
       expect(readFileSync(dockerfilePath, "utf8")).toContain("Morpheus container profile");
       expect(readFileSync(readmePath, "utf8")).toContain("Docker-compatible runtime");
       expect(readFileSync(skillPath, "utf8")).toBe(
-        readFileSync(
-          join(packageRoot, "bundled-skills/matt-pocock-caveman/SKILL.md"),
-          "utf8",
-        ),
+        readFileSync(join(packageRoot, "bundled-skills/matt-pocock-caveman/SKILL.md"), "utf8"),
       );
     });
   });

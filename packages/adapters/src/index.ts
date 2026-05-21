@@ -34,6 +34,7 @@ import {
   WorkspaceRuntime,
   WorkspaceRuntimeError,
   defaultAgentSkillInstructions,
+  defaultAgentStageSkillMappings,
 } from "@morpheus/runtime";
 import type {
   AgentReadyContract,
@@ -772,9 +773,19 @@ export type ContainerRuntimeConfig = {
   readonly mounts: readonly ContainerMountConfig[];
 };
 
+export type AgentSkillConfig = {
+  readonly directory: string;
+  readonly mappings: readonly {
+    readonly name: string;
+    readonly path: string;
+  }[];
+  readonly stageMappings: Record<SandcastlePhase, readonly string[]>;
+};
+
 export type SandcastleAgentRunnerOptions = {
   readonly cwd: string;
   readonly promptPaths?: Partial<Record<SandcastlePhase, string>>;
+  readonly skills?: AgentSkillConfig;
   readonly logDirectory: string;
   readonly processRunner?: ProcessRunnerService;
   readonly agentConfig?: ContainerAgentConfig;
@@ -1003,7 +1014,77 @@ type SandcastlePhaseInput =
   | ({ readonly phase: "implement" } & ImplementationAgentInput)
   | ({ readonly phase: "review" } & ReviewAgentInput);
 
-const builtInPrompt = (input: SandcastlePhaseInput): string => {
+const defaultStageMappingsForPrompt = {
+  prepare: [...defaultAgentStageSkillMappings.prepare],
+  implement: [...defaultAgentStageSkillMappings.implement],
+  review: [...defaultAgentStageSkillMappings.review],
+};
+
+const defaultSkillConfig: AgentSkillConfig = {
+  directory: ".morpheus/skills",
+  mappings: [
+    {
+      name: "matt-pocock-caveman",
+      path: ".morpheus/skills/matt-pocock-caveman/SKILL.md",
+    },
+    {
+      name: "matt-pocock-to-prd",
+      path: ".morpheus/skills/matt-pocock-to-prd/SKILL.md",
+    },
+    {
+      name: "matt-pocock-grill-me",
+      path: ".morpheus/skills/matt-pocock-grill-me/SKILL.md",
+    },
+    {
+      name: "matt-pocock-to-issues",
+      path: ".morpheus/skills/matt-pocock-to-issues/SKILL.md",
+    },
+    {
+      name: "matt-pocock-grill-with-docs",
+      path: ".morpheus/skills/matt-pocock-grill-with-docs/SKILL.md",
+    },
+    {
+      name: "matt-pocock-tdd",
+      path: ".morpheus/skills/matt-pocock-tdd/SKILL.md",
+    },
+    {
+      name: "matt-pocock-diagnose",
+      path: ".morpheus/skills/matt-pocock-diagnose/SKILL.md",
+    },
+  ],
+  stageMappings: defaultStageMappingsForPrompt,
+};
+
+const stageSkillInstructionsForPrompt = (
+  phase: SandcastlePhase,
+  skills: AgentSkillConfig,
+): string => {
+  const skillPaths = new Map(skills.mappings.map((skill) => [skill.name, skill.path]));
+  const stageSkills = skills.stageMappings[phase];
+  if (stageSkills.length === 0) {
+    throw new Error(`Stage skill mapping must include at least one copied skill: ${phase}`);
+  }
+  const references = stageSkills
+    .map((name) => {
+      const path = skillPaths.get(name);
+      if (path === undefined) {
+        throw new Error(`Stage skill mapping references unknown copied skill: ${phase}:${name}`);
+      }
+      if (path.length === 0) {
+        throw new Error(`Stage skill mapping references copied skill without path: ${phase}:${name}`);
+      }
+      return `- ${name}: ${path}`;
+    })
+    .join("\n");
+
+  return [
+    `Required ${phase} stage skills:`,
+    "Read and use these copied repo-local skill files before acting:",
+    references,
+  ].join("\n");
+};
+
+const builtInPrompt = (input: SandcastlePhaseInput, skills: AgentSkillConfig): string => {
   const { phase, issue } = input;
   const base = [
     `You are a Morpheus ${phase} agent.`,
@@ -1011,6 +1092,7 @@ const builtInPrompt = (input: SandcastlePhaseInput): string => {
     `Title: ${issue.title}`,
     `Description: ${issue.description ?? "None"}`,
     defaultAgentSkillInstructions,
+    stageSkillInstructionsForPrompt(phase, skills),
     "Do not commit. Do not close Beads issues.",
     `Return only JSON inside <${resultTag}>...</${resultTag}>.`,
   ];
@@ -1018,6 +1100,9 @@ const builtInPrompt = (input: SandcastlePhaseInput): string => {
   if (phase === "prepare") {
     return [
       ...base,
+      "Use planning, grilling, and issue-slicing skills to clarify intent and split work if needed.",
+      "AFK-ready contract gate: blockedBy must be `None`, hitlDecisions must be `None`, acceptance criteria must be behavioral and testable, verification plan must be runnable or explicitly explainable, and scope must be clear enough for implementation without human clarification.",
+      "If AFK-ready gates are not met, return a blocked result instead of inventing requirements.",
       'AgentReadyContract fields: {"category":"task|bug|feature|chore","summary":"...","currentBehavior":"...","desiredBehavior":"...","keyInterfaces":["..."],"acceptanceCriteria":["..."],"outOfScope":["..."],"verificationPlan":["..."],"blockedBy":"None or ...","hitlDecisions":"None or ...","riskLevel":"low|medium|high"}. Use these exact camelCase keys.',
       'JSON shape: {"status":"prepared","contract":AgentReadyContract,"transcript":"...","artifact":{}} or blocked/failed variant.',
     ].join("\n");
@@ -1034,6 +1119,7 @@ const builtInPrompt = (input: SandcastlePhaseInput): string => {
       `Merge request: ${input.mergeRequest.reference}`,
       `Merge request URL: ${input.mergeRequest.url ?? "None"}`,
       `Contract: ${JSON.stringify(input.contract)}`,
+      "Use caveman for concise communication, TDD for behavior-first implementation where practical, and diagnose before changing unclear code.",
       'JSON shape: {"status":"implemented","implementationEvidence":[{"summary":"...","files":[]}],"verificationEvidence":[{"command":"...","status":"passed"}],"transcript":"...","artifact":{}} or failed variant.',
     ].join("\n");
   }
@@ -1049,6 +1135,8 @@ const builtInPrompt = (input: SandcastlePhaseInput): string => {
     `Contract: ${JSON.stringify(input.contract)}`,
     `Implementation evidence: ${JSON.stringify(input.implementationEvidence)}`,
     `Verification evidence: ${JSON.stringify(input.verificationEvidence)}`,
+    "Stay read-only. Use concise review and diagnosis behavior.",
+    "Verify contract acceptance criteria, AFK gates, verification plan, out-of-scope boundaries, and evidence claims.",
     'JSON shape: {"status":"passed","findings":[],"transcript":"...","artifact":{}} or blocked/failed variant.',
   ].join("\n");
 };
@@ -1056,12 +1144,13 @@ const builtInPrompt = (input: SandcastlePhaseInput): string => {
 const resolvePromptText = (
   input: SandcastlePhaseInput,
   promptPaths: Partial<Record<SandcastlePhase, string>> = {},
+  skills: AgentSkillConfig = defaultSkillConfig,
   cwd: string,
 ): string => {
   const { phase } = input;
   const configuredPath = promptPaths[phase];
   if (configuredPath === undefined) {
-    return builtInPrompt(input);
+    return builtInPrompt(input, skills);
   }
 
   const promptPath = resolve(cwd, configuredPath);
@@ -1069,9 +1158,11 @@ const resolvePromptText = (
     throw new Error(`Prompt override not found: ${promptPath}`);
   }
 
-  return [builtInPrompt(input), "Additional instructions:", readFileSync(promptPath, "utf8")].join(
-    "\n\n",
-  );
+  return [
+    builtInPrompt(input, skills),
+    "Additional instructions:",
+    readFileSync(promptPath, "utf8"),
+  ].join("\n\n");
 };
 
 const extractTaggedJson = (stdout: string): unknown => {
@@ -1128,7 +1219,9 @@ const readAuthEnv = (
 
   const missingKeys = requiredKeys.filter((key) => env[key] === undefined);
   if (missingKeys.length > 0) {
-    throw new Error(`Agent auth env file missing required keys: ${missingKeys.join(", ")}: ${path}`);
+    throw new Error(
+      `Agent auth env file missing required keys: ${missingKeys.join(", ")}: ${path}`,
+    );
   }
 
   return env;
@@ -1212,7 +1305,7 @@ const runSandcastlePhase = (
             env: authEnv,
           }),
         cwd,
-        prompt: resolvePromptText(input, options.promptPaths, options.cwd),
+        prompt: resolvePromptText(input, options.promptPaths, options.skills, options.cwd),
         logging: {
           type: "file",
           path: join(options.logDirectory, `${issue.id}-${phase}.log`),
@@ -1237,8 +1330,9 @@ const runSandcastlePhase = (
     catch: (error) =>
       new AgentRunnerError({
         operation: `sandcastle.${input.phase}`,
-        failureKind:
-          errorMessage(error).startsWith("Agent auth env file") ? "operator_access" : "runtime_error",
+        failureKind: errorMessage(error).startsWith("Agent auth env file")
+          ? "operator_access"
+          : "runtime_error",
         message: errorMessage(error),
       }),
   });
@@ -1255,7 +1349,11 @@ export const createSandcastleAgentRunner = (
             model: "gpt-5.4-nano",
             effort: "xhigh" as const,
           };
-          readAuthEnv(options.cwd, authRequiredKeysForOptions(agentConfig, options), options.authEnvFile);
+          readAuthEnv(
+            options.cwd,
+            authRequiredKeysForOptions(agentConfig, options),
+            options.authEnvFile,
+          );
         },
         catch: (error) =>
           new AgentRunnerError({
@@ -1362,7 +1460,9 @@ const checkToolchainProbe = (
 ): Effect.Effect<OperatorHealthCheck, never> =>
   processRunner
     .run(
-      probe.scope === "container" && options.containerImage !== undefined ? "docker" : probe.command,
+      probe.scope === "container" && options.containerImage !== undefined
+        ? "docker"
+        : probe.command,
       probe.scope === "container" && options.containerImage !== undefined
         ? [
             "run",
@@ -1459,7 +1559,9 @@ export const createOperatorHealth = ({
         "worktrees readable",
       ),
       Effect.succeed(checkAgentAuth({ processRunner, cwd, authEnvFile, authRequiredKeys })),
-      ...toolchainProbes.map((probe) => checkToolchainProbe(processRunner, probe, { containerImage, cwd })),
+      ...toolchainProbes.map((probe) =>
+        checkToolchainProbe(processRunner, probe, { containerImage, cwd }),
+      ),
     ]),
 });
 
@@ -1468,7 +1570,9 @@ export const operatorHealthLayer = (
 ): Layer.Layer<OperatorHealth, never, ProcessRunner> =>
   Layer.effect(
     OperatorHealth,
-    Effect.map(ProcessRunner, (processRunner) => createOperatorHealth({ processRunner, ...options })),
+    Effect.map(ProcessRunner, (processRunner) =>
+      createOperatorHealth({ processRunner, ...options }),
+    ),
   );
 
 export const createBeadsIssueTracker = ({
