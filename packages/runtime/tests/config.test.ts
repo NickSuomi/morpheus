@@ -259,6 +259,32 @@ describe("Morpheus config", () => {
     });
   });
 
+  it("accepts declarative toolchain probes for doctor", () => {
+    withTempDir((dir) => {
+      const config = {
+        ...validConfig,
+        verification: {
+          commands: ["pnpm check"],
+          toolchainProbes: [
+            {
+              name: "java",
+              command: "java",
+              args: ["-version"],
+              action: "Install a JDK and rebuild the Morpheus container image.",
+            },
+          ],
+        },
+      };
+      const configPath = writeConfig(dir, config);
+
+      expect(loadMorpheusConfig({ configPath })).toEqual({
+        status: "loaded",
+        path: configPath,
+        config,
+      });
+    });
+  });
+
   it.each([
     ["runner kind", { ...validConfig.agentRunner, kind: "sandcastle" }],
     [
@@ -552,6 +578,84 @@ describe("Morpheus config", () => {
       expect(readFileSync(join(dir, ".morpheus/secrets/agent.env.example"), "utf8")).toContain(
         "OPENAI_API_KEY=",
       );
+    });
+  });
+
+  it("detects target capabilities and renders operator setup guidance", () => {
+    withTempDir((dir) => {
+      writeFileSync(
+        join(dir, "package.json"),
+        JSON.stringify({ packageManager: "pnpm@10.26.0" }),
+      );
+      writeFileSync(join(dir, "pnpm-lock.yaml"), "lockfileVersion: '9.0'\n");
+      writeFileSync(join(dir, "settings.gradle.kts"), "pluginManagement {}\n");
+      writeFileSync(join(dir, "build.gradle.kts"), "plugins { id(\"com.android.application\") }\n");
+      mkdirSync(join(dir, "App.xcodeproj"));
+      writeFileSync(join(dir, "App.xcodeproj/project.pbxproj"), "// !$*UTF8*$!\n");
+
+      const result = initMorpheusRepo({
+        target: dir,
+        gitlabProject: "group/project",
+      });
+
+      expect(result.status).toBe("initialized");
+      expect(loadMorpheusConfig({ targetRepo: dir })).toMatchObject({
+        status: "loaded",
+        config: {
+          verification: {
+            toolchainProbes: expect.arrayContaining([
+              expect.objectContaining({ name: "node", command: "node", args: ["--version"] }),
+              expect.objectContaining({ name: "pnpm", command: "pnpm", args: ["--version"] }),
+              expect.objectContaining({ name: "java", command: "java", args: ["-version"] }),
+              expect.objectContaining({ name: "android-sdk", command: "sh" }),
+              expect.objectContaining({ name: "xcode", command: "xcodebuild", args: ["-version"] }),
+            ]),
+          },
+        },
+      });
+
+      const dockerfile = readFileSync(join(dir, ".morpheus/container/Dockerfile"), "utf8");
+      expect(dockerfile).toContain("corepack enable");
+      expect(dockerfile).not.toContain("android-sdk");
+      expect(dockerfile).not.toContain("xcodebuild");
+
+      const containerReadme = readFileSync(join(dir, ".morpheus/container/README.md"), "utf8");
+      expect(containerReadme).toContain("Detected capabilities: Node, pnpm, Android/Gradle, iOS/Xcode");
+      expect(containerReadme).toContain("Morpheus does not auto-install Android SDK or Xcode in v1");
+      expect(containerReadme).toContain("Install JDK and Android SDK components");
+      expect(containerReadme).toContain("Run Xcode setup on the macOS host");
+    });
+  });
+
+  it("detects Android and iOS capabilities in nested project directories", () => {
+    withTempDir((dir) => {
+      mkdirSync(join(dir, "android"));
+      mkdirSync(join(dir, "ios/App.xcworkspace"), { recursive: true });
+      writeFileSync(join(dir, "android/settings.gradle.kts"), "pluginManagement {}\n");
+
+      const result = initMorpheusRepo({
+        target: dir,
+        gitlabProject: "group/project",
+      });
+
+      expect(result.status).toBe("initialized");
+      expect(loadMorpheusConfig({ targetRepo: dir })).toMatchObject({
+        status: "loaded",
+        config: {
+          verification: {
+            toolchainProbes: expect.arrayContaining([
+              expect.objectContaining({ name: "java", scope: "container" }),
+              expect.objectContaining({ name: "android-sdk", scope: "container" }),
+              expect.objectContaining({ name: "xcode", scope: "host" }),
+            ]),
+          },
+        },
+      });
+
+      const containerReadme = readFileSync(join(dir, ".morpheus/container/README.md"), "utf8");
+      expect(containerReadme).toContain("Detected capabilities: Android/Gradle, iOS/Xcode");
+      expect(containerReadme).toContain("Install JDK and Android SDK components");
+      expect(containerReadme).toContain("Run Xcode setup on the macOS host");
     });
   });
 

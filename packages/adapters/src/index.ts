@@ -54,6 +54,7 @@ import type {
   IssueTrackerService,
   OperatorHealthCheck,
   OperatorHealthService,
+  ToolchainProbeConfig,
   WorkspaceRuntimeService,
 } from "@morpheus/runtime";
 import { Effect, Layer } from "effect";
@@ -81,6 +82,8 @@ type OperatorHealthOptions = {
   readonly cwd?: string;
   readonly authEnvFile?: string;
   readonly authRequiredKeys?: readonly string[];
+  readonly toolchainProbes?: readonly ToolchainProbeConfig[];
+  readonly containerImage?: string;
 };
 
 type GitWorkspaceRuntimeOptions = {
@@ -1352,11 +1355,60 @@ const checkAgentAuth = (options: OperatorHealthOptions): OperatorHealthCheck => 
   }
 };
 
+const checkToolchainProbe = (
+  processRunner: ProcessRunnerService,
+  probe: ToolchainProbeConfig,
+  options: Pick<OperatorHealthOptions, "containerImage" | "cwd">,
+): Effect.Effect<OperatorHealthCheck, never> =>
+  processRunner
+    .run(
+      probe.scope === "container" && options.containerImage !== undefined ? "docker" : probe.command,
+      probe.scope === "container" && options.containerImage !== undefined
+        ? [
+            "run",
+            "--rm",
+            "-v",
+            `${options.cwd ?? process.cwd()}:/workspace`,
+            "-w",
+            "/workspace",
+            options.containerImage,
+            probe.command,
+            ...probe.args,
+          ]
+        : probe.args,
+    )
+    .pipe(
+      Effect.match({
+        onFailure: (error) => ({
+          name: "toolchain" as const,
+          status: "fail" as const,
+          detail: `${probe.name} missing: ${error.message}. ${probe.action}`,
+        }),
+        onSuccess: (result) => {
+          if (result.exitCode === 0) {
+            return {
+              name: "toolchain" as const,
+              status: "ok" as const,
+              detail: `${probe.name} available`,
+            };
+          }
+
+          return {
+            name: "toolchain" as const,
+            status: "fail" as const,
+            detail: `${probe.name} missing: ${result.stderr || `${probe.command} exited ${result.exitCode}`}. ${probe.action}`,
+          };
+        },
+      }),
+    );
+
 export const createOperatorHealth = ({
   processRunner,
   cwd,
   authEnvFile,
   authRequiredKeys,
+  toolchainProbes = [],
+  containerImage,
 }: OperatorHealthOptions): OperatorHealthService => ({
   check: () =>
     Effect.all([
@@ -1407,6 +1459,7 @@ export const createOperatorHealth = ({
         "worktrees readable",
       ),
       Effect.succeed(checkAgentAuth({ processRunner, cwd, authEnvFile, authRequiredKeys })),
+      ...toolchainProbes.map((probe) => checkToolchainProbe(processRunner, probe, { containerImage, cwd })),
     ]),
 });
 

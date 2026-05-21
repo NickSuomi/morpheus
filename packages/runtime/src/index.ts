@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import * as Schema from "@effect/schema/Schema";
 import {
@@ -428,7 +428,8 @@ export type OperatorHealthCheck = {
     | "containers"
     | "worktrees"
     | "ledger"
-    | "config";
+    | "config"
+    | "toolchain";
   readonly status: OperatorHealthStatus;
   readonly detail: string;
 };
@@ -3623,6 +3624,14 @@ const SkillMappingSchema = Schema.Struct({
   path: Schema.String,
 });
 
+const ToolchainProbeSchema = Schema.Struct({
+  name: Schema.NonEmptyString,
+  command: Schema.NonEmptyString,
+  args: Schema.Array(Schema.String),
+  action: Schema.NonEmptyString,
+  scope: Schema.optional(Schema.Literal("host", "container")),
+});
+
 export const MorpheusConfigSchema = Schema.Struct({
   targetRepo: Schema.String,
   issueTracker: Schema.Struct({
@@ -3676,6 +3685,7 @@ export const MorpheusConfigSchema = Schema.Struct({
   }),
   verification: Schema.Struct({
     commands: Schema.Array(Schema.String),
+    toolchainProbes: Schema.optional(Schema.Array(ToolchainProbeSchema)),
   }),
   retention: Schema.Struct({
     completedIntermediate: Schema.Struct({
@@ -3696,6 +3706,10 @@ export const MorpheusConfigSchema = Schema.Struct({
 });
 
 export type MorpheusConfig = Schema.Schema.Type<typeof MorpheusConfigSchema>;
+
+export type ToolchainProbeConfig = NonNullable<
+  MorpheusConfig["verification"]["toolchainProbes"]
+>[number];
 
 export type ConfigLoadOptions = {
   readonly configPath?: string;
@@ -3818,6 +3832,7 @@ const defaultPromptPaths = {
 
 const makeInitialConfig = (
   options: InitMorpheusRepoOptions,
+  toolchainProbes: readonly ToolchainProbeConfig[],
 ): MorpheusConfig => ({
   targetRepo: ".",
   issueTracker: { kind: "beads" },
@@ -3860,7 +3875,10 @@ const makeInitialConfig = (
     implementation: { concurrency: 1 },
     review: { concurrency: 1 },
   },
-  verification: { commands: [] },
+  verification: {
+    commands: [],
+    ...(toolchainProbes.length === 0 ? {} : { toolchainProbes: [...toolchainProbes] }),
+  },
   retention: {
     completedIntermediate: {
       keepDays: 14,
@@ -3974,22 +3992,188 @@ const containerDockerfileTemplate = [
   "",
 ].join("\n");
 
-const containerReadmeTemplate = [
-  "# Morpheus container profile",
-  "",
-  "This directory is the editable Morpheus container runtime surface for this target repository.",
-  "Morpheus uses Docker-compatible runtime semantics, so Docker Desktop, OrbStack, Colima, or a remote Docker context may provide the runtime.",
-  "",
-  "Build the default image before running container-backed agents:",
-  "",
-  "```bash",
-  "docker build -f .morpheus/container/Dockerfile -t morpheus-agent:local .",
-  "```",
-  "",
-  "The generated `morpheus.config.json` points `agentRunner.container.profile` at `.morpheus/container/Dockerfile` and `agentRunner.container.image` at `morpheus-agent:local`.",
-  "Keep this profile tracked. Local runtime data, logs, cache, ledger files, and secrets are ignored by the generated `.gitignore` entries.",
-  "",
-].join("\n");
+type TargetCapability = "node" | "pnpm" | "android" | "ios";
+
+const hasAnyFile = (target: string, names: readonly string[]): boolean =>
+  names.some((name) => existsSync(join(target, name)));
+
+const hasAnyFileInTargets = (
+  target: string,
+  directories: readonly string[],
+  names: readonly string[],
+): boolean => directories.some((directory) => hasAnyFile(join(target, directory), names));
+
+const hasXcodeProject = (target: string, directory: string): boolean => {
+  try {
+    return readdirSync(join(target, directory)).some(
+      (entry) => entry.endsWith(".xcodeproj") || entry.endsWith(".xcworkspace"),
+    );
+  } catch {
+    return false;
+  }
+};
+
+const packageJsonUsesPnpm = (target: string): boolean => {
+  const path = join(target, "package.json");
+  if (!existsSync(path)) {
+    return false;
+  }
+
+  try {
+    const value = JSON.parse(readFileSync(path, "utf8")) as unknown;
+    return (
+      typeof value === "object" &&
+      value !== null &&
+      "packageManager" in value &&
+      typeof value.packageManager === "string" &&
+      value.packageManager.startsWith("pnpm@")
+    );
+  } catch {
+    return false;
+  }
+};
+
+const detectTargetCapabilities = (target: string): readonly TargetCapability[] => {
+  const capabilities: TargetCapability[] = [];
+  const rootAndAndroid = ["", "android"] as const;
+  const rootAndIos = ["", "ios"] as const;
+
+  if (existsSync(join(target, "package.json"))) {
+    capabilities.push("node");
+  }
+
+  if (hasAnyFile(target, ["pnpm-lock.yaml", "pnpm-workspace.yaml"]) || packageJsonUsesPnpm(target)) {
+    capabilities.push("pnpm");
+  }
+
+  if (
+    hasAnyFileInTargets(target, rootAndAndroid, [
+      "gradlew",
+      "settings.gradle",
+      "settings.gradle.kts",
+      "build.gradle",
+      "build.gradle.kts",
+    ])
+  ) {
+    capabilities.push("android");
+  }
+
+  if (
+    hasAnyFileInTargets(target, rootAndIos, ["Podfile"]) ||
+    rootAndIos.some((directory) => hasXcodeProject(target, directory))
+  ) {
+    capabilities.push("ios");
+  }
+
+  return capabilities;
+};
+
+const capabilityLabels: Record<TargetCapability, string> = {
+  node: "Node",
+  pnpm: "pnpm",
+  android: "Android/Gradle",
+  ios: "iOS/Xcode",
+};
+
+const toolchainProbesForCapabilities = (
+  capabilities: readonly TargetCapability[],
+): readonly ToolchainProbeConfig[] => {
+  const probes: ToolchainProbeConfig[] = [];
+
+  if (capabilities.includes("node")) {
+    probes.push({
+      name: "node",
+      command: "node",
+      args: ["--version"],
+      action: "Install Node.js 22+ in the Morpheus container profile.",
+      scope: "container",
+    });
+  }
+
+  if (capabilities.includes("pnpm")) {
+    probes.push({
+      name: "pnpm",
+      command: "pnpm",
+      args: ["--version"],
+      action: "Enable corepack or install pnpm in the Morpheus container profile.",
+      scope: "container",
+    });
+  }
+
+  if (capabilities.includes("android")) {
+    probes.push(
+      {
+        name: "java",
+        command: "java",
+        args: ["-version"],
+        action: "Install a JDK and rebuild the Morpheus container image.",
+        scope: "container",
+      },
+      {
+        name: "android-sdk",
+        command: "sh",
+        args: ["-lc", "test -n \"$ANDROID_HOME\" && test -d \"$ANDROID_HOME\""],
+        action: "Install Android SDK components or set ANDROID_HOME in the Morpheus container profile.",
+        scope: "container",
+      },
+    );
+  }
+
+  if (capabilities.includes("ios")) {
+    probes.push({
+      name: "xcode",
+      command: "xcodebuild",
+      args: ["-version"],
+      action: "Run Xcode setup on the macOS host or avoid iOS verification in this container profile.",
+      scope: "host",
+    });
+  }
+
+  return probes;
+};
+
+const containerReadmeTemplate = (capabilities: readonly TargetCapability[]): string => {
+  const labels = capabilities.map((capability) => capabilityLabels[capability]);
+  const detected = labels.length === 0 ? "None" : labels.join(", ");
+  const setupLines = [
+    ...(capabilities.includes("node")
+      ? ["- Node: the default image is Node 22 and enables corepack."]
+      : []),
+    ...(capabilities.includes("pnpm")
+      ? ["- pnpm: run `pnpm install` or add target-specific setup hooks only when operators opt in."]
+      : []),
+    ...(capabilities.includes("android")
+      ? ["- Android/Gradle: Install JDK and Android SDK components in the editable container profile before running Android verification."]
+      : []),
+    ...(capabilities.includes("ios")
+      ? ["- iOS/Xcode: Run Xcode setup on the macOS host before running iOS verification; Xcode is not installed in Linux containers."]
+      : []),
+  ];
+
+  return [
+    "# Morpheus container profile",
+    "",
+    "This directory is the editable Morpheus container runtime surface for this target repository.",
+    "Morpheus uses Docker-compatible runtime semantics, so Docker Desktop, OrbStack, Colima, or a remote Docker context may provide the runtime.",
+    "",
+    `Detected capabilities: ${detected}`,
+    "",
+    "Morpheus does not auto-install Android SDK or Xcode in v1. Operators opt in by editing `.morpheus/container/Dockerfile`, rebuilding the image, and keeping verification failures explicit in run evidence.",
+    "",
+    "Required operator setup:",
+    ...(setupLines.length === 0 ? ["- None detected. Add target-specific toolchains manually if needed."] : setupLines),
+    "",
+    "Build the default image before running container-backed agents:",
+    "",
+    "```bash",
+    "docker build -f .morpheus/container/Dockerfile -t morpheus-agent:local .",
+    "```",
+    "",
+    "The generated `morpheus.config.json` points `agentRunner.container.profile` at `.morpheus/container/Dockerfile` and `agentRunner.container.image` at `morpheus-agent:local`.",
+    "Keep this profile tracked. Local runtime data, logs, cache, ledger files, and secrets are ignored by the generated `.gitignore` entries.",
+    "",
+  ].join("\n");
+};
 
 export const initMorpheusRepo = (
   options: InitMorpheusRepoOptions,
@@ -4026,7 +4210,9 @@ export const initMorpheusRepo = (
     };
   }
 
-  const config = makeInitialConfig(options);
+  const capabilities = detectTargetCapabilities(target);
+  const toolchainProbes = toolchainProbesForCapabilities(capabilities);
+  const config = makeInitialConfig(options, toolchainProbes);
   const decodedConfig = Schema.decodeUnknownSync(MorpheusConfigSchema)(config);
   const created: string[] = [];
   const updated: string[] = [];
@@ -4038,7 +4224,7 @@ export const initMorpheusRepo = (
   for (const [path, contents] of [
     [configPath, `${JSON.stringify(decodedConfig, null, 2)}\n`],
     [containerDockerfilePath, containerDockerfileTemplate],
-    [containerReadmePath, containerReadmeTemplate],
+    [containerReadmePath, containerReadmeTemplate(capabilities)],
     [agentEnvExamplePath, agentEnvExample],
     [promptPaths[0], starterPrompts.prepare],
     [promptPaths[1], starterPrompts.implement],
