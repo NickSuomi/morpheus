@@ -2,10 +2,26 @@ import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { deriveIssueState, deriveLane } from "@morpheus/core";
-import { Effect } from "effect";
+import { Effect, Layer } from "effect";
 import { describe, expect, it } from "vitest";
-import { createSandcastleAgentRunner } from "../src/index.js";
-import type { TrackedIssue } from "@morpheus/runtime";
+import { createSandcastleAgentRunner, sandcastleAgentRunnerLayer } from "../src/index.js";
+import {
+  GitLabIssueSource,
+  IssueTracker,
+  MergeRequestClient,
+  ProcessRunner,
+  ProcessRunnerError,
+  RunLedger,
+  runDaemonOnce,
+  WorkspaceRuntime,
+  type GitLabIssueSourceService,
+  type IssueTrackerService,
+  type MergeRequestClientService,
+  type ProcessRunnerService,
+  type RunLedgerService,
+  type TrackedIssue,
+  type WorkspaceRuntimeService,
+} from "@morpheus/runtime";
 
 const trackedIssue = (): TrackedIssue => {
   const labels = ["agent:ready"];
@@ -24,6 +40,136 @@ const trackedIssue = (): TrackedIssue => {
 };
 
 describe("SandcastleAgentRunner", () => {
+  it("checks Docker-compatible runtime access with docker info before work", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "morpheus-sandcastle-"));
+    const calls: Array<{ command: string; args: readonly string[] }> = [];
+    const processRunner: ProcessRunnerService = {
+      run: (command, args) => {
+        calls.push({ command, args });
+        return Effect.succeed({ stdout: "", stderr: "", exitCode: 0 });
+      },
+    };
+    const runner = createSandcastleAgentRunner({
+      cwd: dir,
+      logDirectory: join(dir, ".morpheus", "sandcastle-logs"),
+      processRunner,
+    });
+
+    await Effect.runPromise(runner.checkAccess?.() ?? Effect.void);
+
+    expect(calls).toEqual([{ command: "docker", args: ["info"] }]);
+  });
+
+  it("maps unavailable Docker-compatible runtime access to operator_access", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "morpheus-sandcastle-"));
+    const runner = createSandcastleAgentRunner({
+      cwd: dir,
+      logDirectory: join(dir, ".morpheus", "sandcastle-logs"),
+      processRunner: {
+        run: (command, args) =>
+          Effect.fail(
+            new ProcessRunnerError({
+              command,
+              args: [...args],
+              message: "Cannot connect to the Docker daemon",
+            }),
+          ),
+      },
+    });
+
+    const result = await Effect.runPromiseExit(runner.checkAccess?.() ?? Effect.void);
+
+    expect(result._tag).toBe("Failure");
+    expect(String(result)).toContain("operator_access");
+    expect(String(result)).toContain("Docker-compatible runtime unavailable");
+    expect(String(result)).toContain("Docker Desktop, OrbStack, Colima, or remote Docker context");
+  });
+
+  it("preflights Docker-compatible runtime through the daemon layer before agent work", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "morpheus-sandcastle-"));
+    const calls: Array<{ command: string; args: readonly string[] }> = [];
+    const processRunner: ProcessRunnerService = {
+      run: (command, args) => {
+        calls.push({ command, args });
+        return Effect.fail(
+          new ProcessRunnerError({
+            command,
+            args: [...args],
+            message: "Cannot connect to the Docker daemon",
+          }),
+        );
+      },
+    };
+    const issueTracker: IssueTrackerService = {
+      listRunnableIssues: () => Effect.succeed([trackedIssue()]),
+      getIssue: () => Effect.die("getIssue should not run before Docker preflight"),
+      applyAgentState: () => Effect.die("applyAgentState should not run before Docker preflight"),
+      writeContract: () => Effect.die("writeContract should not run before Docker preflight"),
+      readContract: () => Effect.die("readContract should not run before Docker preflight"),
+      listImportedGitLabIssues: () => Effect.succeed([]),
+      upsertImportedGitLabIssue: () => Effect.die("upsertImportedGitLabIssue should not run"),
+    };
+    const gitlabIssueSource: GitLabIssueSourceService = {
+      listReadyIssues: () => Effect.succeed([]),
+    };
+    const runLedger: RunLedgerService = {
+      createPreparationRun: () => Effect.die("createPreparationRun should not run"),
+      createImplementationRun: () => Effect.die("createImplementationRun should not run"),
+      createReviewRun: () => Effect.die("createReviewRun should not run"),
+      recordImplementationWorkspace: () => Effect.die("recordImplementationWorkspace should not run"),
+      recordMergeRequest: () => Effect.die("recordMergeRequest should not run"),
+      finishRun: () => Effect.die("finishRun should not run"),
+      writeRunArtifacts: () => Effect.die("writeRunArtifacts should not run"),
+      getRunLogs: () => Effect.die("getRunLogs should not run"),
+      getRunArtifact: () => Effect.die("getRunArtifact should not run"),
+      listRuns: () => Effect.succeed([]),
+      getRun: () => Effect.succeed(undefined),
+      getRunEvents: () => Effect.succeed([]),
+      pruneRuns: () => Effect.die("pruneRuns should not run"),
+    };
+    const workspaceRuntime: WorkspaceRuntimeService = {
+      prepareImplementationWorkspace: () =>
+        Effect.die("prepareImplementationWorkspace should not run"),
+      prepareReviewWorkspace: () => Effect.die("prepareReviewWorkspace should not run"),
+    };
+    const mergeRequests: MergeRequestClientService = {
+      createDraftMergeRequest: () => Effect.die("createDraftMergeRequest should not run"),
+      updateDescription: () => Effect.die("updateDescription should not run"),
+    };
+
+    const result = await Effect.runPromise(
+      runDaemonOnce({ project: "group/project", readyLabel: "agent:ready" }).pipe(
+        Effect.provide(
+          Layer.mergeAll(
+            Layer.succeed(ProcessRunner, processRunner),
+            Layer.succeed(IssueTracker, issueTracker),
+            Layer.succeed(GitLabIssueSource, gitlabIssueSource),
+            Layer.succeed(RunLedger, runLedger),
+            Layer.succeed(WorkspaceRuntime, workspaceRuntime),
+            Layer.succeed(MergeRequestClient, mergeRequests),
+            sandcastleAgentRunnerLayer({
+              cwd: dir,
+              logDirectory: join(dir, ".morpheus", "sandcastle-logs"),
+              authRequiredKeys: [],
+            }).pipe(Layer.provide(Layer.succeed(ProcessRunner, processRunner))),
+          ),
+        ),
+      ),
+    );
+
+    expect(calls).toEqual([{ command: "docker", args: ["info"] }]);
+    expect(result.executions).toHaveLength(1);
+    expect(result.executions[0]).toMatchObject({
+      lane: "preparation",
+      issueId: "morph-bbp",
+      result: {
+        status: "failed",
+        failureKind: "operator_access",
+        message: expect.stringContaining("Docker-compatible runtime unavailable"),
+      },
+    });
+  });
+
   it("constructs Sandcastle run options and maps tagged output to preparation result", async () => {
     const dir = mkdtempSync(join(tmpdir(), "morpheus-sandcastle-"));
     const calls: unknown[] = [];

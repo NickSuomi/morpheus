@@ -70,7 +70,12 @@ describe("OperatorHealth", () => {
     expect(checks).toEqual([
       { name: "beads", status: "ok", detail: "bd readable" },
       { name: "gitlab", status: "warn", detail: "not logged in" },
-      { name: "docker", status: "ok", detail: "docker reachable" },
+      {
+        name: "docker",
+        status: "ok",
+        detail:
+          "Docker-compatible runtime reachable via docker info (Docker Desktop, OrbStack, Colima, or remote Docker context)",
+      },
       { name: "workspace", status: "ok", detail: "workspace readable" },
       { name: "labels", status: "ok", detail: "agent labels readable" },
       { name: "daemon", status: "ok", detail: "daemon assumptions readable" },
@@ -114,13 +119,13 @@ describe("OperatorHealth", () => {
       name: "docker",
       status: "warn",
       detail:
-        "Cannot connect to the Docker daemon. Start Docker Desktop or Docker daemon, then rerun morpheus doctor.",
+        "Cannot connect to the Docker daemon. Start a Docker-compatible runtime such as Docker Desktop, OrbStack, Colima, or a remote Docker context, then rerun morpheus doctor.",
     });
     expect(checks).toContainEqual({
       name: "containers",
       status: "warn",
       detail:
-        "Cannot connect to the Docker daemon. Start Docker Desktop or Docker daemon, then rerun morpheus doctor.",
+        "Cannot connect to the Docker daemon. Start a Docker-compatible runtime such as Docker Desktop, OrbStack, Colima, or a remote Docker context, then rerun morpheus doctor.",
     });
   });
 

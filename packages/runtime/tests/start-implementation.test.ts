@@ -1,8 +1,9 @@
 import { deriveIssueState, deriveLane, type AgentReadyContract } from "@morpheus/core";
-import { Effect, Layer } from "effect";
+import { Effect, Either, Layer } from "effect";
 import { describe, expect, it } from "vitest";
 import {
   AgentRunner,
+  AgentRunnerError,
   IssueTracker,
   IssueTrackerCommandError,
   MergeRequestClient,
@@ -252,9 +253,23 @@ const fakeRunLedger = (
 
 const fakeAgentRunner = (
   scenario: "implemented" | "malformed" | "empty_evidence" | "verification_failed" = "implemented",
+  options: { readonly failAccess?: boolean } = {},
 ) => {
   const calls: string[] = [];
   const service: AgentRunnerService = {
+    checkAccess: () => {
+      calls.push("checkAccess");
+      if (options.failAccess === true) {
+        return Effect.fail(
+          new AgentRunnerError({
+            operation: "sandcastle.docker",
+            failureKind: "operator_access",
+            message: "Docker-compatible runtime unavailable: Cannot connect to the Docker daemon",
+          }),
+        );
+      }
+      return Effect.void;
+    },
     prepareIssue: () => Effect.die("not used"),
     implementIssue: (input) => {
       calls.push(`implement:${input.issue.id}:${input.mergeRequest.reference}`);
@@ -486,7 +501,46 @@ describe("startImplementation", () => {
     expect(mergeRequests.descriptions[0]).toContain("Fake implementation complete.");
     expect(mergeRequests.descriptions[0]).toContain("passed: pnpm check - passed");
     expect(mergeRequests.descriptions[0]).toContain("Review verdict: pending");
-    expect(runner.calls).toEqual(["implement:morph-7ky:!42"]);
+    expect(runner.calls).toEqual(["checkAccess", "implement:morph-7ky:!42"]);
+  });
+
+  it("fails Docker-compatible runtime preflight before Beads mutation or Draft MR creation", async () => {
+    const tracker = fakeIssueTracker(["agent:prepared"]);
+    const ledger = fakeRunLedger();
+    const workspace = fakeWorkspaceRuntime();
+    const mergeRequests = fakeMergeRequestClient("success");
+    const runner = fakeAgentRunner("implemented", { failAccess: true });
+
+    const result = await Effect.runPromise(
+      Effect.either(
+        startImplementation("morph-7ky").pipe(
+          Effect.provide(
+            testLayer(
+              tracker.layer,
+              ledger.layer,
+              workspace.layer,
+              mergeRequests.layer,
+              runner.layer,
+            ),
+          ),
+        ),
+      ),
+    );
+
+    expect(Either.isRight(result)).toBe(true);
+    if (Either.isRight(result)) {
+      expect(result.right).toMatchObject({
+        status: "failed",
+        failureKind: "operator_access",
+        message: expect.stringContaining("Docker-compatible runtime unavailable"),
+      });
+    }
+    expect(tracker.labels).toEqual(["agent:prepared"]);
+    expect(tracker.calls).toEqual([]);
+    expect(ledger.events).toEqual([]);
+    expect(workspace.calls).toEqual([]);
+    expect(mergeRequests.calls).toEqual([]);
+    expect(runner.calls).toEqual(["checkAccess"]);
   });
 
   it("rejects malformed implementation evidence before updating MR evidence", async () => {

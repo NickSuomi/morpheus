@@ -6,6 +6,7 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import {
   AgentRunner,
+  AgentRunnerError,
   GitLabIssueSource,
   initMorpheusRepo,
   IssueTracker,
@@ -231,9 +232,34 @@ const fakeAgentRunner = (
     readonly prepare?: "prepared" | "blocked" | "failed";
     readonly implement?: "implemented" | "failed";
     readonly review?: "passed" | "blocked" | "failed";
+    readonly failAccess?: boolean;
   } = {},
 ): Layer.Layer<AgentRunner> => {
+  const service: AgentRunnerService = fakeAgentRunnerService(statuses);
+  return Layer.succeed(AgentRunner, service);
+};
+
+const fakeAgentRunnerService = (
+  statuses: {
+    readonly prepare?: "prepared" | "blocked" | "failed";
+    readonly implement?: "implemented" | "failed";
+    readonly review?: "passed" | "blocked" | "failed";
+    readonly failAccess?: boolean;
+  } = {},
+): AgentRunnerService => {
   const service: AgentRunnerService = {
+    checkAccess: () => {
+      if (statuses.failAccess === true) {
+        return Effect.fail(
+          new AgentRunnerError({
+            operation: "sandcastle.docker",
+            failureKind: "operator_access",
+            message: "Docker-compatible runtime unavailable: Cannot connect to the Docker daemon",
+          }),
+        );
+      }
+      return Effect.void;
+    },
     prepareIssue: () => {
       if (statuses.prepare === "blocked") {
         return Effect.succeed({
@@ -309,7 +335,7 @@ const fakeAgentRunner = (
     },
   };
 
-  return Layer.succeed(AgentRunner, service);
+  return service;
 };
 
 const supportLayer = (
@@ -486,6 +512,50 @@ describe("runDaemonOnce", () => {
     expect(first.executions[0]?.result.status).toBe("failed");
     expect(tracker.labelsOf("morph-impl-failed")).toEqual(["agent:failed"]);
     expect(second.executions).toEqual([]);
+  });
+
+  it("reports failed lane and does not continue into agent execution when runtime preflight fails", async () => {
+    const tracker = fakeIssueTracker({ "morph-runtime": ["agent:ready"] });
+    let prepareCalled = false;
+    const agentRunner = fakeAgentRunnerService({ failAccess: true });
+    const layer = Layer.mergeAll(
+      tracker.layer,
+      supportLayer(),
+      Layer.succeed(AgentRunner, {
+        ...agentRunner,
+        prepareIssue: (input) => {
+          prepareCalled = true;
+          return agentRunner.prepareIssue(input);
+        },
+      } satisfies AgentRunnerService),
+    );
+
+    const result = await Effect.runPromise(
+      runDaemonOnce({
+        project: "group/project",
+        readyLabel: "agent:ready",
+      }).pipe(Effect.provide(layer)),
+    );
+    const output = await Effect.runPromise(
+      runDaemonOnceForCli({
+        project: "group/project",
+        readyLabel: "agent:ready",
+      }).pipe(Effect.provide(layer)),
+    );
+
+    expect(result.executions).toHaveLength(1);
+    expect(result.executions[0]).toMatchObject({
+      lane: "preparation",
+      issueId: "morph-runtime",
+      result: {
+        status: "failed",
+        failureKind: "operator_access",
+        message: expect.stringContaining("Docker-compatible runtime unavailable"),
+      },
+    });
+    expect(output).toContain("preparation morph-runtime: failed failureKind=operator_access");
+    expect(tracker.labelsOf("morph-runtime")).toEqual(["agent:ready"]);
+    expect(prepareCalled).toBe(false);
   });
 
   it("leaves blocked review terminal and does no work on next tick", async () => {
