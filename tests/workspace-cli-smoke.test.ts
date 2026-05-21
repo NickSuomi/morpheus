@@ -63,6 +63,7 @@ const validAgentRunnerConfig = {
     setupHooks: [],
   },
   skills: {
+    directory: ".morpheus/skills",
     mappings: [],
   },
 } as const;
@@ -320,9 +321,19 @@ describe("morpheus cli", () => {
       expect(readFileSync(join(dir, "morpheus.config.json"), "utf8")).toContain(
         '"targetBranch": "main"',
       );
+      expect(readFileSync(join(dir, "morpheus.config.json"), "utf8")).toContain(
+        '"directory": ".morpheus/skills"',
+      );
+      expect(readFileSync(join(dir, "morpheus.config.json"), "utf8")).toContain(
+        '"name": "matt-pocock-caveman"',
+      );
       expect(existsSync(join(dir, ".morpheus/prompts/prepare.md"))).toBe(true);
       expect(existsSync(join(dir, ".morpheus/prompts/implement.md"))).toBe(true);
       expect(existsSync(join(dir, ".morpheus/prompts/review.md"))).toBe(true);
+      expect(existsSync(join(dir, ".morpheus/skills/matt-pocock-caveman/SKILL.md"))).toBe(true);
+      expect(
+        readFileSync(join(dir, ".morpheus/skills/matt-pocock-caveman/SKILL.md"), "utf8"),
+      ).toContain("Ultra-compressed communication mode");
       expect(existsSync(join(dir, ".morpheus/container/Dockerfile"))).toBe(true);
       expect(existsSync(join(dir, ".morpheus/container/README.md"))).toBe(true);
       expect(readFileSync(join(dir, ".gitignore"), "utf8")).toContain(".morpheus/runs/");
@@ -445,7 +456,15 @@ describe("morpheus cli", () => {
       );
 
       const result = runPnpmFailure(
-        ["--filter", "@morpheus/cli", "morpheus", "prepare", "morph-runtime", "--config", configPath],
+        [
+          "--filter",
+          "@morpheus/cli",
+          "morpheus",
+          "prepare",
+          "morph-runtime",
+          "--config",
+          configPath,
+        ],
         { PATH: `${binDir}:${process.env.PATH ?? ""}` },
       );
 

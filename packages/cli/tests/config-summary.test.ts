@@ -38,6 +38,7 @@ describe("config summary", () => {
             setupHooks: ["pnpm install"],
           },
           skills: {
+            directory: ".morpheus/skills",
             mappings: [
               {
                 name: "caveman",
@@ -73,7 +74,7 @@ describe("config summary", () => {
     expect(output).toContain(
       "container: image=morpheus-agent:local profile=.morpheus/container/Dockerfile mounts=1 setupHooks=1",
     );
-    expect(output).toContain("skills: mappings=1");
+    expect(output).toContain("skills: directory=.morpheus/skills mappings=1 names=caveman");
     expect(output).not.toContain("Sandcastle");
     expect(output).not.toContain("sandcastle");
   });

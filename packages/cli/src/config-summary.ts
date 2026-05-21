@@ -19,7 +19,7 @@ export const formatConfigSummaryText = (input: {
     `agent: provider=${config.agentRunner.agent.provider} model=${config.agentRunner.agent.model} effort=${config.agentRunner.agent.effort}`,
     `auth: envFile=${config.agentRunner.auth.envFile} requiredKeys=${config.agentRunner.auth.requiredKeys.join(",")}`,
     `container: image=${config.agentRunner.container.image} profile=${config.agentRunner.container.profile} mounts=${config.agentRunner.container.mounts.length} setupHooks=${config.agentRunner.container.setupHooks.length}`,
-    `skills: mappings=${config.agentRunner.skills.mappings.length}`,
+    `skills: directory=${config.agentRunner.skills.directory} mappings=${config.agentRunner.skills.mappings.length} names=${config.agentRunner.skills.mappings.map((skill) => skill.name).join(",")}`,
     `lanes: preparation=${config.lanes.preparation.concurrency} implementation=${config.lanes.implementation.concurrency} review=${config.lanes.review.concurrency}`,
   ].join("\n");
 };
