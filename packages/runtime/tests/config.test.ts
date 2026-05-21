@@ -1,6 +1,7 @@
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import { initMorpheusRepo, loadMorpheusConfig } from "../src/index.js";
 
@@ -37,6 +38,7 @@ const validConfig = {
       setupHooks: [],
     },
     skills: {
+      directory: ".morpheus/skills",
       mappings: [],
     },
   },
@@ -59,6 +61,22 @@ const validConfig = {
 } as const;
 
 const laneNames = ["preparation", "implementation", "review"] as const;
+const packageRoot = dirname(dirname(fileURLToPath(import.meta.url)));
+
+const bundledSkillNames = [
+  "matt-pocock-caveman",
+  "matt-pocock-to-prd",
+  "matt-pocock-grill-me",
+  "matt-pocock-to-issues",
+  "matt-pocock-grill-with-docs",
+  "matt-pocock-tdd",
+  "matt-pocock-diagnose",
+] as const;
+
+const bundledSkillMappings = bundledSkillNames.map((name) => ({
+  name,
+  path: `.morpheus/skills/${name}/SKILL.md`,
+}));
 
 type LaneName = (typeof laneNames)[number];
 
@@ -240,6 +258,7 @@ describe("Morpheus config", () => {
             setupHooks: ["pnpm install"],
           },
           skills: {
+            directory: ".morpheus/skills",
             mappings: [
               {
                 name: "project-caveman",
@@ -321,7 +340,10 @@ describe("Morpheus config", () => {
     ],
     [
       "skill mapping",
-      { ...validConfig.agentRunner, skills: { mappings: [{ name: "x", path: 123 }] } },
+      {
+        ...validConfig.agentRunner,
+        skills: { directory: ".morpheus/skills", mappings: [{ name: "x", path: 123 }] },
+      },
     ],
   ] as const)("rejects invalid declarative container agent config: %s", (_field, agentRunner) => {
     withTempDir((dir) => {
@@ -535,7 +557,8 @@ describe("Morpheus config", () => {
               setupHooks: [],
             },
             skills: {
-              mappings: [],
+              directory: ".morpheus/skills",
+              mappings: bundledSkillMappings,
             },
           },
           prompts: {
@@ -551,15 +574,41 @@ describe("Morpheus config", () => {
       expect(readFileSync(join(dir, ".morpheus/prompts/prepare.md"), "utf8")).toContain(
         "Default Morpheus Agent Skills",
       );
+      expect(readFileSync(join(dir, ".morpheus/prompts/prepare.md"), "utf8")).toContain(
+        ".morpheus/skills/matt-pocock-caveman/SKILL.md",
+      );
+      expect(readFileSync(join(dir, ".morpheus/prompts/prepare.md"), "utf8")).not.toContain(
+        "/Users/",
+      );
       expect(readFileSync(join(dir, ".morpheus/prompts/implement.md"), "utf8")).toContain(
         "Implement the prepared contract only.",
       );
       expect(readFileSync(join(dir, ".morpheus/prompts/implement.md"), "utf8")).toContain(
-        "Nick Suomi Flow",
+        ".morpheus/skills/matt-pocock-tdd/SKILL.md",
+      );
+      expect(readFileSync(join(dir, ".morpheus/prompts/implement.md"), "utf8")).not.toContain(
+        "/Users/",
       );
       expect(readFileSync(join(dir, ".morpheus/prompts/review.md"), "utf8")).toContain(
         "Stay read-only.",
       );
+      expect(readFileSync(join(dir, ".morpheus/prompts/review.md"), "utf8")).toContain(
+        ".morpheus/skills/matt-pocock-diagnose/SKILL.md",
+      );
+      for (const skillName of bundledSkillNames) {
+        const generated = readFileSync(
+          join(dir, ".morpheus/skills", skillName, "SKILL.md"),
+          "utf8",
+        );
+        const vendored = readFileSync(
+          join(packageRoot, "bundled-skills", skillName, "SKILL.md"),
+          "utf8",
+        );
+
+        expect(generated).toBe(vendored);
+        expect(generated).toContain("---");
+        expect(generated.length).toBeGreaterThan(500);
+      }
       const dockerfile = readFileSync(join(dir, ".morpheus/container/Dockerfile"), "utf8");
       expect(dockerfile).toContain("FROM node:22-bookworm-slim");
       expect(dockerfile).toContain("Morpheus container profile");
@@ -574,7 +623,9 @@ describe("Morpheus config", () => {
       expect(readFileSync(join(dir, ".gitignore"), "utf8")).toContain(".morpheus/runs/");
       expect(readFileSync(join(dir, ".gitignore"), "utf8")).toContain(".morpheus/agent-logs/");
       expect(readFileSync(join(dir, ".gitignore"), "utf8")).toContain(".morpheus/cache/");
-      expect(readFileSync(join(dir, ".gitignore"), "utf8")).toContain(".morpheus/secrets/agent.env");
+      expect(readFileSync(join(dir, ".gitignore"), "utf8")).toContain(
+        ".morpheus/secrets/agent.env",
+      );
       expect(readFileSync(join(dir, ".morpheus/secrets/agent.env.example"), "utf8")).toContain(
         "OPENAI_API_KEY=",
       );
@@ -583,13 +634,10 @@ describe("Morpheus config", () => {
 
   it("detects target capabilities and renders operator setup guidance", () => {
     withTempDir((dir) => {
-      writeFileSync(
-        join(dir, "package.json"),
-        JSON.stringify({ packageManager: "pnpm@10.26.0" }),
-      );
+      writeFileSync(join(dir, "package.json"), JSON.stringify({ packageManager: "pnpm@10.26.0" }));
       writeFileSync(join(dir, "pnpm-lock.yaml"), "lockfileVersion: '9.0'\n");
       writeFileSync(join(dir, "settings.gradle.kts"), "pluginManagement {}\n");
-      writeFileSync(join(dir, "build.gradle.kts"), "plugins { id(\"com.android.application\") }\n");
+      writeFileSync(join(dir, "build.gradle.kts"), 'plugins { id("com.android.application") }\n');
       mkdirSync(join(dir, "App.xcodeproj"));
       writeFileSync(join(dir, "App.xcodeproj/project.pbxproj"), "// !$*UTF8*$!\n");
 
@@ -620,8 +668,12 @@ describe("Morpheus config", () => {
       expect(dockerfile).not.toContain("xcodebuild");
 
       const containerReadme = readFileSync(join(dir, ".morpheus/container/README.md"), "utf8");
-      expect(containerReadme).toContain("Detected capabilities: Node, pnpm, Android/Gradle, iOS/Xcode");
-      expect(containerReadme).toContain("Morpheus does not auto-install Android SDK or Xcode in v1");
+      expect(containerReadme).toContain(
+        "Detected capabilities: Node, pnpm, Android/Gradle, iOS/Xcode",
+      );
+      expect(containerReadme).toContain(
+        "Morpheus does not auto-install Android SDK or Xcode in v1",
+      );
       expect(containerReadme).toContain("Install JDK and Android SDK components");
       expect(containerReadme).toContain("Run Xcode setup on the macOS host");
     });
@@ -681,17 +733,42 @@ describe("Morpheus config", () => {
     });
   });
 
+  it("does not overwrite edited target skill files without force", () => {
+    withTempDir((dir) => {
+      const skillPath = join(dir, ".morpheus/skills/matt-pocock-caveman/SKILL.md");
+      mkdirSync(join(dir, ".morpheus/skills/matt-pocock-caveman"), { recursive: true });
+      writeFileSync(skillPath, "edited skill");
+
+      const result = initMorpheusRepo({
+        target: dir,
+        gitlabProject: "group/project",
+      });
+
+      expect(result).toEqual({
+        status: "error",
+        error: {
+          kind: "existing_files",
+          paths: [skillPath],
+        },
+      });
+      expect(readFileSync(skillPath, "utf8")).toBe("edited skill");
+    });
+  });
+
   it("overwrites existing config, prompts, and container profile with force", () => {
     withTempDir((dir) => {
       writeConfig(dir, validConfig);
       const promptPath = join(dir, ".morpheus/prompts/prepare.md");
       const dockerfilePath = join(dir, ".morpheus/container/Dockerfile");
       const readmePath = join(dir, ".morpheus/container/README.md");
+      const skillPath = join(dir, ".morpheus/skills/matt-pocock-caveman/SKILL.md");
       mkdirSync(join(dir, ".morpheus/prompts"), { recursive: true });
       mkdirSync(join(dir, ".morpheus/container"), { recursive: true });
+      mkdirSync(join(dir, ".morpheus/skills/matt-pocock-caveman"), { recursive: true });
       writeFileSync(promptPath, "old prompt");
       writeFileSync(dockerfilePath, "old dockerfile");
       writeFileSync(readmePath, "old readme");
+      writeFileSync(skillPath, "old skill");
 
       const result = initMorpheusRepo({
         target: dir,
@@ -708,6 +785,7 @@ describe("Morpheus config", () => {
           promptPath,
           dockerfilePath,
           readmePath,
+          skillPath,
         ]),
       });
       expect(loadMorpheusConfig({ targetRepo: dir })).toMatchObject({
@@ -723,6 +801,12 @@ describe("Morpheus config", () => {
       expect(readFileSync(promptPath, "utf8")).toContain("Agent-Ready Contract");
       expect(readFileSync(dockerfilePath, "utf8")).toContain("Morpheus container profile");
       expect(readFileSync(readmePath, "utf8")).toContain("Docker-compatible runtime");
+      expect(readFileSync(skillPath, "utf8")).toBe(
+        readFileSync(
+          join(packageRoot, "bundled-skills/matt-pocock-caveman/SKILL.md"),
+          "utf8",
+        ),
+      );
     });
   });
 });

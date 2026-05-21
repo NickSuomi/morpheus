@@ -294,7 +294,10 @@ describe("SandcastleAgentRunner", () => {
       "Return only JSON inside <morpheus_result>",
     );
     expect(calls[0]?.prompt).toContain("Default Morpheus Agent Skills");
-    expect(calls[0]?.prompt).toContain("Caveman");
+    expect(calls[0]?.prompt).toContain(
+      ".morpheus/skills/matt-pocock-caveman/SKILL.md",
+    );
+    expect(calls[0]?.prompt).not.toContain("/Users/");
     expect(calls[0]?.prompt).toContain("Additional instructions:");
     expect(calls[0]?.prompt).toContain("custom prompt");
   });
