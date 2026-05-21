@@ -59,6 +59,28 @@ export class ProcessRunner extends Context.Tag("@morpheus/runtime/ProcessRunner"
 
 export type ProcessRunnerService = Context.Tag.Service<typeof ProcessRunner>;
 
+export class SetupEnvironmentError extends EffectSchema.TaggedError<SetupEnvironmentError>(
+  "SetupEnvironmentError",
+)("SetupEnvironmentError", {
+  operation: EffectSchema.String,
+  message: EffectSchema.String,
+}) {}
+
+export class SetupEnvironment extends Context.Tag("@morpheus/runtime/SetupEnvironment")<
+  SetupEnvironment,
+  {
+    readonly detect: (options?: {
+      readonly targetPath?: string;
+      readonly currentWorkingDirectory?: string;
+      readonly doctor?: NonNullable<SetupPlanningInput["detected"]>["doctor"];
+    }) => Effect.Effect<SetupPlanningInput, SetupEnvironmentError>;
+    readonly apply: (plan: SetupPlan) => Effect.Effect<void, SetupEnvironmentError>;
+    readonly buildContainer: (plan: SetupPlan) => Effect.Effect<string, SetupEnvironmentError>;
+  }
+>() {}
+
+export type SetupEnvironmentService = Context.Tag.Service<typeof SetupEnvironment>;
+
 export type PreparedImplementationWorkspace = {
   readonly workspacePath: string;
   readonly worktreePath?: string;
@@ -3699,6 +3721,17 @@ export type SetupNextStep = {
   readonly gate: "after-write" | "after-doctor" | "manual";
 };
 
+export type SetupExecutionGates = {
+  readonly sync: {
+    readonly canRun: boolean;
+    readonly skipReason?: string;
+  };
+  readonly daemonOnce: {
+    readonly canRun: boolean;
+    readonly skipReason?: string;
+  };
+};
+
 export type SetupPlanningInput = {
   readonly targetPath?: string;
   readonly currentWorkingDirectory?: string;
@@ -3869,7 +3902,7 @@ const containerProfileValidation = (path: string): SetupValidation => {
   }
 
   const basename = path.split("/").at(-1) ?? "";
-  if (!basename.startsWith("Dockerfile") || basename.endsWith(".txt")) {
+  if (!basename.includes("Dockerfile") || basename.endsWith(".txt")) {
     return invalid(
       "Container profile path must end with Dockerfile or include Dockerfile in the file name.",
     );
@@ -4014,7 +4047,7 @@ const overwriteTemplatesValidation = (
     : valid();
 
 export const planMorpheusSetup = (input: SetupPlanningInput = {}): SetupPlan => {
-  const currentWorkingDirectory = input.currentWorkingDirectory ?? process.cwd();
+  const currentWorkingDirectory = input.currentWorkingDirectory ?? ".";
   const resolvedTargetPath = resolve(currentWorkingDirectory, input.targetPath ?? ".");
   const existingConfig = input.existing?.config;
   const existingFiles = new Set(input.existing?.files ?? []);
@@ -4497,6 +4530,164 @@ export const planMorpheusSetup = (input: SetupPlanningInput = {}): SetupPlan => 
   };
 };
 
+export const formatMorpheusSetupPreview = (plan: SetupPlan): string =>
+  [
+    "Morpheus setup preview",
+    `target: ${plan.target.resolvedPath}`,
+    `mode: ${plan.mode}`,
+    "",
+    "Prompts:",
+    ...plan.prompts.map((prompt) =>
+      [
+        `- ${prompt.id}`,
+        `default=${JSON.stringify(prompt.defaultValue)}`,
+        `value=${JSON.stringify(prompt.value)}`,
+        `validation=${prompt.validation.status}${
+          prompt.validation.status === "valid" ? "" : `:${prompt.validation.message}`
+        }`,
+        `mutation=${JSON.stringify(prompt.mutation)}`,
+      ].join(" "),
+    ),
+    "",
+    "Config:",
+    `- ${plan.configMutation.action} ${plan.configMutation.path} apply=${plan.configMutation.apply}`,
+    "",
+    "Files:",
+    ...plan.fileMutations.map(
+      (mutation) =>
+        `- ${mutation.action} ${mutation.path} apply=${mutation.apply}${mutation.reason === undefined ? "" : ` (${mutation.reason})`}`,
+    ),
+    ...(plan.warnings.length === 0
+      ? []
+      : ["", "Warnings:", ...plan.warnings.map((message) => `- ${message}`)]),
+    ...(plan.errors.length === 0
+      ? []
+      : ["", "Errors:", ...plan.errors.map((message) => `- ${message}`)]),
+    "",
+    "Next steps:",
+    ...plan.nextSteps.map((step) => `- ${step.command ?? step.id} (${step.gate})`),
+  ].join("\n");
+
+export const detectMorpheusSetupInput = (
+  options?: Parameters<SetupEnvironmentService["detect"]>[0],
+): Effect.Effect<SetupPlanningInput, SetupEnvironmentError, SetupEnvironment> =>
+  Effect.gen(function* () {
+    const setupEnvironment = yield* SetupEnvironment;
+    return yield* setupEnvironment.detect(options);
+  });
+
+export const applyMorpheusSetupPlan = (
+  plan: SetupPlan,
+): Effect.Effect<void, SetupEnvironmentError, SetupEnvironment> =>
+  Effect.gen(function* () {
+    const setupEnvironment = yield* SetupEnvironment;
+    return yield* setupEnvironment.apply(plan);
+  });
+
+export const setupSecretFileTemplate = (keys: readonly string[]): string =>
+  [
+    "# Fill these values manually. Morpheus setup never asks for or prints secret values.",
+    ...keys.map((key) => `${key}=`),
+    "",
+  ].join("\n");
+
+export const setupAgentEnvExampleTemplate = (keys: readonly string[]): string =>
+  [
+    "# Copy to .morpheus/secrets/agent.env and fill with real token values.",
+    "# Morpheus requires this explicit file for agent runs.",
+    ...keys.map((key) => `${key}=`),
+    "",
+  ].join("\n");
+
+export const setupGeneratedFileContents = (
+  target: string,
+  path: string,
+  config: MorpheusConfig,
+): string | undefined => {
+  switch (path) {
+    case ".morpheus/prompts/prepare.md":
+      return starterPrompts.prepare;
+    case ".morpheus/prompts/implement.md":
+      return starterPrompts.implement;
+    case ".morpheus/prompts/review.md":
+      return starterPrompts.review;
+    case ".morpheus/container/README.md":
+      return containerReadmeTemplate(detectTargetCapabilities(target));
+    case ".morpheus/secrets/agent.env.example":
+      return setupAgentEnvExampleTemplate(config.agentRunner.auth.requiredKeys);
+    default:
+      if (path === config.agentRunner.container.profile || path.endsWith("/Dockerfile")) {
+        return containerDockerfileTemplate;
+      }
+
+      for (const skill of bundledAgentSkillMappings) {
+        if (path === skill.path) {
+          return readBundledAgentSkill(skill.name as (typeof bundledAgentSkills)[number]);
+        }
+      }
+
+      return undefined;
+  }
+};
+
+export type SetupDoctorHealth = {
+  readonly beadsOk: boolean;
+  readonly gitlabOk: boolean;
+  readonly hasFail: boolean;
+};
+
+export const interpretMorpheusSetupDoctorOutput = (output: string): SetupDoctorHealth => ({
+  beadsOk: output.includes("OK beads:"),
+  gitlabOk: output.includes("OK gitlab:"),
+  hasFail: output.split(/\r?\n/).some((line) => line.startsWith("FAIL ")),
+});
+
+export const setupAuthReady = (input: SetupPlanningInput): boolean => {
+  const config = input.existing?.config;
+  if (config === undefined) {
+    return false;
+  }
+
+  const files = new Set(input.existing?.files ?? []);
+  const keys = new Set(input.existing?.authEnvKeys ?? []);
+  return (
+    files.has(config.agentRunner.auth.envFile) &&
+    config.agentRunner.auth.requiredKeys.every((key) => keys.has(key))
+  );
+};
+
+export const setupCanRunSync = (input: SetupPlanningInput): boolean =>
+  setupAuthReady(input) &&
+  input.detected?.doctor?.beadsOk === true &&
+  input.detected.doctor.gitlabOk === true &&
+  !input.detected.doctor.hasFail;
+
+export const setupCanRunDaemonOnce = (input: SetupPlanningInput): boolean =>
+  setupAuthReady(input) && input.detected?.doctor?.hasFail === false;
+
+export const planMorpheusSetupExecution = (input: SetupPlanningInput): SetupExecutionGates => ({
+  sync: setupCanRunSync(input)
+    ? { canRun: true }
+    : {
+        canRun: false,
+        skipReason: "doctor-confirmed Beads and GitLab health is required.",
+      },
+  daemonOnce: setupCanRunDaemonOnce(input)
+    ? { canRun: true }
+    : {
+        canRun: false,
+        skipReason: "doctor must have no FAIL results.",
+      },
+});
+
+export const runMorpheusSetupContainerBuild = (
+  plan: SetupPlan,
+): Effect.Effect<string, SetupEnvironmentError, SetupEnvironment> =>
+  Effect.gen(function* () {
+    const setupEnvironment = yield* SetupEnvironment;
+    return yield* setupEnvironment.buildContainer(plan);
+  });
+
 const bundledAgentSkillPromptReferences = bundledAgentSkillMappings
   .map((skill) => `- ${skill.name}: ${skill.path}`)
   .join("\n");
@@ -4567,7 +4758,7 @@ const starterPrompts = {
   ].join("\n"),
 } as const;
 
-const gitignoreEntries = [
+export const gitignoreEntries = [
   ".morpheus/ledger.sqlite*",
   ".morpheus/runs/",
   ".morpheus/agent-logs/",
@@ -4634,7 +4825,7 @@ const packageJsonUsesPnpm = (target: string): boolean => {
   }
 };
 
-const detectTargetCapabilities = (target: string): readonly TargetCapability[] => {
+export const detectTargetCapabilities = (target: string): readonly TargetCapability[] => {
   const capabilities: TargetCapability[] = [];
   const rootAndAndroid = ["", "android"] as const;
   const rootAndIos = ["", "ios"] as const;

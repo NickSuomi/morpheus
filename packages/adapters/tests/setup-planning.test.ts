@@ -1,5 +1,28 @@
 import { describe, expect, it } from "vitest";
-import { planMorpheusSetup, type MorpheusConfig } from "../src/index.js";
+import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { applyMorpheusSetupPlan, detectMorpheusSetupInput } from "../src/index.js";
+import {
+  interpretMorpheusSetupDoctorOutput,
+  planMorpheusSetup,
+  setupCanRunDaemonOnce,
+  setupCanRunSync,
+  type MorpheusConfig,
+} from "@morpheus/runtime";
+
+const withTempDir = (fn: (dir: string) => void): void => {
+  const dir = mkdtempSync(join(tmpdir(), "morpheus-setup-"));
+  try {
+    fn(dir);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+};
+
+const writeConfig = (dir: string, config: MorpheusConfig): void => {
+  writeFileSync(join(dir, "morpheus.config.json"), `${JSON.stringify(config, null, 2)}\n`);
+};
 
 const existingConfig: MorpheusConfig = {
   targetRepo: ".",
@@ -826,6 +849,62 @@ describe("setup planning", () => {
     );
   });
 
+  it("detects configured custom auth and container profile files in update mode", () => {
+    withTempDir((dir) => {
+      const config: MorpheusConfig = {
+        ...existingConfig,
+        agentRunner: {
+          ...existingConfig.agentRunner,
+          auth: {
+            envFile: ".morpheus/private/custom-agent.env",
+            requiredKeys: ["OPENAI_API_KEY"],
+          },
+          container: {
+            ...existingConfig.agentRunner.container,
+            profile: ".morpheus/container/node.Dockerfile",
+          },
+        },
+      };
+      writeConfig(dir, config);
+      mkdirSync(join(dir, ".morpheus/private"), { recursive: true });
+      mkdirSync(join(dir, ".morpheus/container"), { recursive: true });
+      writeFileSync(join(dir, ".morpheus/private/custom-agent.env"), "OPENAI_API_KEY=real\n");
+      writeFileSync(join(dir, ".morpheus/container/node.Dockerfile"), "custom profile");
+
+      const input = detectMorpheusSetupInput({
+        targetPath: dir,
+        doctor: { beadsOk: true, gitlabOk: true, hasFail: false },
+      });
+      const plan = planMorpheusSetup({
+        ...input,
+        detected: {
+          ...input.detected,
+          targetPath: { exists: true, isDirectory: true, isReadable: true, isGitWorktree: true },
+        },
+      });
+
+      expect(input.existing?.files).toEqual(
+        expect.arrayContaining([
+          ".morpheus/private/custom-agent.env",
+          ".morpheus/container/node.Dockerfile",
+        ]),
+      );
+      expect(setupCanRunSync(input)).toBe(true);
+      expect(plan.fileMutations).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            path: ".morpheus/container/node.Dockerfile",
+            action: "skip",
+          }),
+          expect.objectContaining({
+            path: ".morpheus/private/custom-agent.env",
+            action: "refuse",
+          }),
+        ]),
+      );
+    });
+  });
+
   it("rejects requested container build until docker info is known OK", () => {
     const plan = planMorpheusSetup({
       currentWorkingDirectory: "/repos/app",
@@ -895,5 +974,76 @@ describe("setup planning", () => {
         }),
       ]),
     );
+  });
+
+  it("applies update-mode template overwrites without overwriting the real secret file", () => {
+    withTempDir((dir) => {
+      writeConfig(dir, existingConfig);
+      mkdirSync(join(dir, ".morpheus/prompts"), { recursive: true });
+      mkdirSync(join(dir, ".morpheus/container"), { recursive: true });
+      mkdirSync(join(dir, ".morpheus/secrets"), { recursive: true });
+      writeFileSync(join(dir, ".morpheus/prompts/prepare.md"), "old prompt");
+      writeFileSync(join(dir, ".morpheus/container/Dockerfile"), "old dockerfile");
+      writeFileSync(join(dir, ".morpheus/secrets/agent.env"), "OPENAI_API_KEY=real\n");
+
+      const input = detectMorpheusSetupInput({ targetPath: dir });
+      const plan = planMorpheusSetup({
+        ...input,
+        detected: {
+          ...input.detected,
+          targetPath: { exists: true, isDirectory: true, isReadable: true, isGitWorktree: true },
+        },
+        answers: {
+          overwriteTemplates: true,
+          writeChanges: true,
+          gitlabProject: "group/new-project",
+        },
+      });
+
+      applyMorpheusSetupPlan(plan);
+
+      expect(readFileSync(join(dir, ".morpheus/prompts/prepare.md"), "utf8")).toContain(
+        "Agent-Ready Contract",
+      );
+      expect(readFileSync(join(dir, ".morpheus/container/Dockerfile"), "utf8")).toContain(
+        "Morpheus container profile",
+      );
+      expect(readFileSync(join(dir, ".morpheus/secrets/agent.env"), "utf8")).toBe(
+        "OPENAI_API_KEY=real\n",
+      );
+      expect(readFileSync(join(dir, "morpheus.config.json"), "utf8")).toContain(
+        "group/new-project",
+      );
+    });
+  });
+
+  it("gates sync and daemon on explicit non-empty auth file keys plus doctor health", () => {
+    withTempDir((dir) => {
+      writeConfig(dir, existingConfig);
+      mkdirSync(join(dir, ".morpheus/secrets"), { recursive: true });
+      writeFileSync(join(dir, ".morpheus/secrets/agent.env"), "OPENAI_API_KEY=\n");
+
+      const doctor = interpretMorpheusSetupDoctorOutput(
+        ["Morpheus doctor", "OK beads: bd readable", "OK gitlab: authenticated"].join("\n"),
+      );
+      const emptyAuth = detectMorpheusSetupInput({ targetPath: dir, doctor });
+      writeFileSync(join(dir, ".morpheus/secrets/agent.env"), "OPENAI_API_KEY=real\n");
+      const ready = detectMorpheusSetupInput({
+        targetPath: dir,
+        doctor: { beadsOk: true, gitlabOk: true, hasFail: false },
+      });
+      rmSync(join(dir, ".morpheus/secrets/agent.env"));
+      const afterRemoval = detectMorpheusSetupInput({
+        targetPath: dir,
+        doctor: { beadsOk: true, gitlabOk: true, hasFail: false },
+      });
+
+      expect(setupCanRunSync(emptyAuth)).toBe(false);
+      expect(setupCanRunDaemonOnce(emptyAuth)).toBe(false);
+      expect(setupCanRunSync(ready)).toBe(true);
+      expect(setupCanRunDaemonOnce(ready)).toBe(true);
+      expect(setupCanRunSync(afterRemoval)).toBe(false);
+      expect(setupCanRunDaemonOnce(afterRemoval)).toBe(false);
+    });
   });
 });

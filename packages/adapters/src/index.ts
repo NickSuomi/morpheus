@@ -1,6 +1,6 @@
-import { execFile } from "node:child_process";
-import { existsSync, mkdirSync, readFileSync } from "node:fs";
-import { dirname, join, resolve } from "node:path";
+import { execFile, execFileSync } from "node:child_process";
+import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import { dirname, isAbsolute, join, resolve } from "node:path";
 import { codex, run as sandcastleRun } from "@ai-hero/sandcastle";
 import type { AgentProvider, RunOptions, RunResult } from "@ai-hero/sandcastle";
 import { docker } from "@ai-hero/sandcastle/sandboxes/docker";
@@ -31,10 +31,17 @@ import {
   OperatorHealth,
   ProcessRunner,
   ProcessRunnerError,
+  SetupEnvironment,
+  SetupEnvironmentError,
   WorkspaceRuntime,
   WorkspaceRuntimeError,
   defaultAgentSkillInstructions,
   defaultAgentStageSkillMappings,
+  detectTargetCapabilities,
+  gitignoreEntries,
+  loadMorpheusConfig,
+  setupGeneratedFileContents,
+  setupSecretFileTemplate,
 } from "@morpheus/runtime";
 import type {
   AgentReadyContract,
@@ -46,11 +53,15 @@ import type {
   PreparationAgentResult,
   ImplementationAgentInput,
   MergeRequestClientService,
+  MorpheusConfig,
   ProcessResult,
   ProcessRunnerService,
   ReviewAgentInput,
   ImplementationAgentResult,
   ReviewAgentResult,
+  SetupEnvironmentService,
+  SetupPlanningInput,
+  SetupPlan,
   TrackedIssue,
   IssueTrackerService,
   OperatorHealthCheck,
@@ -68,6 +79,113 @@ export interface AdapterInfo {
 
 export const adapterInfo: AdapterInfo = {
   name: "MorpheusAdapters",
+};
+
+const setupRunText = (
+  cwd: string,
+  command: string,
+  args: readonly string[],
+): string | undefined => {
+  try {
+    return execFileSync(command, [...args], {
+      cwd,
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "ignore"],
+    }).trim();
+  } catch {
+    return undefined;
+  }
+};
+
+const setupExistingFiles = (target: string, config?: MorpheusConfig): readonly string[] => {
+  const paths = [
+    "morpheus.config.json",
+    ".morpheus/prompts/prepare.md",
+    ".morpheus/prompts/implement.md",
+    ".morpheus/prompts/review.md",
+    ".morpheus/container/Dockerfile",
+    ".morpheus/container/README.md",
+    ".morpheus/secrets/agent.env",
+    ".morpheus/secrets/agent.env.example",
+    ".gitignore",
+    ...(config === undefined
+      ? []
+      : [config.agentRunner.auth.envFile, config.agentRunner.container.profile]),
+  ];
+
+  return [...new Set(paths)].filter((path) =>
+    existsSync(isAbsolute(path) ? path : join(target, path)),
+  );
+};
+
+const setupAuthEnvKeys = (target: string, path: string): readonly string[] => {
+  const fullPath = isAbsolute(path) ? path : join(target, path);
+  if (!existsSync(fullPath)) {
+    return [];
+  }
+
+  return readFileSync(fullPath, "utf8")
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter((line) => line.length > 0 && !line.startsWith("#") && line.includes("="))
+    .flatMap((line) => {
+      const separator = line.indexOf("=");
+      const key = line.slice(0, separator).trim();
+      const value = line.slice(separator + 1).trim();
+      return key.length > 0 && value.length > 0 ? [key] : [];
+    })
+    .filter((key) => key.length > 0);
+};
+
+const setupVerificationCommands = (target: string): readonly string[] => {
+  const packageJsonPath = join(target, "package.json");
+  if (!existsSync(packageJsonPath)) {
+    return [];
+  }
+
+  try {
+    const packageJson = JSON.parse(readFileSync(packageJsonPath, "utf8")) as {
+      readonly scripts?: Record<string, string>;
+      readonly packageManager?: string;
+    };
+    const runner = packageJson.packageManager?.startsWith("pnpm@") ? "pnpm" : "npm run";
+    return ["test", "typecheck"].flatMap((script) =>
+      packageJson.scripts?.[script] === undefined ? [] : [`${runner} ${script}`],
+    );
+  } catch {
+    return [];
+  }
+};
+
+const setupGitlabProject = (target: string): string | undefined => {
+  const glabProject = setupRunText(target, "glab", [
+    "repo",
+    "view",
+    "--json",
+    "fullPath",
+    "-q",
+    ".fullPath",
+  ]);
+  if (glabProject !== undefined && glabProject.length > 0) {
+    return glabProject;
+  }
+
+  const remote = setupRunText(target, "git", ["remote", "get-url", "origin"]);
+  const match = remote?.match(/[:/]([^/:]+(?:\/[^/]+)+?)(?:\.git)?$/);
+  return match?.[1];
+};
+
+const setupDefaultBranch = (target: string): string | undefined => {
+  const symbolic = setupRunText(target, "git", [
+    "symbolic-ref",
+    "--short",
+    "refs/remotes/origin/HEAD",
+  ]);
+  if (symbolic?.startsWith("origin/")) {
+    return symbolic.slice("origin/".length);
+  }
+
+  return setupRunText(target, "git", ["branch", "--show-current"]) || undefined;
 };
 
 type NodeProcessRunnerOptions = {
@@ -96,6 +214,10 @@ type GlabMergeRequestClientOptions = {
 };
 
 type GlabIssueSourceOptions = {
+  readonly processRunner: ProcessRunnerService;
+};
+
+type NodeSetupEnvironmentOptions = {
   readonly processRunner: ProcessRunnerService;
 };
 
@@ -1573,6 +1695,181 @@ export const operatorHealthLayer = (
     Effect.map(ProcessRunner, (processRunner) =>
       createOperatorHealth({ processRunner, ...options }),
     ),
+  );
+
+const patchSetupGitignore = (target: string): void => {
+  const gitignorePath = join(target, ".gitignore");
+  const gitignore = existsSync(gitignorePath) ? readFileSync(gitignorePath, "utf8") : "";
+  const lines = gitignore.split(/\r?\n/).filter((line) => line.length > 0);
+  const missingEntries = gitignoreEntries.filter((entry) => !lines.includes(entry));
+
+  if (missingEntries.length === 0) {
+    return;
+  }
+
+  const prefix = gitignore.length > 0 && !gitignore.endsWith("\n") ? "\n" : "";
+  writeFileSync(gitignorePath, `${gitignore}${prefix}${missingEntries.join("\n")}\n`);
+};
+
+export const detectMorpheusSetupInput = (
+  options: {
+    readonly targetPath?: string;
+    readonly currentWorkingDirectory?: string;
+    readonly doctor?: NonNullable<SetupPlanningInput["detected"]>["doctor"];
+  } = {},
+): SetupPlanningInput => {
+  const currentWorkingDirectory = options.currentWorkingDirectory ?? process.cwd();
+  const target = resolve(currentWorkingDirectory, options.targetPath ?? ".");
+  const targetExists = existsSync(target);
+  const targetDirectory = targetExists && statSync(target).isDirectory();
+  const isGitWorktree =
+    targetDirectory && setupRunText(target, "git", ["rev-parse", "--is-inside-work-tree"]) === "true";
+  const configResult = loadMorpheusConfig({ configPath: join(target, "morpheus.config.json") });
+  const config = configResult.status === "loaded" ? configResult.config : undefined;
+  const authEnvFile = config?.agentRunner.auth.envFile ?? ".morpheus/secrets/agent.env";
+
+  return {
+    targetPath: target,
+    currentWorkingDirectory,
+    detected: {
+      targetPath: {
+        exists: targetExists,
+        isDirectory: targetDirectory,
+        isReadable: targetDirectory,
+        isGitWorktree,
+      },
+      gitlabProject: isGitWorktree ? setupGitlabProject(target) : undefined,
+      defaultBranch: isGitWorktree ? setupDefaultBranch(target) : undefined,
+      capabilities: targetDirectory ? detectTargetCapabilities(target) : [],
+      dockerAvailable: targetDirectory && setupRunText(target, "docker", ["info"]) !== undefined,
+      verificationCommands: targetDirectory ? setupVerificationCommands(target) : [],
+      doctor: options.doctor,
+    },
+    existing: {
+      config,
+      configError: configResult.status === "error" ? configResult.error : undefined,
+      files: targetDirectory ? setupExistingFiles(target, config) : [],
+      authEnvKeys: targetDirectory ? setupAuthEnvKeys(target, authEnvFile) : [],
+    },
+  };
+};
+
+export const applyMorpheusSetupPlan = (plan: SetupPlan): void => {
+  if (plan.configMutation.action === "blocked") {
+    throw new Error("Setup plan is blocked by invalid input.");
+  }
+
+  if (!plan.configMutation.apply) {
+    return;
+  }
+
+  const target = plan.target.resolvedPath;
+  const config = plan.configMutation.nextConfig;
+  mkdirSync(target, { recursive: true });
+
+  for (const mutation of plan.fileMutations) {
+    if (!mutation.apply || mutation.action === "skip" || mutation.action === "refuse") {
+      continue;
+    }
+
+    if (mutation.path === "morpheus.config.json") {
+      mkdirSync(dirname(join(target, mutation.path)), { recursive: true });
+      writeFileSync(join(target, mutation.path), `${JSON.stringify(config, null, 2)}\n`);
+      continue;
+    }
+
+    if (mutation.path === ".gitignore") {
+      patchSetupGitignore(target);
+      continue;
+    }
+
+    if (mutation.path === config.agentRunner.auth.envFile) {
+      const fullPath = isAbsolute(mutation.path) ? mutation.path : join(target, mutation.path);
+      mkdirSync(dirname(fullPath), { recursive: true });
+      writeFileSync(fullPath, setupSecretFileTemplate(config.agentRunner.auth.requiredKeys), {
+        flag: "wx",
+      });
+      continue;
+    }
+
+    const contents = setupGeneratedFileContents(target, mutation.path, config);
+    if (contents !== undefined) {
+      const fullPath = join(target, mutation.path);
+      mkdirSync(dirname(fullPath), { recursive: true });
+      writeFileSync(fullPath, contents);
+    }
+  }
+
+  const validation = loadMorpheusConfig({ configPath: join(target, "morpheus.config.json") });
+  if (validation.status === "error") {
+    throw new Error(`${validation.error.kind}: ${validation.error.path}`);
+  }
+};
+
+const createNodeSetupEnvironment = ({
+  processRunner,
+}: NodeSetupEnvironmentOptions): SetupEnvironmentService => ({
+  detect: (options) =>
+    Effect.try({
+      try: () => detectMorpheusSetupInput(options),
+      catch: (error) =>
+        new SetupEnvironmentError({
+          operation: "setup.detect",
+          message: errorMessage(error),
+        }),
+    }),
+  apply: (plan) =>
+    Effect.try({
+      try: () => applyMorpheusSetupPlan(plan),
+      catch: (error) =>
+        new SetupEnvironmentError({
+          operation: "setup.apply",
+          message: errorMessage(error),
+        }),
+    }),
+  buildContainer: (plan) =>
+    Effect.gen(function* () {
+      if (plan.configMutation.action === "blocked") {
+        return yield* new SetupEnvironmentError({
+          operation: "setup.containerBuild",
+          message: "Setup plan is blocked by invalid input.",
+        });
+      }
+
+      const config = plan.configMutation.nextConfig;
+      const args = [
+        "build",
+        "-f",
+        config.agentRunner.container.profile,
+        "-t",
+        config.agentRunner.container.image,
+        ".",
+      ];
+      const result = yield* processRunner.run("docker", args).pipe(
+        Effect.mapError(
+          (error) =>
+            new SetupEnvironmentError({
+              operation: "setup.containerBuild",
+              message: error.message,
+            }),
+        ),
+      );
+
+      if (result.exitCode !== 0) {
+        return yield* new SetupEnvironmentError({
+          operation: "setup.containerBuild",
+          message: result.stderr.length > 0 ? result.stderr : `docker exited ${result.exitCode}`,
+        });
+      }
+
+      return `Built container image ${config.agentRunner.container.image}`;
+    }),
+});
+
+export const nodeSetupEnvironmentLayer = (): Layer.Layer<SetupEnvironment, never, ProcessRunner> =>
+  Layer.effect(
+    SetupEnvironment,
+    Effect.map(ProcessRunner, (processRunner) => createNodeSetupEnvironment({ processRunner })),
   );
 
 export const createBeadsIssueTracker = ({
