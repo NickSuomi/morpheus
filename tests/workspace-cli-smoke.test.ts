@@ -1,5 +1,5 @@
 import { beforeAll, describe, expect, it } from "vitest";
-import { execFileSync } from "node:child_process";
+import { execFileSync, spawnSync } from "node:child_process";
 import {
   chmodSync,
   existsSync,
@@ -14,6 +14,17 @@ import { join } from "node:path";
 
 const runPnpm = (args: readonly string[], env: Record<string, string> = {}) =>
   execFileSync("pnpm", args, {
+    cwd: process.cwd(),
+    env: {
+      ...process.env,
+      ...env,
+    },
+    encoding: "utf8",
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+
+const runPnpmFailure = (args: readonly string[], env: Record<string, string> = {}) =>
+  spawnSync("pnpm", args, {
     cwd: process.cwd(),
     env: {
       ...process.env,
@@ -377,6 +388,73 @@ describe("morpheus cli", () => {
       expect(output).toContain("Morpheus daemon tick");
       expect(output).toContain("selected: preparation=0 implementation=0 review=0");
       expect(output).toContain("work: None");
+    } finally {
+      rmSync(dir, { force: true, recursive: true });
+    }
+  });
+
+  it("fails prepare command before Beads mutation when Docker-compatible runtime is unavailable", () => {
+    const dir = mkdtempSync(join(tmpdir(), "morpheus-cli-prepare-docker-"));
+    try {
+      const binDir = join(dir, "bin");
+      mkdirSync(binDir);
+      const dockerPath = join(binDir, "docker");
+      writeFileSync(
+        dockerPath,
+        "#!/bin/sh\nprintf 'Cannot connect to the Docker daemon\\n' >&2\nexit 1\n",
+      );
+      chmodSync(dockerPath, 0o755);
+      mkdirSync(join(dir, ".morpheus", "secrets"), { recursive: true });
+      writeFileSync(join(dir, ".morpheus", "secrets", "agent.env"), "OPENAI_API_KEY=test\n");
+
+      const configPath = join(dir, "morpheus.config.json");
+      writeFileSync(
+        configPath,
+        JSON.stringify(
+          {
+            targetRepo: ".",
+            issueTracker: { kind: "beads" },
+            gitlab: {
+              project: "group/project",
+              readyLabel: "agent:ready",
+              targetBranch: "main",
+            },
+            daemon: { pollIntervalSeconds: 30 },
+            mergeRequests: { kind: "gitlab-glab" },
+            agentRunner: validAgentRunnerConfig,
+            ledger: { path: join(dir, ".morpheus", "ledger.sqlite") },
+            lanes: {
+              preparation: { concurrency: 1 },
+              implementation: { concurrency: 1 },
+              review: { concurrency: 1 },
+            },
+            verification: { commands: [] },
+            retention: {
+              completedIntermediate: {
+                keepDays: 14,
+                keepLast: 100,
+              },
+              failed: "manual",
+              reviewCandidate: "until-mr-closed-or-manual",
+              active: "never",
+            },
+          },
+          null,
+          2,
+        ),
+      );
+
+      const result = runPnpmFailure(
+        ["--filter", "@morpheus/cli", "morpheus", "prepare", "morph-runtime", "--config", configPath],
+        { PATH: `${binDir}:${process.env.PATH ?? ""}` },
+      );
+
+      expect(result.status).not.toBe(0);
+      expect(result.stdout).toContain("Failed morph-runtime");
+      expect(result.stdout).toContain("failureKind: operator_access");
+      expect(result.stdout).toContain("Docker-compatible runtime unavailable");
+      expect(result.stdout).toContain("Docker Desktop, OrbStack, Colima, or remote Docker context");
+      expect(result.stderr).not.toContain("bd");
     } finally {
       rmSync(dir, { force: true, recursive: true });
     }

@@ -2,10 +2,11 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { deriveIssueState, deriveLane, type AgentReadyContract } from "@morpheus/core";
-import { Effect, Layer } from "effect";
+import { Effect, Either, Layer } from "effect";
 import { describe, expect, it } from "vitest";
 import {
   AgentRunner,
+  AgentRunnerError,
   IssueTracker,
   MergeRequestClient,
   reviewIssue,
@@ -48,10 +49,15 @@ const trackedIssue = (labels: readonly string[]): TrackedIssue => {
 
 const fakeIssueTracker = () => {
   let labels = ["agent:running"];
+  const calls: string[] = [];
   const service: IssueTrackerService = {
     listRunnableIssues: () => Effect.succeed([trackedIssue(labels)]),
-    getIssue: () => Effect.succeed(trackedIssue(labels)),
+    getIssue: () => {
+      calls.push("getIssue");
+      return Effect.succeed(trackedIssue(labels));
+    },
     applyAgentState: (issueId, transitionPlan) => {
+      calls.push(`apply:${transitionPlan.status}`);
       if (transitionPlan.status !== "planned") {
         return Effect.succeed({
           status: "rejected" as const,
@@ -81,6 +87,7 @@ const fakeIssueTracker = () => {
   };
 
   return {
+    calls,
     get labels() {
       return labels;
     },
@@ -240,9 +247,15 @@ const fakeMergeRequests = () => {
 
 const fakeAgentRunner = (scenario: "passed" | "blocked" | "failed" | "malformed") => {
   const inputs: ReviewAgentInput[] = [];
+  const calls: string[] = [];
   const service: AgentRunnerService = {
+    checkAccess: () => {
+      calls.push("checkAccess");
+      return Effect.void;
+    },
     prepareIssue: () => Effect.die("not used"),
     reviewIssue: (input) => {
+      calls.push("reviewIssue");
       inputs.push(input);
       if (scenario === "malformed") {
         return Effect.succeed({
@@ -280,9 +293,29 @@ const fakeAgentRunner = (scenario: "passed" | "blocked" | "failed" | "malformed"
     },
   };
   return {
+    calls,
     inputs,
     layer: Layer.succeed(AgentRunner, service),
   };
+};
+
+const failingAccessAgentRunner = () => {
+  const calls: string[] = [];
+  const service: AgentRunnerService = {
+    checkAccess: () => {
+      calls.push("checkAccess");
+      return Effect.fail(
+        new AgentRunnerError({
+          operation: "sandcastle.docker",
+          failureKind: "operator_access",
+          message: "Docker-compatible runtime unavailable: Cannot connect to the Docker daemon",
+        }),
+      );
+    },
+    prepareIssue: () => Effect.die("not used"),
+    reviewIssue: () => Effect.die("review should not run"),
+  };
+  return { calls, layer: Layer.succeed(AgentRunner, service) };
 };
 
 const runReview = async (scenario: "passed" | "blocked" | "failed" | "malformed") =>
@@ -335,6 +368,47 @@ describe("reviewIssue", () => {
       permissions: "read-only",
     });
     expect(workspace.calls).toEqual(["review:morph-wv6:run_review"]);
+  });
+
+  it("fails Docker-compatible runtime preflight before review lane mutation", async () => {
+    await withImplementationArtifact(async (artifactPath) => {
+      const tracker = fakeIssueTracker();
+      const ledger = fakeRunLedger(artifactPath);
+      const mergeRequests = fakeMergeRequests();
+      const runner = failingAccessAgentRunner();
+      const workspace = fakeWorkspaceRuntime();
+
+      const result = await Effect.runPromise(
+        Effect.either(
+          reviewIssue("morph-wv6").pipe(
+            Effect.provide(
+              Layer.mergeAll(
+                tracker.layer,
+                ledger.layer,
+                mergeRequests.layer,
+                runner.layer,
+                workspace.layer,
+              ),
+            ),
+          ),
+        ),
+      );
+
+      expect(Either.isRight(result)).toBe(true);
+      if (Either.isRight(result)) {
+        expect(result.right).toMatchObject({
+          status: "failed",
+          failureKind: "operator_access",
+          message: expect.stringContaining("Docker-compatible runtime unavailable"),
+        });
+      }
+      expect(tracker.labels).toEqual(["agent:running"]);
+      expect(tracker.calls).toEqual([]);
+      expect(ledger.events).toEqual([]);
+      expect(mergeRequests.descriptions).toEqual([]);
+      expect(workspace.calls).toEqual([]);
+      expect(runner.calls).toEqual(["checkAccess"]);
+    });
   });
 
   it("transitions blocked review to agent:blocked with ledger evidence", async () => {

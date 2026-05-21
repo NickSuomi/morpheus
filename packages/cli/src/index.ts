@@ -211,7 +211,9 @@ const prepareLayerFromConfig = (
         runsDirectory: resolve(config.configDirectory, ".morpheus", "runs"),
       }),
       issueTrackerLayer,
-      sandcastleAgentRunnerLayer(agentRunnerOptionsFromConfig(config)),
+      sandcastleAgentRunnerLayer(agentRunnerOptionsFromConfig(config)).pipe(
+        Layer.provide(processRunnerLayer),
+      ),
     );
   });
 
@@ -244,7 +246,9 @@ const implementationLayerFromConfig = (
       beadsIssueTrackerLayer.pipe(Layer.provide(processRunnerLayer)),
       gitWorkspaceRuntimeLayer.pipe(Layer.provide(processRunnerLayer)),
       glabMergeRequestClientLayer.pipe(Layer.provide(processRunnerLayer)),
-      sandcastleAgentRunnerLayer(agentRunnerOptionsFromConfig(config)),
+      sandcastleAgentRunnerLayer(agentRunnerOptionsFromConfig(config)).pipe(
+        Layer.provide(processRunnerLayer),
+      ),
     );
   });
 
@@ -283,7 +287,9 @@ const reviewLayerFromConfig = (
       beadsIssueTrackerLayer.pipe(Layer.provide(processRunnerLayer)),
       gitWorkspaceRuntimeLayer.pipe(Layer.provide(processRunnerLayer)),
       glabMergeRequestClientLayer.pipe(Layer.provide(processRunnerLayer)),
-      sandcastleAgentRunnerLayer(agentRunnerOptionsFromConfig(config)),
+      sandcastleAgentRunnerLayer(agentRunnerOptionsFromConfig(config)).pipe(
+        Layer.provide(processRunnerLayer),
+      ),
     );
   });
 
@@ -326,7 +332,9 @@ const daemonLayerFromConfig = (
       glabIssueSourceLayer.pipe(Layer.provide(processRunnerLayer)),
       gitWorkspaceRuntimeLayer.pipe(Layer.provide(processRunnerLayer)),
       glabMergeRequestClientLayer.pipe(Layer.provide(processRunnerLayer)),
-      sandcastleAgentRunnerLayer(agentRunnerOptionsFromConfig(config)),
+      sandcastleAgentRunnerLayer(agentRunnerOptionsFromConfig(config)).pipe(
+        Layer.provide(processRunnerLayer),
+      ),
     );
   });
 
@@ -490,21 +498,30 @@ const sync = Command.make("sync", { configPath }, ({ configPath }) =>
   }).pipe(Effect.flatMap((output) => Console.log(output))),
 ).pipe(Command.withDescription("Import ready GitLab issues into Beads"));
 
+const logWorkflowResult = (output: string): Effect.Effect<void, Error> =>
+  Console.log(output).pipe(
+    Effect.flatMap(() =>
+      output.startsWith("Failed ") || output.startsWith("State rejected ")
+        ? Effect.fail(new Error(output))
+        : Effect.void,
+    ),
+  );
+
 const prepare = Command.make("prepare", { issueId, configPath }, ({ issueId, configPath }) =>
   providePreparation(configPath, prepareIssueForCli(issueId)).pipe(
-    Effect.flatMap((output) => Console.log(output)),
+    Effect.flatMap(logWorkflowResult),
   ),
 ).pipe(Command.withDescription("Prepare one Beads issue"));
 
 const implement = Command.make("implement", { issueId, configPath }, ({ issueId, configPath }) =>
   provideImplementation(configPath, startImplementationForCli(issueId)).pipe(
-    Effect.flatMap((output) => Console.log(output)),
+    Effect.flatMap(logWorkflowResult),
   ),
 ).pipe(Command.withDescription("Create workspace branch and Draft MR for one prepared issue"));
 
 const review = Command.make("review", { issueId, configPath }, ({ issueId, configPath }) =>
   provideReview(configPath, reviewIssueForCli(issueId)).pipe(
-    Effect.flatMap((output) => Console.log(output)),
+    Effect.flatMap(logWorkflowResult),
   ),
 ).pipe(Command.withDescription("Run read-only review for one running issue"));
 

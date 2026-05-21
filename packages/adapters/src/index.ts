@@ -773,6 +773,7 @@ export type SandcastleAgentRunnerOptions = {
   readonly cwd: string;
   readonly promptPaths?: Partial<Record<SandcastlePhase, string>>;
   readonly logDirectory: string;
+  readonly processRunner?: ProcessRunnerService;
   readonly agentConfig?: ContainerAgentConfig;
   readonly authEnvFile?: string;
   readonly authRequiredKeys?: readonly string[];
@@ -1138,6 +1139,34 @@ const authRequiredKeysForOptions = (
   options: Pick<SandcastleAgentRunnerOptions, "authRequiredKeys">,
 ): readonly string[] => options.authRequiredKeys ?? defaultAuthRequiredKeys(agentConfig);
 
+const checkDockerCompatibleRuntime = (
+  processRunner: ProcessRunnerService,
+): Effect.Effect<void, AgentRunnerError> =>
+  processRunner.run("docker", ["info"]).pipe(
+    Effect.mapError(
+      (error) =>
+        new AgentRunnerError({
+          operation: "sandcastle.docker",
+          failureKind: "operator_access",
+          message: `Docker-compatible runtime unavailable: ${error.message}. Start Docker Desktop, OrbStack, Colima, or remote Docker context.`,
+        }),
+    ),
+    Effect.flatMap((result) => {
+      if (result.exitCode === 0) {
+        return Effect.void;
+      }
+
+      const detail = result.stderr || `docker info exited ${result.exitCode}`;
+      return Effect.fail(
+        new AgentRunnerError({
+          operation: "sandcastle.docker",
+          failureKind: "operator_access",
+          message: `Docker-compatible runtime unavailable: ${detail}. Start Docker Desktop, OrbStack, Colima, or remote Docker context.`,
+        }),
+      );
+    }),
+  );
+
 const runSandcastlePhase = (
   options: SandcastleAgentRunnerOptions,
   input: SandcastlePhaseInput,
@@ -1215,21 +1244,27 @@ export const createSandcastleAgentRunner = (
   options: SandcastleAgentRunnerOptions,
 ): AgentRunnerService => ({
   checkAccess: () =>
-    Effect.try({
-      try: () => {
-        const agentConfig = options.agentConfig ?? {
-          provider: "codex" as const,
-          model: "gpt-5.4-nano",
-          effort: "xhigh" as const,
-        };
-        readAuthEnv(options.cwd, authRequiredKeysForOptions(agentConfig, options), options.authEnvFile);
-      },
-      catch: (error) =>
-        new AgentRunnerError({
-          operation: "sandcastle.auth",
-          failureKind: "operator_access",
-          message: errorMessage(error),
-        }),
+    Effect.gen(function* () {
+      yield* Effect.try({
+        try: () => {
+          const agentConfig = options.agentConfig ?? {
+            provider: "codex" as const,
+            model: "gpt-5.4-nano",
+            effort: "xhigh" as const,
+          };
+          readAuthEnv(options.cwd, authRequiredKeysForOptions(agentConfig, options), options.authEnvFile);
+        },
+        catch: (error) =>
+          new AgentRunnerError({
+            operation: "sandcastle.auth",
+            failureKind: "operator_access",
+            message: errorMessage(error),
+          }),
+      });
+
+      if (options.processRunner !== undefined) {
+        yield* checkDockerCompatibleRuntime(options.processRunner);
+      }
     }),
   prepareIssue: ({ issue }) =>
     runSandcastlePhase(options, { phase: "prepare", issue }) as Effect.Effect<
@@ -1242,7 +1277,13 @@ export const createSandcastleAgentRunner = (
 
 export const sandcastleAgentRunnerLayer = (
   options: SandcastleAgentRunnerOptions,
-): Layer.Layer<AgentRunner> => Layer.succeed(AgentRunner, createSandcastleAgentRunner(options));
+): Layer.Layer<AgentRunner, never, ProcessRunner> =>
+  Layer.effect(
+    AgentRunner,
+    Effect.map(ProcessRunner, (processRunner) =>
+      createSandcastleAgentRunner({ ...options, processRunner }),
+    ),
+  );
 
 const checkCommand = (
   processRunner: ProcessRunnerService,
@@ -1281,7 +1322,10 @@ const checkCommand = (
   );
 
 const dockerOperatorAction = (detail: string): string =>
-  `${detail}. Start Docker Desktop or Docker daemon, then rerun morpheus doctor.`;
+  `${detail}. Start a Docker-compatible runtime such as Docker Desktop, OrbStack, Colima, or a remote Docker context, then rerun morpheus doctor.`;
+
+const dockerCompatibleRuntimeOkDetail =
+  "Docker-compatible runtime reachable via docker info (Docker Desktop, OrbStack, Colima, or remote Docker context)";
 
 const checkAgentAuth = (options: OperatorHealthOptions): OperatorHealthCheck => {
   if (options.authEnvFile === undefined || options.cwd === undefined) {
@@ -1323,7 +1367,7 @@ export const createOperatorHealth = ({
         "docker",
         "docker",
         ["info"],
-        "docker reachable",
+        dockerCompatibleRuntimeOkDetail,
         dockerOperatorAction,
       ),
       checkCommand(
