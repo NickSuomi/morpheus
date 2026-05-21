@@ -3280,8 +3280,14 @@ const ContainerMountSchema = Schema.Struct({
 });
 
 const SkillMappingSchema = Schema.Struct({
-  name: Schema.String,
-  path: Schema.String,
+  name: Schema.NonEmptyString,
+  path: Schema.NonEmptyString,
+});
+
+const StageSkillMappingSchema = Schema.Struct({
+  prepare: Schema.NonEmptyArray(Schema.NonEmptyString),
+  implement: Schema.NonEmptyArray(Schema.NonEmptyString),
+  review: Schema.NonEmptyArray(Schema.NonEmptyString),
 });
 
 const ToolchainProbeSchema = Schema.Struct({
@@ -3328,6 +3334,7 @@ export const MorpheusConfigSchema = Schema.Struct({
     skills: Schema.Struct({
       directory: Schema.String,
       mappings: Schema.Array(SkillMappingSchema),
+      stageMappings: StageSkillMappingSchema,
     }),
   }),
   ledger: Schema.Struct({
@@ -3466,10 +3473,23 @@ export const loadMorpheusConfig = (options: ConfigLoadOptions = {}): ConfigLoadR
   }
 
   try {
+    const config = Schema.decodeUnknownSync(MorpheusConfigSchema)(parsed);
+    const skillMappingError = validateSkillStageMappings(config);
+    if (skillMappingError !== undefined) {
+      return {
+        status: "error",
+        error: {
+          kind: "schema_validation",
+          path,
+          message: skillMappingError,
+        },
+      };
+    }
+
     return {
       status: "loaded",
       path,
-      config: Schema.decodeUnknownSync(MorpheusConfigSchema)(parsed),
+      config,
     };
   } catch (error) {
     return {
@@ -3481,6 +3501,20 @@ export const loadMorpheusConfig = (options: ConfigLoadOptions = {}): ConfigLoadR
       },
     };
   }
+};
+
+const validateSkillStageMappings = (config: MorpheusConfig): string | undefined => {
+  const copiedSkillNames = new Set(config.agentRunner.skills.mappings.map((skill) => skill.name));
+  const missing = Object.entries(config.agentRunner.skills.stageMappings)
+    .flatMap(([stage, names]) =>
+      names
+        .filter((name) => !copiedSkillNames.has(name))
+        .map((name) => `${stage}:${name}`),
+    );
+
+  return missing.length === 0
+    ? undefined
+    : `stage skill mappings reference unknown copied skills: ${missing.join(", ")}`;
 };
 
 const defaultPromptPaths = {
@@ -3505,6 +3539,17 @@ const bundledAgentSkillMappings = bundledAgentSkills.map((name) => ({
   name,
   path: `${defaultSkillsDirectory}/${name}/SKILL.md`,
 }));
+
+export const defaultAgentStageSkillMappings = {
+  prepare: [
+    "matt-pocock-to-prd",
+    "matt-pocock-grill-me",
+    "matt-pocock-grill-with-docs",
+    "matt-pocock-to-issues",
+  ],
+  implement: ["matt-pocock-caveman", "matt-pocock-tdd", "matt-pocock-diagnose"],
+  review: ["matt-pocock-caveman", "matt-pocock-diagnose"],
+} as const;
 
 const readBundledAgentSkill = (name: (typeof bundledAgentSkills)[number]): string =>
   readFileSync(new URL(`../bundled-skills/${name}/SKILL.md`, import.meta.url), "utf8");
@@ -3547,6 +3592,11 @@ const makeInitialConfig = (
     skills: {
       directory: defaultSkillsDirectory,
       mappings: bundledAgentSkillMappings,
+      stageMappings: {
+        prepare: [...defaultAgentStageSkillMappings.prepare],
+        implement: [...defaultAgentStageSkillMappings.implement],
+        review: [...defaultAgentStageSkillMappings.review],
+      },
     },
   },
   ledger: { path: ".morpheus/ledger.sqlite" },
@@ -3583,14 +3633,32 @@ export const defaultAgentSkillInstructions = [
   bundledAgentSkillPromptReferences,
 ].join("\n");
 
+const stageSkillReferences = (stage: keyof typeof defaultAgentStageSkillMappings): string =>
+  defaultAgentStageSkillMappings[stage]
+    .map((name) => `- ${name}: ${defaultSkillsDirectory}/${name}/SKILL.md`)
+    .join("\n");
+
+const stageSkillInstructions = (stage: keyof typeof defaultAgentStageSkillMappings): string =>
+  [
+    `## Required ${stage} Stage Skills`,
+    "",
+    "Before doing this stage, read and use these copied repo-local skills:",
+    "",
+    stageSkillReferences(stage),
+  ].join("\n");
+
 const starterPrompts = {
   prepare: [
     "# Morpheus Prepare Prompt",
     "",
     defaultAgentSkillInstructions,
     "",
+    stageSkillInstructions("prepare"),
+    "",
     "Read the issue, repo guidance, and relevant code before answering.",
+    "Use planning, grilling, and issue-slicing skills to clarify intent and split work if needed.",
     "Produce an Agent-Ready Contract with current behavior, desired behavior, key interfaces, acceptance criteria, out of scope, verification plan, blockers, HITL decisions, and risk level.",
+    "AFK-ready contract gate: blockedBy must be `None`, hitlDecisions must be `None`, acceptance criteria must be behavioral and testable, verification plan must be runnable or explicitly explainable, and scope must be clear enough for implementation without human clarification.",
     "If intent is unclear, return a blocked result instead of inventing requirements.",
     "",
   ].join("\n"),
@@ -3599,7 +3667,10 @@ const starterPrompts = {
     "",
     defaultAgentSkillInstructions,
     "",
+    stageSkillInstructions("implement"),
+    "",
     "Implement the prepared contract only.",
+    "Use caveman for concise communication, TDD for behavior-first implementation where practical, and diagnose before changing unclear code.",
     "Keep changes scoped, preserve user work, and follow repo guidance.",
     "Run the configured verification commands or explain why they could not run.",
     "Return concise evidence: changed behavior, files touched, verification, and remaining risk.",
@@ -3610,8 +3681,11 @@ const starterPrompts = {
     "",
     defaultAgentSkillInstructions,
     "",
+    stageSkillInstructions("review"),
+    "",
     "Review the implementation against the Agent-Ready Contract.",
-    "Stay read-only. Report correctness bugs, regressions, missing verification, and risk.",
+    "Stay read-only. Use concise review and diagnosis behavior. Report correctness bugs, regressions, missing verification, and risk.",
+    "Verify the implementation satisfies contract acceptance criteria, AFK gates, verification plan, out-of-scope boundaries, and evidence claims.",
     "Return a verdict with actionable findings and verification evidence.",
     "",
   ].join("\n"),

@@ -185,6 +185,7 @@ const agentLogDirectory = (configDirectory: string): string =>
 const agentRunnerOptionsFromConfig = (config: LoadedCliConfig) => ({
   cwd: config.targetRepo,
   promptPaths: config.promptPaths,
+  skills: config.agentRunner.skills,
   logDirectory: agentLogDirectory(config.configDirectory),
   agentConfig: config.agentRunner.agent,
   authEnvFile: config.agentRunner.auth.envFile,
@@ -524,9 +525,7 @@ const implement = Command.make("implement", { issueId, configPath }, ({ issueId,
 ).pipe(Command.withDescription("Create workspace branch and Draft MR for one prepared issue"));
 
 const review = Command.make("review", { issueId, configPath }, ({ issueId, configPath }) =>
-  provideReview(configPath, reviewIssueForCli(issueId)).pipe(
-    Effect.flatMap(logWorkflowResult),
-  ),
+  provideReview(configPath, reviewIssueForCli(issueId)).pipe(Effect.flatMap(logWorkflowResult)),
 ).pipe(Command.withDescription("Run read-only review for one running issue"));
 
 const once = Options.boolean("once");

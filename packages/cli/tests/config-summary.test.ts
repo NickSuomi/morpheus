@@ -44,7 +44,24 @@ describe("config summary", () => {
                 name: "caveman",
                 path: ".morpheus/skills/caveman/SKILL.md",
               },
+              {
+                name: "planner",
+                path: ".morpheus/skills/planner/SKILL.md",
+              },
+              {
+                name: "tdd",
+                path: ".morpheus/skills/tdd/SKILL.md",
+              },
+              {
+                name: "diagnose",
+                path: ".morpheus/skills/diagnose/SKILL.md",
+              },
             ],
+            stageMappings: {
+              prepare: ["planner"],
+              implement: ["caveman", "tdd"],
+              review: ["caveman", "diagnose"],
+            },
           },
         },
         ledger: { path: ".morpheus/ledger.sqlite" },
@@ -74,7 +91,12 @@ describe("config summary", () => {
     expect(output).toContain(
       "container: image=morpheus-agent:local profile=.morpheus/container/Dockerfile mounts=1 setupHooks=1",
     );
-    expect(output).toContain("skills: directory=.morpheus/skills mappings=1 names=caveman");
+    expect(output).toContain(
+      "skills: directory=.morpheus/skills mappings=4 names=caveman,planner,tdd,diagnose",
+    );
+    expect(output).toContain(
+      "stageSkills: prepare=planner implement=caveman,tdd review=caveman,diagnose",
+    );
     expect(output).not.toContain("Sandcastle");
     expect(output).not.toContain("sandcastle");
   });

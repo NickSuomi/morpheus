@@ -32,11 +32,14 @@ const trackedIssue = (): TrackedIssue => {
     title: "Add real Sandcastle agent runner adapter",
     labels,
     derivedState,
-    lane:
-      derivedState.status === "active"
-        ? deriveLane(derivedState.state)
-        : "none",
+    lane: derivedState.status === "active" ? deriveLane(derivedState.state) : "none",
   };
+};
+
+const stageSkillBlock = (prompt: string, phase: "prepare" | "implement" | "review"): string => {
+  const start = prompt.indexOf(`Required ${phase} stage skills:`);
+  const end = prompt.indexOf("Do not commit.", start);
+  return prompt.slice(start, end);
 };
 
 describe("SandcastleAgentRunner", () => {
@@ -116,7 +119,8 @@ describe("SandcastleAgentRunner", () => {
       createPreparationRun: () => Effect.die("createPreparationRun should not run"),
       createImplementationRun: () => Effect.die("createImplementationRun should not run"),
       createReviewRun: () => Effect.die("createReviewRun should not run"),
-      recordImplementationWorkspace: () => Effect.die("recordImplementationWorkspace should not run"),
+      recordImplementationWorkspace: () =>
+        Effect.die("recordImplementationWorkspace should not run"),
       recordMergeRequest: () => Effect.die("recordMergeRequest should not run"),
       finishRun: () => Effect.die("finishRun should not run"),
       writeRunArtifacts: () => Effect.die("writeRunArtifacts should not run"),
@@ -212,30 +216,18 @@ describe("SandcastleAgentRunner", () => {
           })}</morpheus_result>`,
           commits: [],
           branch: "agent/morph-bbp",
-          logFilePath: join(
-            dir,
-            ".morpheus",
-            "sandcastle-logs",
-            "morph-bbp-prepare.log",
-          ),
+          logFilePath: join(dir, ".morpheus", "sandcastle-logs", "morph-bbp-prepare.log"),
         };
       },
     });
 
-    const result = await Effect.runPromise(
-      runner.prepareIssue({ issue: trackedIssue() }),
-    );
+    const result = await Effect.runPromise(runner.prepareIssue({ issue: trackedIssue() }));
 
     expect(result.status).toBe("prepared");
     expect(result.transcript).toContain("<morpheus_result>");
     expect(result.artifact).toMatchObject({
       branch: "agent/morph-bbp",
-      logFilePath: join(
-        dir,
-        ".morpheus",
-        "sandcastle-logs",
-        "morph-bbp-prepare.log",
-      ),
+      logFilePath: join(dir, ".morpheus", "sandcastle-logs", "morph-bbp-prepare.log"),
     });
     expect(calls).toHaveLength(1);
     expect(calls[0]).toMatchObject({
@@ -243,12 +235,7 @@ describe("SandcastleAgentRunner", () => {
       name: "morpheus-prepare-morph-bbp",
       logging: {
         type: "file",
-        path: join(
-          dir,
-          ".morpheus",
-          "sandcastle-logs",
-          "morph-bbp-prepare.log",
-        ),
+        path: join(dir, ".morpheus", "sandcastle-logs", "morph-bbp-prepare.log"),
       },
       maxIterations: 1,
     });
@@ -256,7 +243,7 @@ describe("SandcastleAgentRunner", () => {
 
   it("uses prompt override files relative to the target repo", async () => {
     const dir = mkdtempSync(join(tmpdir(), "morpheus-sandcastle-"));
-    writeFileSync(join(dir, "prepare.md"), "custom prompt");
+    writeFileSync(join(dir, "prepare.md"), "custom prompt that cannot remove required gates");
     const calls: Array<{ prompt?: string }> = [];
     const runner = createSandcastleAgentRunner({
       cwd: dir,
@@ -290,16 +277,297 @@ describe("SandcastleAgentRunner", () => {
     await Effect.runPromise(runner.prepareIssue({ issue: trackedIssue() }));
 
     expect(calls).toHaveLength(1);
-    expect(calls[0]?.prompt).toContain(
-      "Return only JSON inside <morpheus_result>",
-    );
+    expect(calls[0]?.prompt).toContain("Return only JSON inside <morpheus_result>");
     expect(calls[0]?.prompt).toContain("Default Morpheus Agent Skills");
-    expect(calls[0]?.prompt).toContain(
-      ".morpheus/skills/matt-pocock-caveman/SKILL.md",
-    );
+    expect(calls[0]?.prompt).toContain(".morpheus/skills/matt-pocock-caveman/SKILL.md");
     expect(calls[0]?.prompt).not.toContain("/Users/");
     expect(calls[0]?.prompt).toContain("Additional instructions:");
-    expect(calls[0]?.prompt).toContain("custom prompt");
+    expect(calls[0]?.prompt).toContain("custom prompt that cannot remove required gates");
+    expect(calls[0]?.prompt?.indexOf("Required prepare stage skills:")).toBeLessThan(
+      calls[0]?.prompt?.indexOf("Additional instructions:") ?? -1,
+    );
+    expect(calls[0]?.prompt).toContain("AFK-ready contract gate");
+  });
+
+  it("composes stage-specific skill gates for prepare, implement, and review", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "morpheus-sandcastle-"));
+    const calls: Array<{ name?: string; prompt: string }> = [];
+    const runner = createSandcastleAgentRunner({
+      cwd: dir,
+      logDirectory: join(dir, ".morpheus", "sandcastle-logs"),
+      skills: {
+        directory: ".morpheus/skills",
+        mappings: [
+          {
+            name: "matt-pocock-caveman",
+            path: ".morpheus/skills/matt-pocock-caveman/SKILL.md",
+          },
+          {
+            name: "matt-pocock-to-prd",
+            path: ".morpheus/skills/matt-pocock-to-prd/SKILL.md",
+          },
+          {
+            name: "matt-pocock-grill-me",
+            path: ".morpheus/skills/matt-pocock-grill-me/SKILL.md",
+          },
+          {
+            name: "matt-pocock-grill-with-docs",
+            path: ".morpheus/skills/matt-pocock-grill-with-docs/SKILL.md",
+          },
+          {
+            name: "matt-pocock-to-issues",
+            path: ".morpheus/skills/matt-pocock-to-issues/SKILL.md",
+          },
+          {
+            name: "matt-pocock-tdd",
+            path: ".morpheus/skills/matt-pocock-tdd/SKILL.md",
+          },
+          {
+            name: "matt-pocock-diagnose",
+            path: ".morpheus/skills/matt-pocock-diagnose/SKILL.md",
+          },
+        ],
+        stageMappings: {
+          prepare: [
+            "matt-pocock-to-prd",
+            "matt-pocock-grill-me",
+            "matt-pocock-grill-with-docs",
+            "matt-pocock-to-issues",
+          ],
+          implement: ["matt-pocock-caveman", "matt-pocock-tdd", "matt-pocock-diagnose"],
+          review: ["matt-pocock-caveman", "matt-pocock-diagnose"],
+        },
+      },
+      agent: {
+        name: "fake",
+        env: {},
+        captureSessions: false,
+        buildPrintCommand: () => ({ command: "fake" }),
+        parseStreamLine: () => [],
+      },
+      sandbox: {
+        kind: "none",
+        exec: async () => ({ stdout: "", stderr: "", exitCode: 0 }),
+        close: async () => ({}),
+      } as never,
+      run: async (options) => {
+        calls.push({ name: options.name, prompt: options.prompt ?? "" });
+        const status =
+          options.name === "morpheus-implement-morph-bbp"
+            ? `{"status":"implemented","implementationEvidence":[{"summary":"Done","files":[]}],"verificationEvidence":[{"command":"pnpm check","status":"passed"}],"transcript":"","artifact":{}}`
+            : options.name === "morpheus-review-morph-bbp"
+              ? `{"status":"passed","findings":[],"transcript":"","artifact":{}}`
+              : `{"status":"blocked","reason":"x","transcript":"","artifact":{}}`;
+        return {
+          iterations: [],
+          stdout: `<morpheus_result>${status}</morpheus_result>`,
+          commits: [],
+          branch: "agent/morph-bbp",
+        };
+      },
+    });
+    const contract = {
+      category: "task" as const,
+      summary: "Wire prompts",
+      currentBehavior: "Prompts are generic",
+      desiredBehavior: "Prompts use stage skills",
+      keyInterfaces: ["AgentRunner"],
+      acceptanceCriteria: ["Stage skills are required"],
+      outOfScope: [],
+      verificationPlan: ["pnpm test"],
+      blockedBy: "None",
+      hitlDecisions: "None",
+      riskLevel: "medium" as const,
+    };
+
+    await Effect.runPromise(runner.prepareIssue({ issue: trackedIssue() }));
+    await Effect.runPromise(
+      runner.implementIssue?.({
+        issue: trackedIssue(),
+        contract,
+        workspace: {
+          workspacePath: "/workspace/morph-bbp",
+          branch: "agent/morph-bbp",
+          targetBranch: "main",
+          remote: "origin",
+        },
+        mergeRequest: { reference: "!42" },
+      }) ?? Effect.die("missing implementIssue"),
+    );
+    await Effect.runPromise(
+      runner.reviewIssue?.({
+        issue: trackedIssue(),
+        contract,
+        workspace: {
+          workspacePath: "/workspace/morph-bbp-review",
+          branch: "agent/morph-bbp",
+          permissions: "read-only",
+        },
+        mergeRequest: { reference: "!42" },
+        implementationEvidence: [{ summary: "Done", files: [] }],
+        verificationEvidence: [{ command: "pnpm test", status: "passed" }],
+      }) ?? Effect.die("missing reviewIssue"),
+    );
+
+    const preparePrompt = calls.find((call) => call.name === "morpheus-prepare-morph-bbp")?.prompt;
+    const implementPrompt = calls.find(
+      (call) => call.name === "morpheus-implement-morph-bbp",
+    )?.prompt;
+    const reviewPrompt = calls.find((call) => call.name === "morpheus-review-morph-bbp")?.prompt;
+
+    expect(preparePrompt).toContain("AFK-ready contract gate");
+    expect(stageSkillBlock(preparePrompt ?? "", "prepare")).toContain(
+      ".morpheus/skills/matt-pocock-to-prd/SKILL.md",
+    );
+    expect(stageSkillBlock(preparePrompt ?? "", "prepare")).toContain(
+      ".morpheus/skills/matt-pocock-grill-me/SKILL.md",
+    );
+    expect(stageSkillBlock(preparePrompt ?? "", "prepare")).toContain(
+      ".morpheus/skills/matt-pocock-to-issues/SKILL.md",
+    );
+    expect(stageSkillBlock(implementPrompt ?? "", "implement")).toContain(
+      ".morpheus/skills/matt-pocock-caveman/SKILL.md",
+    );
+    expect(stageSkillBlock(implementPrompt ?? "", "implement")).toContain(
+      ".morpheus/skills/matt-pocock-tdd/SKILL.md",
+    );
+    expect(stageSkillBlock(implementPrompt ?? "", "implement")).toContain(
+      ".morpheus/skills/matt-pocock-diagnose/SKILL.md",
+    );
+    expect(stageSkillBlock(reviewPrompt ?? "", "review")).toContain(
+      ".morpheus/skills/matt-pocock-caveman/SKILL.md",
+    );
+    expect(stageSkillBlock(reviewPrompt ?? "", "review")).toContain(
+      ".morpheus/skills/matt-pocock-diagnose/SKILL.md",
+    );
+    expect(reviewPrompt).toContain("Verify contract acceptance criteria");
+  });
+
+  it("fails when a stage skill is not mapped to a copied skill path", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "morpheus-sandcastle-"));
+    const runner = createSandcastleAgentRunner({
+      cwd: dir,
+      logDirectory: join(dir, ".morpheus", "sandcastle-logs"),
+      skills: {
+        directory: ".morpheus/skills",
+        mappings: [
+          {
+            name: "matt-pocock-caveman",
+            path: ".morpheus/skills/matt-pocock-caveman/SKILL.md",
+          },
+        ],
+        stageMappings: {
+          prepare: ["missing-skill"],
+          implement: ["matt-pocock-caveman"],
+          review: ["matt-pocock-caveman"],
+        },
+      },
+      agent: {
+        name: "fake",
+        env: {},
+        captureSessions: false,
+        buildPrintCommand: () => ({ command: "fake" }),
+        parseStreamLine: () => [],
+      },
+      sandbox: {
+        kind: "none",
+        exec: async () => ({ stdout: "", stderr: "", exitCode: 0 }),
+        close: async () => ({}),
+      } as never,
+      run: async () => {
+        throw new Error("run should not be called");
+      },
+    });
+
+    const result = await Effect.runPromiseExit(runner.prepareIssue({ issue: trackedIssue() }));
+
+    expect(result._tag).toBe("Failure");
+    expect(String(result)).toContain(
+      "Stage skill mapping references unknown copied skill: prepare:missing-skill",
+    );
+  });
+
+  it("fails when a stage has no required copied skills", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "morpheus-sandcastle-"));
+    const runner = createSandcastleAgentRunner({
+      cwd: dir,
+      logDirectory: join(dir, ".morpheus", "sandcastle-logs"),
+      skills: {
+        directory: ".morpheus/skills",
+        mappings: [
+          {
+            name: "matt-pocock-caveman",
+            path: ".morpheus/skills/matt-pocock-caveman/SKILL.md",
+          },
+        ],
+        stageMappings: {
+          prepare: [],
+          implement: ["matt-pocock-caveman"],
+          review: ["matt-pocock-caveman"],
+        },
+      },
+      agent: {
+        name: "fake",
+        env: {},
+        captureSessions: false,
+        buildPrintCommand: () => ({ command: "fake" }),
+        parseStreamLine: () => [],
+      },
+      sandbox: {
+        kind: "none",
+        exec: async () => ({ stdout: "", stderr: "", exitCode: 0 }),
+        close: async () => ({}),
+      } as never,
+      run: async () => {
+        throw new Error("run should not be called");
+      },
+    });
+
+    const result = await Effect.runPromiseExit(runner.prepareIssue({ issue: trackedIssue() }));
+
+    expect(result._tag).toBe("Failure");
+    expect(String(result)).toContain(
+      "Stage skill mapping must include at least one copied skill: prepare",
+    );
+  });
+
+  it("fails when a stage skill mapping has no copied skill path", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "morpheus-sandcastle-"));
+    const runner = createSandcastleAgentRunner({
+      cwd: dir,
+      logDirectory: join(dir, ".morpheus", "sandcastle-logs"),
+      skills: {
+        directory: ".morpheus/skills",
+        mappings: [{ name: "matt-pocock-caveman", path: "" }],
+        stageMappings: {
+          prepare: ["matt-pocock-caveman"],
+          implement: ["matt-pocock-caveman"],
+          review: ["matt-pocock-caveman"],
+        },
+      },
+      agent: {
+        name: "fake",
+        env: {},
+        captureSessions: false,
+        buildPrintCommand: () => ({ command: "fake" }),
+        parseStreamLine: () => [],
+      },
+      sandbox: {
+        kind: "none",
+        exec: async () => ({ stdout: "", stderr: "", exitCode: 0 }),
+        close: async () => ({}),
+      } as never,
+      run: async () => {
+        throw new Error("run should not be called");
+      },
+    });
+
+    const result = await Effect.runPromiseExit(runner.prepareIssue({ issue: trackedIssue() }));
+
+    expect(result._tag).toBe("Failure");
+    expect(String(result)).toContain(
+      "Stage skill mapping references copied skill without path: prepare:matt-pocock-caveman",
+    );
   });
 
   it("constructs Codex provider and Docker sandbox from configured auth and container settings", async () => {
