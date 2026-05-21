@@ -55,6 +55,44 @@ const runWithAuthHealth = <A, E>(
     ),
   );
 
+const runWithProbeHealth = <A, E>(
+  processRunnerLayer: Layer.Layer<ProcessRunner>,
+  program: Effect.Effect<A, E, OperatorHealth>,
+) =>
+  Effect.runPromise(
+    program.pipe(
+      Effect.provide(
+        operatorHealthLayer({
+          cwd: "/target",
+          containerImage: "morpheus-agent:local",
+          toolchainProbes: [
+            {
+              name: "java",
+              command: "java",
+              args: ["-version"],
+              action: "Install a JDK and rebuild the Morpheus container image.",
+              scope: "container",
+            },
+            {
+              name: "android-sdk",
+              command: "sh",
+              args: ["-lc", "test -n \"$ANDROID_HOME\""],
+              action: "Install Android SDK or set ANDROID_HOME for the container profile.",
+              scope: "container",
+            },
+            {
+              name: "xcode",
+              command: "xcodebuild",
+              args: ["-version"],
+              action: "Run Xcode setup on the macOS host.",
+              scope: "host",
+            },
+          ],
+        }).pipe(Layer.provide(processRunnerLayer)),
+      ),
+    ),
+  );
+
 describe("OperatorHealth", () => {
   it("checks read-only adapter health through process runner commands", async () => {
     const processRunner = fakeProcessRunner([ok(), failed("not logged in"), ok(), ok(), ok(), ok(), ok(), ok()]);
@@ -173,5 +211,78 @@ describe("OperatorHealth", () => {
       detail: expect.stringContaining("Agent auth env file missing required keys: OPENAI_API_KEY"),
     });
     expect(JSON.stringify(checks)).not.toContain("value");
+  });
+
+  it("reports configured toolchain probe failures with operator action", async () => {
+    const processRunner = fakeProcessRunner([
+      ok(),
+      ok(),
+      ok(),
+      ok(),
+      ok(),
+      ok(),
+      ok(),
+      ok(),
+      failed("java: command not found"),
+      failed("ANDROID_HOME is unset"),
+      failed("xcode-select: error"),
+    ]);
+
+    const checks = await runWithProbeHealth(
+      processRunner.layer,
+      Effect.gen(function* () {
+        const health = yield* OperatorHealth;
+        return yield* health.check();
+      }),
+    );
+
+    expect(checks).toContainEqual({
+      name: "toolchain",
+      status: "fail",
+      detail: "java missing: java: command not found. Install a JDK and rebuild the Morpheus container image.",
+    });
+    expect(checks).toContainEqual({
+      name: "toolchain",
+      status: "fail",
+      detail:
+        "android-sdk missing: ANDROID_HOME is unset. Install Android SDK or set ANDROID_HOME for the container profile.",
+    });
+    expect(checks).toContainEqual({
+      name: "toolchain",
+      status: "fail",
+      detail: "xcode missing: xcode-select: error. Run Xcode setup on the macOS host.",
+    });
+    expect(processRunner.calls.slice(-3)).toEqual([
+      {
+        command: "docker",
+        args: [
+          "run",
+          "--rm",
+          "-v",
+          "/target:/workspace",
+          "-w",
+          "/workspace",
+          "morpheus-agent:local",
+          "java",
+          "-version",
+        ],
+      },
+      {
+        command: "docker",
+        args: [
+          "run",
+          "--rm",
+          "-v",
+          "/target:/workspace",
+          "-w",
+          "/workspace",
+          "morpheus-agent:local",
+          "sh",
+          "-lc",
+          "test -n \"$ANDROID_HOME\"",
+        ],
+      },
+      { command: "xcodebuild", args: ["-version"] },
+    ]);
   });
 });

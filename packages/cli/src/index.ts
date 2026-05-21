@@ -55,6 +55,7 @@ type LoadedCliConfig = {
   readonly daemon: MorpheusConfig["daemon"];
   readonly lanes: MorpheusConfig["lanes"];
   readonly agentRunner: MorpheusConfig["agentRunner"];
+  readonly verification: MorpheusConfig["verification"];
   readonly promptPaths?: {
     readonly prepare?: string;
     readonly implement?: string;
@@ -88,6 +89,7 @@ const loadCliConfig = (pathOption: Option.Option<string>): LoadedCliConfig => {
     daemon: result.config.daemon,
     lanes: result.config.lanes,
     agentRunner: result.config.agentRunner,
+    verification: result.config.verification,
     promptPaths: result.config.prompts,
   };
 };
@@ -144,6 +146,8 @@ const operatorLayerFromConfig = (
         cwd: config.targetRepo,
         authEnvFile: config.agentRunner.auth.envFile,
         authRequiredKeys: config.agentRunner.auth.requiredKeys,
+        toolchainProbes: config.verification.toolchainProbes,
+        containerImage: config.agentRunner.container.image,
       }).pipe(Layer.provide(processRunnerLayer)),
     );
   });
