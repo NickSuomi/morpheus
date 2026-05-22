@@ -65,6 +65,7 @@ const runWithProbeHealth = <A, E>(
         operatorHealthLayer({
           cwd: "/target",
           containerImage: "morpheus-agent:local",
+          containerProfile: ".morpheus/container/Dockerfile",
           toolchainProbes: [
             {
               name: "java",
@@ -223,6 +224,7 @@ describe("OperatorHealth", () => {
       ok(),
       ok(),
       ok(),
+      ok(),
       failed("java: command not found"),
       failed("ANDROID_HOME is unset"),
       failed("xcode-select: error"),
@@ -282,6 +284,47 @@ describe("OperatorHealth", () => {
           "test -n \"$ANDROID_HOME\"",
         ],
       },
+      { command: "xcodebuild", args: ["-version"] },
+    ]);
+  });
+
+  it("reports one actionable failure and skips container probes when the configured image is missing", async () => {
+    const processRunner = fakeProcessRunner([
+      ok(),
+      ok(),
+      ok(),
+      ok(),
+      ok(),
+      ok(),
+      ok(),
+      ok(),
+      failed("No such image: morpheus-agent:local"),
+      failed("xcode-select: error"),
+    ]);
+
+    const checks = await runWithProbeHealth(
+      processRunner.layer,
+      Effect.gen(function* () {
+        const health = yield* OperatorHealth;
+        return yield* health.check();
+      }),
+    );
+
+    expect(checks).toContainEqual({
+      name: "containers",
+      status: "fail",
+      detail:
+        "Configured container image morpheus-agent:local is not available: No such image: morpheus-agent:local. Build it with: docker build -f .morpheus/container/Dockerfile -t morpheus-agent:local .",
+    });
+    expect(checks.filter((check) => check.name === "toolchain")).toEqual([
+      {
+        name: "toolchain",
+        status: "warn",
+        detail: "xcode missing: xcode-select: error. Run Xcode setup on the macOS host.",
+      },
+    ]);
+    expect(processRunner.calls.slice(-2)).toEqual([
+      { command: "docker", args: ["image", "inspect", "morpheus-agent:local"] },
       { command: "xcodebuild", args: ["-version"] },
     ]);
   });

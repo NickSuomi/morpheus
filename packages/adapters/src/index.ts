@@ -203,6 +203,7 @@ type OperatorHealthOptions = {
   readonly authRequiredKeys?: readonly string[];
   readonly toolchainProbes?: readonly ToolchainProbeConfig[];
   readonly containerImage?: string;
+  readonly containerProfile?: string;
 };
 
 type GitWorkspaceRuntimeOptions = {
@@ -1624,6 +1625,45 @@ const checkToolchainProbe = (
       }),
     );
 
+const checkContainerImage = (
+  processRunner: ProcessRunnerService,
+  options: Pick<OperatorHealthOptions, "containerImage" | "containerProfile">,
+): Effect.Effect<OperatorHealthCheck | undefined, never> => {
+  if (options.containerImage === undefined) {
+    return Effect.succeed(undefined);
+  }
+
+  return processRunner.run("docker", ["image", "inspect", options.containerImage]).pipe(
+    Effect.match({
+      onFailure: (error) => ({
+        name: "containers" as const,
+        status: "fail" as const,
+        detail: containerImageMissingDetail(options, error.message),
+      }),
+      onSuccess: (result) =>
+        result.exitCode === 0
+          ? undefined
+          : {
+              name: "containers" as const,
+              status: "fail" as const,
+              detail: containerImageMissingDetail(
+                options,
+                result.stderr || `docker image inspect exited ${result.exitCode}`,
+              ),
+            },
+    }),
+  );
+};
+
+const containerImageMissingDetail = (
+  options: Pick<OperatorHealthOptions, "containerImage" | "containerProfile">,
+  detail: string,
+): string => {
+  const image = options.containerImage ?? "configured container image";
+  const profile = options.containerProfile ?? ".morpheus/container/Dockerfile";
+  return `Configured container image ${image} is not available: ${detail}. Build it with: docker build -f ${profile} -t ${image} .`;
+};
+
 export const createOperatorHealth = ({
   processRunner,
   cwd,
@@ -1631,60 +1671,77 @@ export const createOperatorHealth = ({
   authRequiredKeys,
   toolchainProbes = [],
   containerImage,
+  containerProfile,
 }: OperatorHealthOptions): OperatorHealthService => ({
   check: () =>
-    Effect.all([
-      checkCommand(processRunner, "beads", "bd", ["list", "--limit", "1", "--json"], "bd readable"),
-      checkCommand(processRunner, "gitlab", "glab", ["auth", "status"], "glab authenticated"),
-      checkCommand(
-        processRunner,
-        "docker",
-        "docker",
-        ["info"],
-        dockerCompatibleRuntimeOkDetail,
-        dockerOperatorAction,
-      ),
-      checkCommand(
-        processRunner,
-        "workspace",
-        "git",
-        ["rev-parse", "--show-toplevel"],
-        "workspace readable",
-      ),
-      checkCommand(
-        processRunner,
-        "labels",
-        "bd",
-        ["list", "--label-pattern", "agent:*", "--limit", "1", "--json"],
-        "agent labels readable",
-      ),
-      checkCommand(
-        processRunner,
-        "daemon",
-        "git",
-        ["status", "--short"],
-        "daemon assumptions readable",
-      ),
-      checkCommand(
-        processRunner,
-        "containers",
-        "docker",
-        ["ps", "--format", "{{.ID}}"],
-        "containers readable",
-        dockerOperatorAction,
-      ),
-      checkCommand(
-        processRunner,
-        "worktrees",
-        "git",
-        ["worktree", "list", "--porcelain"],
-        "worktrees readable",
-      ),
-      Effect.succeed(checkAgentAuth({ processRunner, cwd, authEnvFile, authRequiredKeys })),
-      ...toolchainProbes.map((probe) =>
-        checkToolchainProbe(processRunner, probe, { containerImage, cwd }),
-      ),
-    ]),
+    Effect.gen(function* () {
+      const baseChecks = yield* Effect.all([
+        checkCommand(processRunner, "beads", "bd", ["list", "--limit", "1", "--json"], "bd readable"),
+        checkCommand(processRunner, "gitlab", "glab", ["auth", "status"], "glab authenticated"),
+        checkCommand(
+          processRunner,
+          "docker",
+          "docker",
+          ["info"],
+          dockerCompatibleRuntimeOkDetail,
+          dockerOperatorAction,
+        ),
+        checkCommand(
+          processRunner,
+          "workspace",
+          "git",
+          ["rev-parse", "--show-toplevel"],
+          "workspace readable",
+        ),
+        checkCommand(
+          processRunner,
+          "labels",
+          "bd",
+          ["list", "--label-pattern", "agent:*", "--limit", "1", "--json"],
+          "agent labels readable",
+        ),
+        checkCommand(
+          processRunner,
+          "daemon",
+          "git",
+          ["status", "--short"],
+          "daemon assumptions readable",
+        ),
+        checkCommand(
+          processRunner,
+          "containers",
+          "docker",
+          ["ps", "--format", "{{.ID}}"],
+          "containers readable",
+          dockerOperatorAction,
+        ),
+        checkCommand(
+          processRunner,
+          "worktrees",
+          "git",
+          ["worktree", "list", "--porcelain"],
+          "worktrees readable",
+        ),
+        Effect.succeed(checkAgentAuth({ processRunner, cwd, authEnvFile, authRequiredKeys })),
+      ]);
+      const containerImageCheck = yield* checkContainerImage(processRunner, {
+        containerImage,
+        containerProfile,
+      });
+      const runnableToolchainProbes =
+        containerImageCheck?.status === "fail"
+          ? toolchainProbes.filter((probe) => probe.scope !== "container")
+          : toolchainProbes;
+      const toolchainChecks = yield* Effect.all(
+        runnableToolchainProbes.map((probe) =>
+          checkToolchainProbe(processRunner, probe, { containerImage, cwd }),
+        ),
+      );
+
+      return containerImageCheck === undefined
+        ? [...baseChecks, ...toolchainChecks]
+        : [...baseChecks, containerImageCheck, ...toolchainChecks];
+    }),
 });
 
 export const operatorHealthLayer = (
