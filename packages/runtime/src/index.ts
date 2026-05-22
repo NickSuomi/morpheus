@@ -4790,7 +4790,7 @@ const containerDockerfileTemplate = [
   "",
   "WORKDIR /workspace",
   "",
-  "RUN corepack enable",
+  "RUN apt-get update && apt-get install -y --no-install-recommends git ca-certificates && rm -rf /var/lib/apt/lists/* && corepack enable",
   "",
   "# Morpheus starts the container once, then execs agent commands into it.",
   "CMD [\"sleep\", \"infinity\"]",
