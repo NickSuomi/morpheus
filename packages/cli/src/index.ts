@@ -52,6 +52,11 @@ import {
 } from "@morpheus/runtime";
 import pkg from "../package.json" with { type: "json" };
 import { formatConfigSummaryText } from "./config-summary.js";
+import {
+  runSelectorPrompt,
+  type SelectorOption,
+  type SelectorPromptInput,
+} from "./setup-prompts.js";
 
 const configPath = Options.text("config").pipe(Options.optional);
 const runId = Args.text({ name: "runId" });
@@ -419,11 +424,28 @@ const yesNo = async (
   label: string,
   defaultValue: boolean,
 ): Promise<boolean> => {
-  const answer = await question(rl, `${label} (${defaultValue ? "Y/n" : "y/N"})`);
-  if (answer.length === 0) {
-    return defaultValue;
+  const value = await selectorPrompt(rl, {
+    kind: "single",
+    label,
+    options: [
+      { label: "Yes", value: "yes" },
+      { label: "No", value: "no" },
+    ],
+    defaultValue: defaultValue ? "yes" : "no",
+  });
+  return value === "yes";
+};
+
+const selectorPrompt = async <Value extends string>(
+  rl: ReturnType<typeof createInterface>,
+  input: SelectorPromptInput<Value>,
+): Promise<Value | readonly Value[]> => {
+  rl.pause();
+  try {
+    return await runSelectorPrompt(input);
+  } finally {
+    rl.resume();
   }
-  return answer.toLowerCase().startsWith("y");
 };
 
 const parseList = (value: string): readonly string[] =>
@@ -447,6 +469,33 @@ const promptValue = async (
   label: string,
   defaultValue: unknown,
 ): Promise<string> => question(rl, label, formatDefault(defaultValue));
+
+type AgentEffortAnswer = MorpheusConfig["agentRunner"]["agent"]["effort"];
+
+const agentEffortOptions = [
+  { label: "low", value: "low" },
+  { label: "medium", value: "medium" },
+  { label: "high", value: "high" },
+  { label: "xhigh", value: "xhigh" },
+] satisfies readonly SelectorOption<AgentEffortAnswer>[];
+
+const authKeyOptions = ["OPENAI_API_KEY", "ANTHROPIC_API_KEY", "GOOGLE_API_KEY"].map((value) => ({
+  label: value,
+  value,
+})) satisfies readonly SelectorOption<string>[];
+
+const authKeySelectorOptions = (values: readonly string[]): readonly SelectorOption<string>[] => {
+  const seen = new Set<string>();
+  return [...values, ...authKeyOptions.map((option) => option.value)]
+    .filter((value) => {
+      if (seen.has(value)) {
+        return false;
+      }
+      seen.add(value);
+      return value.length > 0;
+    })
+    .map((value) => ({ label: value, value }));
+};
 
 const needsSetupAnswer = (prompt: SetupPlan["prompts"][number] | undefined): boolean =>
   prompt?.validation.status === "invalid" ||
@@ -494,11 +543,12 @@ const collectSetupAnswers = async (
 
   const agentEffort = prompts.get("agentEffort");
   if (needsSetupAnswer(agentEffort)) {
-    answers.agentEffort = (await promptValue(
-      rl,
-      "Agent reasoning effort",
-      agentEffort?.value ?? "xhigh",
-    )) as SetupAnswers["agentEffort"];
+    answers.agentEffort = (await selectorPrompt(rl, {
+      kind: "single",
+      label: "Agent reasoning effort",
+      options: agentEffortOptions,
+      defaultValue: (agentEffort?.value ?? "xhigh") as AgentEffortAnswer,
+    })) as SetupAnswers["agentEffort"];
   }
 
   const authEnvFile = prompts.get("authEnvFile");
@@ -519,13 +569,15 @@ const collectSetupAnswers = async (
 
   const requiredAuthKeys = prompts.get("requiredAuthKeys");
   if (needsSetupAnswer(requiredAuthKeys)) {
-    answers.requiredAuthKeys = parseList(
-      await promptValue(
-        rl,
-        "Required auth env keys",
-        requiredAuthKeys?.value ?? ["OPENAI_API_KEY"],
-      ),
-    );
+    const defaultKeys = Array.isArray(requiredAuthKeys?.value)
+      ? requiredAuthKeys.value.map(String)
+      : ["OPENAI_API_KEY"];
+    answers.requiredAuthKeys = (await selectorPrompt(rl, {
+      kind: "multi",
+      label: "Required auth env keys",
+      options: authKeySelectorOptions(defaultKeys),
+      defaultValue: defaultKeys,
+    })) as readonly string[];
   }
 
   const createSecretFile = prompts.get("createSecretFile");
