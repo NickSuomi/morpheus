@@ -697,10 +697,12 @@ describe("Morpheus config", () => {
       expect(dockerfile).toContain("FROM node:22-bookworm-slim");
       expect(dockerfile).toContain("Morpheus container profile");
       expect(dockerfile).toContain("apt-get install -y --no-install-recommends git ca-certificates");
+      expect(dockerfile).toContain("USER 0");
       expect(dockerfile).toContain('CMD ["sleep", "infinity"]');
       const containerReadme = readFileSync(join(dir, ".morpheus/container/README.md"), "utf8");
       expect(containerReadme).toContain("Morpheus container profile");
       expect(containerReadme).toContain("Docker-compatible runtime");
+      expect(containerReadme).toContain("container-internal root for Docker sandbox compatibility");
       expect(containerReadme).toContain(
         "docker build -f .morpheus/container/Dockerfile -t morpheus-agent:local .",
       );
@@ -751,6 +753,7 @@ describe("Morpheus config", () => {
       const dockerfile = readFileSync(join(dir, ".morpheus/container/Dockerfile"), "utf8");
       expect(dockerfile).toContain("corepack enable");
       expect(dockerfile).toContain("apt-get install -y --no-install-recommends git ca-certificates");
+      expect(dockerfile).toContain("USER 0");
       expect(dockerfile).toContain('CMD ["sleep", "infinity"]');
       expect(dockerfile).not.toContain("android-sdk");
       expect(dockerfile).not.toContain("xcodebuild");

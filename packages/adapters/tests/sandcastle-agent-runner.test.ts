@@ -621,6 +621,8 @@ describe("SandcastleAgentRunner", () => {
     expect(dockerOptions).toEqual([
       {
         imageName: "morpheus-agent:test",
+        containerUid: 0,
+        containerGid: 0,
         dockerfilePath: join(dir, ".morpheus/container/Dockerfile"),
         mounts: [{ hostPath: join(dir, ".cache"), sandboxPath: "/cache", readonly: true }],
         env: {

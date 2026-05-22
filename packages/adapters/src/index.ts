@@ -1417,6 +1417,8 @@ const runSandcastlePhase = (
           options.sandbox ??
           (options.dockerFactory ?? docker)({
             imageName: containerConfig.image,
+            containerUid: 0,
+            containerGid: 0,
             ...(containerConfig.profile === undefined
               ? {}
               : { dockerfilePath: resolve(options.cwd, containerConfig.profile) }),

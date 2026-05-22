@@ -4792,6 +4792,9 @@ const containerDockerfileTemplate = [
   "",
   "RUN apt-get update && apt-get install -y --no-install-recommends git ca-certificates && rm -rf /var/lib/apt/lists/* && corepack enable",
   "",
+  "# Run as container-internal root for Morpheus Docker sandbox UID preflight and writable setup.",
+  "USER 0",
+  "",
   "# Morpheus starts the container once, then execs agent commands into it.",
   "CMD [\"sleep\", \"infinity\"]",
   "",
@@ -4975,6 +4978,8 @@ const containerReadmeTemplate = (capabilities: readonly TargetCapability[]): str
     `Detected capabilities: ${detected}`,
     "",
     "Morpheus does not auto-install Android SDK or Xcode in v1. Operators opt in by editing `.morpheus/container/Dockerfile`, rebuilding the image, and keeping verification failures explicit in run evidence.",
+    "",
+    "The generated image runs as container-internal root for Docker sandbox compatibility: Morpheus performs UID preflight before container start and writes setup files inside the isolated container workspace. Do not mount host-sensitive paths into this profile; keep secrets in `.morpheus/secrets/agent.env` only.",
     "",
     "Required operator setup:",
     ...(setupLines.length === 0
