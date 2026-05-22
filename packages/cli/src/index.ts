@@ -164,6 +164,7 @@ const operatorLayerFromConfig = (
         authRequiredKeys: config.agentRunner.auth.requiredKeys,
         toolchainProbes: config.verification.toolchainProbes,
         containerImage: config.agentRunner.container.image,
+        containerProfile: config.agentRunner.container.profile,
       }).pipe(Layer.provide(processRunnerLayer)),
     );
   });
