@@ -1603,7 +1603,7 @@ const checkToolchainProbe = (
       Effect.match({
         onFailure: (error) => ({
           name: "toolchain" as const,
-          status: "fail" as const,
+          status: "warn" as const,
           detail: `${probe.name} missing: ${error.message}. ${probe.action}`,
         }),
         onSuccess: (result) => {
@@ -1617,7 +1617,7 @@ const checkToolchainProbe = (
 
           return {
             name: "toolchain" as const,
-            status: "fail" as const,
+            status: "warn" as const,
             detail: `${probe.name} missing: ${result.stderr || `${probe.command} exited ${result.exitCode}`}. ${probe.action}`,
           };
         },

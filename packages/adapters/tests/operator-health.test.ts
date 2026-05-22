@@ -213,7 +213,7 @@ describe("OperatorHealth", () => {
     expect(JSON.stringify(checks)).not.toContain("value");
   });
 
-  it("reports configured toolchain probe failures with operator action", async () => {
+  it("reports configured toolchain probe failures as advisory warnings with operator action", async () => {
     const processRunner = fakeProcessRunner([
       ok(),
       ok(),
@@ -238,18 +238,18 @@ describe("OperatorHealth", () => {
 
     expect(checks).toContainEqual({
       name: "toolchain",
-      status: "fail",
+      status: "warn",
       detail: "java missing: java: command not found. Install a JDK and rebuild the Morpheus container image.",
     });
     expect(checks).toContainEqual({
       name: "toolchain",
-      status: "fail",
+      status: "warn",
       detail:
         "android-sdk missing: ANDROID_HOME is unset. Install Android SDK or set ANDROID_HOME for the container profile.",
     });
     expect(checks).toContainEqual({
       name: "toolchain",
-      status: "fail",
+      status: "warn",
       detail: "xcode missing: xcode-select: error. Run Xcode setup on the macOS host.",
     });
     expect(processRunner.calls.slice(-3)).toEqual([
