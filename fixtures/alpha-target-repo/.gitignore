@@ -1,0 +1,5 @@
+.morpheus/agent-logs/
+.morpheus/cache/
+.morpheus/ledger.sqlite
+.morpheus/runs/
+.morpheus/secrets/agent.env
