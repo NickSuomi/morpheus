@@ -623,7 +623,11 @@ describe("SandcastleAgentRunner", () => {
         imageName: "morpheus-agent:test",
         dockerfilePath: join(dir, ".morpheus/container/Dockerfile"),
         mounts: [{ hostPath: join(dir, ".cache"), sandboxPath: "/cache", readonly: true }],
-        env: { OPENAI_API_KEY: "test-token" },
+        env: {
+          OPENAI_API_KEY: "test-token",
+          HOME: "/tmp/morpheus-home",
+          XDG_CONFIG_HOME: "/tmp/morpheus-home/.config",
+        },
       },
     ]);
   });
