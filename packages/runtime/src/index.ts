@@ -59,6 +59,28 @@ export class ProcessRunner extends Context.Tag("@morpheus/runtime/ProcessRunner"
 
 export type ProcessRunnerService = Context.Tag.Service<typeof ProcessRunner>;
 
+export class SetupEnvironmentError extends EffectSchema.TaggedError<SetupEnvironmentError>(
+  "SetupEnvironmentError",
+)("SetupEnvironmentError", {
+  operation: EffectSchema.String,
+  message: EffectSchema.String,
+}) {}
+
+export class SetupEnvironment extends Context.Tag("@morpheus/runtime/SetupEnvironment")<
+  SetupEnvironment,
+  {
+    readonly detect: (options?: {
+      readonly targetPath?: string;
+      readonly currentWorkingDirectory?: string;
+      readonly doctor?: NonNullable<SetupPlanningInput["detected"]>["doctor"];
+    }) => Effect.Effect<SetupPlanningInput, SetupEnvironmentError>;
+    readonly apply: (plan: SetupPlan) => Effect.Effect<void, SetupEnvironmentError>;
+    readonly buildContainer: (plan: SetupPlan) => Effect.Effect<string, SetupEnvironmentError>;
+  }
+>() {}
+
+export type SetupEnvironmentService = Context.Tag.Service<typeof SetupEnvironment>;
+
 export type PreparedImplementationWorkspace = {
   readonly workspacePath: string;
   readonly worktreePath?: string;
@@ -3505,12 +3527,10 @@ export const loadMorpheusConfig = (options: ConfigLoadOptions = {}): ConfigLoadR
 
 const validateSkillStageMappings = (config: MorpheusConfig): string | undefined => {
   const copiedSkillNames = new Set(config.agentRunner.skills.mappings.map((skill) => skill.name));
-  const missing = Object.entries(config.agentRunner.skills.stageMappings)
-    .flatMap(([stage, names]) =>
-      names
-        .filter((name) => !copiedSkillNames.has(name))
-        .map((name) => `${stage}:${name}`),
-    );
+  const missing = Object.entries(config.agentRunner.skills.stageMappings).flatMap(
+    ([stage, names]) =>
+      names.filter((name) => !copiedSkillNames.has(name)).map((name) => `${stage}:${name}`),
+  );
 
   return missing.length === 0
     ? undefined
@@ -3571,7 +3591,7 @@ const makeInitialConfig = (
     kind: "container",
     agent: {
       provider: "codex",
-      model: "gpt-5.4-nano",
+      model: "gpt-5.5",
       effort: "xhigh",
     },
     auth: {
@@ -3620,6 +3640,1063 @@ const makeInitialConfig = (
   },
   prompts: defaultPromptPaths,
 });
+
+export type SetupValidation =
+  | { readonly status: "valid" }
+  | { readonly status: "warning"; readonly message: string }
+  | { readonly status: "invalid"; readonly message: string };
+
+export type SetupPromptId =
+  | "targetPath"
+  | "existingConfig"
+  | "overwriteTemplates"
+  | "gitlabProject"
+  | "targetBranch"
+  | "readyLabel"
+  | "agentProvider"
+  | "agentModel"
+  | "agentEffort"
+  | "authEnvFile"
+  | "requiredAuthKeys"
+  | "createSecretFile"
+  | "containerImage"
+  | "containerProfile"
+  | "containerMounts"
+  | "containerBuild"
+  | "toolchainProbes"
+  | "verificationCommands"
+  | "pollIntervalSeconds"
+  | "laneConcurrency"
+  | "writeChanges"
+  | "doctor"
+  | "sync"
+  | "daemonOnce";
+
+export type SetupMutationMetadata =
+  | { readonly kind: "setup-target"; readonly path: string }
+  | { readonly kind: "config"; readonly field: string }
+  | { readonly kind: "file"; readonly path: string; readonly action: SetupFileMutation["action"] }
+  | { readonly kind: "command"; readonly command: string };
+
+export type SetupPrompt = {
+  readonly id: SetupPromptId;
+  readonly defaultValue: unknown;
+  readonly value: unknown;
+  readonly validation: SetupValidation;
+  readonly mutation: SetupMutationMetadata;
+};
+
+export type SetupFileMutation = {
+  readonly path: string;
+  readonly action: "create" | "update" | "patch" | "skip" | "refuse";
+  readonly apply: boolean;
+  readonly reason?: string;
+};
+
+export type SetupConfigMutation =
+  | {
+      readonly action: "create" | "update";
+      readonly path: "morpheus.config.json";
+      readonly nextConfig: MorpheusConfig;
+      readonly apply: boolean;
+    }
+  | {
+      readonly action: "blocked";
+      readonly path: "morpheus.config.json";
+      readonly nextConfig?: MorpheusConfig;
+      readonly apply: false;
+    };
+
+export type SetupNextStep = {
+  readonly id:
+    | "configShow"
+    | "doctor"
+    | "agentAuth"
+    | "containerBuild"
+    | "readyLabel"
+    | "sync"
+    | "daemonOnce"
+    | "daemon";
+  readonly command?: string;
+  readonly gate: "after-write" | "after-doctor" | "manual";
+};
+
+export type SetupExecutionGates = {
+  readonly sync: {
+    readonly canRun: boolean;
+    readonly skipReason?: string;
+  };
+  readonly daemonOnce: {
+    readonly canRun: boolean;
+    readonly skipReason?: string;
+  };
+};
+
+export type SetupPlanningInput = {
+  readonly targetPath?: string;
+  readonly currentWorkingDirectory?: string;
+  readonly detected?: {
+    readonly targetPath?: {
+      readonly exists: boolean;
+      readonly isDirectory: boolean;
+      readonly isReadable: boolean;
+      readonly isGitWorktree: boolean;
+    };
+    readonly gitlabProject?: string;
+    readonly defaultBranch?: string;
+    readonly capabilities?: readonly TargetCapability[];
+    readonly dockerAvailable?: boolean;
+    readonly verificationCommands?: readonly string[];
+    readonly doctor?: {
+      readonly beadsOk: boolean;
+      readonly gitlabOk: boolean;
+      readonly hasFail: boolean;
+    };
+  };
+  readonly existing?: {
+    readonly config?: MorpheusConfig;
+    readonly configError?: ConfigLoadError;
+    readonly files?: readonly string[];
+    readonly authEnvKeys?: readonly string[];
+  };
+  readonly answers?: {
+    readonly gitlabProject?: string;
+    readonly targetBranch?: string;
+    readonly readyLabel?: string;
+    readonly agentModel?: string;
+    readonly agentEffort?: MorpheusConfig["agentRunner"]["agent"]["effort"];
+    readonly authEnvFile?: string;
+    readonly confirmAbsoluteAuthEnvFile?: boolean;
+    readonly requiredAuthKeys?: readonly string[];
+    readonly createSecretFile?: boolean;
+    readonly containerImage?: string;
+    readonly containerProfile?: string;
+    readonly containerMounts?: readonly MorpheusConfig["agentRunner"]["container"]["mounts"][number][];
+    readonly confirmExternalContainerMounts?: boolean;
+    readonly buildContainer?: boolean;
+    readonly addToolchainProbes?: boolean;
+    readonly verificationCommands?: readonly string[];
+    readonly pollIntervalSeconds?: number;
+    readonly laneConcurrency?: {
+      readonly preparation?: number;
+      readonly implementation?: number;
+      readonly review?: number;
+    };
+    readonly overwriteTemplates?: boolean;
+    readonly writeChanges?: boolean;
+    readonly runDoctor?: boolean;
+    readonly runSync?: boolean;
+    readonly runDaemonOnce?: boolean;
+  };
+};
+
+export type SetupPlan = {
+  readonly target: {
+    readonly inputPath?: string;
+    readonly resolvedPath: string;
+    readonly validation: SetupValidation;
+  };
+  readonly mode: "create" | "update";
+  readonly prompts: readonly SetupPrompt[];
+  readonly configMutation: SetupConfigMutation;
+  readonly fileMutations: readonly SetupFileMutation[];
+  readonly warnings: readonly string[];
+  readonly errors: readonly string[];
+  readonly nextSteps: readonly SetupNextStep[];
+};
+
+const setupTemplatePaths = [
+  ".morpheus/prompts/prepare.md",
+  ".morpheus/prompts/implement.md",
+  ".morpheus/prompts/review.md",
+  ".morpheus/container/Dockerfile",
+  ".morpheus/container/README.md",
+  ...bundledAgentSkillMappings.map((skill) => skill.path),
+] as const;
+
+const setupBaselineFilePaths = [
+  "morpheus.config.json",
+  ...setupTemplatePaths,
+  ".morpheus/secrets/agent.env.example",
+  ".gitignore",
+] as const;
+
+const valid = (): SetupValidation => ({ status: "valid" });
+const invalid = (message: string): SetupValidation => ({ status: "invalid", message });
+const warning = (message: string): SetupValidation => ({ status: "warning", message });
+
+const setupPrompt = (
+  id: SetupPromptId,
+  defaultValue: unknown,
+  value: unknown,
+  validation: SetupValidation,
+  mutation: SetupMutationMetadata,
+): SetupPrompt => ({ id, defaultValue, value, validation, mutation });
+
+const targetPathValidation = (
+  detected: NonNullable<SetupPlanningInput["detected"]>["targetPath"] | undefined,
+): SetupValidation => {
+  if (detected === undefined) {
+    return warning("Target path was not checked by an adapter.");
+  }
+
+  if (!detected.exists) {
+    return invalid("Target path does not exist.");
+  }
+
+  if (!detected.isDirectory) {
+    return invalid("Target path is not a directory.");
+  }
+
+  if (!detected.isReadable) {
+    return invalid("Target path is not readable.");
+  }
+
+  if (!detected.isGitWorktree) {
+    return invalid("Target path is not inside a Git worktree.");
+  }
+
+  return valid();
+};
+
+const gitlabProjectValidation = (project: string): SetupValidation =>
+  /^[A-Za-z0-9_.-]+(?:\/[A-Za-z0-9_.-]+)+$/.test(project)
+    ? valid()
+    : invalid("Use a GitLab project path like group/project.");
+
+const nonEmptyValidation = (value: string, message: string): SetupValidation =>
+  value.trim().length > 0 ? valid() : invalid(message);
+
+const positiveIntegerValidation = (value: number, message: string): SetupValidation =>
+  Number.isInteger(value) && value > 0 ? valid() : invalid(message);
+
+const staysInsideTargetRepo = (path: string): boolean =>
+  path !== ".." && !path.split("/").includes("..");
+
+const isGlobalCodexAuthPath = (path: string): boolean =>
+  path === "~/.codex" || path.startsWith("~/.codex/") || path.includes("/.codex/");
+
+const authEnvFileValidation = (path: string, absoluteConfirmed: boolean): SetupValidation => {
+  if (path.startsWith("/") && !absoluteConfirmed) {
+    return invalid("Absolute auth env file paths require explicit operator confirmation.");
+  }
+
+  if (isGlobalCodexAuthPath(path)) {
+    return invalid("Agent auth env file path must not use global host Codex auth.");
+  }
+
+  if (path === ".env") {
+    return invalid("Default setup must not use a root .env secret file.");
+  }
+
+  if (!staysInsideTargetRepo(path)) {
+    return invalid("Relative auth env file path must stay inside the target repo.");
+  }
+
+  return nonEmptyValidation(path, "Agent auth env file path is required.");
+};
+
+const containerProfileValidation = (path: string): SetupValidation => {
+  if (path.startsWith("/") || !staysInsideTargetRepo(path)) {
+    return invalid("Container profile path must stay inside the target repo.");
+  }
+
+  const basename = path.split("/").at(-1) ?? "";
+  if (!basename.includes("Dockerfile") || basename.endsWith(".txt")) {
+    return invalid(
+      "Container profile path must end with Dockerfile or include Dockerfile in the file name.",
+    );
+  }
+
+  return nonEmptyValidation(path, "Container profile path is required.");
+};
+
+const agentEffortValidation = (value: string): SetupValidation =>
+  value === "low" || value === "medium" || value === "high" || value === "xhigh"
+    ? valid()
+    : invalid("Agent reasoning effort must be one of low, medium, high, or xhigh.");
+
+const containerMountsValidation = (
+  mounts: readonly MorpheusConfig["agentRunner"]["container"]["mounts"][number][],
+  externalMountsConfirmed: boolean,
+): SetupValidation => {
+  if (mounts.length === 0) {
+    return invalid("At least one container workspace mount is required.");
+  }
+
+  return mounts.every(
+    (mount) =>
+      mount.hostPath.trim().length > 0 &&
+      mount.containerPath.startsWith("/") &&
+      (externalMountsConfirmed ||
+        (!mount.hostPath.startsWith("/") && staysInsideTargetRepo(mount.hostPath))),
+  )
+    ? valid()
+    : invalid(
+        "Container host mounts must stay inside the target repo and container paths must be absolute.",
+      );
+};
+
+const envKeysValidation = (keys: readonly string[]): SetupValidation =>
+  keys.length > 0 && keys.every((key) => /^[A-Za-z_][A-Za-z0-9_]*$/.test(key))
+    ? valid()
+    : invalid("Required auth env keys must be shell-style environment names.");
+
+const laneConcurrencyValidation = (
+  concurrency: NonNullable<SetupPlanningInput["answers"]>["laneConcurrency"],
+): SetupValidation =>
+  positiveIntegerValidation(
+    concurrency?.preparation ?? 1,
+    "Lane concurrency values must be positive integers.",
+  ).status === "valid" &&
+  positiveIntegerValidation(
+    concurrency?.implementation ?? 1,
+    "Lane concurrency values must be positive integers.",
+  ).status === "valid" &&
+  positiveIntegerValidation(
+    concurrency?.review ?? 1,
+    "Lane concurrency values must be positive integers.",
+  ).status === "valid"
+    ? valid()
+    : invalid("Lane concurrency values must be positive integers.");
+
+const templateFileMutation = (
+  path: string,
+  existingFiles: ReadonlySet<string>,
+  overwriteTemplates: boolean,
+  apply: boolean,
+): SetupFileMutation => {
+  if (!existingFiles.has(path)) {
+    return { path, action: "create", apply };
+  }
+
+  return overwriteTemplates
+    ? { path, action: "update", apply, reason: "Template overwrite explicitly enabled." }
+    : {
+        path,
+        action: "skip",
+        apply: false,
+        reason: "Preserving existing target-owned template by default.",
+      };
+};
+
+const setupNextSteps = (
+  readyLabel: string,
+  authEnvFile: string,
+  containerImage: string,
+  containerProfile: string,
+  syncReady: boolean,
+  daemonOnceReady: boolean,
+): readonly SetupNextStep[] => [
+  {
+    id: "configShow",
+    command: "morpheus config show",
+    gate: "after-write",
+  },
+  {
+    id: "doctor",
+    command: "morpheus doctor",
+    gate: "after-write",
+  },
+  {
+    id: "agentAuth",
+    command: authEnvFile,
+    gate: "manual",
+  },
+  {
+    id: "containerBuild",
+    command: `docker build -f ${containerProfile} -t ${containerImage} .`,
+    gate: "manual",
+  },
+  {
+    id: "readyLabel",
+    command: readyLabel,
+    gate: "manual",
+  },
+  ...(syncReady
+    ? ([
+        {
+          id: "sync",
+          command: "morpheus sync",
+          gate: "after-doctor",
+        },
+      ] satisfies readonly SetupNextStep[])
+    : []),
+  ...(daemonOnceReady
+    ? ([
+        {
+          id: "daemonOnce",
+          command: "morpheus daemon --once",
+          gate: "after-doctor",
+        },
+        {
+          id: "daemon",
+          command: "morpheus daemon",
+          gate: "manual",
+        },
+      ] satisfies readonly SetupNextStep[])
+    : []),
+];
+
+const overwriteTemplatesValidation = (
+  overwriteTemplates: boolean,
+  existingFiles: ReadonlySet<string>,
+): SetupValidation =>
+  overwriteTemplates && !setupTemplatePaths.some((path) => existingFiles.has(path))
+    ? invalid("Template overwrite is only valid when generated templates already exist.")
+    : valid();
+
+export const planMorpheusSetup = (input: SetupPlanningInput = {}): SetupPlan => {
+  const currentWorkingDirectory = input.currentWorkingDirectory ?? ".";
+  const resolvedTargetPath = resolve(currentWorkingDirectory, input.targetPath ?? ".");
+  const existingConfig = input.existing?.config;
+  const existingFiles = new Set(input.existing?.files ?? []);
+  const mode: SetupPlan["mode"] = existingConfig === undefined ? "create" : "update";
+  const targetValidation = targetPathValidation(input.detected?.targetPath);
+  const capabilities = input.detected?.capabilities ?? [];
+  const detectedToolchainProbes = toolchainProbesForCapabilities(capabilities);
+  const addToolchainProbes = input.answers?.addToolchainProbes ?? true;
+  const toolchainProbes = addToolchainProbes ? detectedToolchainProbes : [];
+  const baseConfig =
+    existingConfig ??
+    makeInitialConfig(
+      {
+        target: resolvedTargetPath,
+        gitlabProject: input.detected?.gitlabProject ?? "",
+        gitlabReadyLabel: "agent:ready",
+        targetBranch: input.detected?.defaultBranch ?? "main",
+      },
+      toolchainProbes,
+    );
+  const answers = input.answers ?? {};
+  const gitlabProject =
+    answers.gitlabProject ?? existingConfig?.gitlab.project ?? input.detected?.gitlabProject ?? "";
+  const targetBranch =
+    answers.targetBranch ??
+    existingConfig?.gitlab.targetBranch ??
+    input.detected?.defaultBranch ??
+    "main";
+  const readyLabel = answers.readyLabel ?? existingConfig?.gitlab.readyLabel ?? "agent:ready";
+  const agentModel =
+    answers.agentModel ?? existingConfig?.agentRunner.agent.model ?? "gpt-5.5";
+  const agentEffort = answers.agentEffort ?? existingConfig?.agentRunner.agent.effort ?? "xhigh";
+  const authEnvFile =
+    answers.authEnvFile ??
+    existingConfig?.agentRunner.auth.envFile ??
+    ".morpheus/secrets/agent.env";
+  const requiredAuthKeys = answers.requiredAuthKeys ??
+    existingConfig?.agentRunner.auth.requiredKeys ?? ["OPENAI_API_KEY"];
+  const containerImage =
+    answers.containerImage ?? existingConfig?.agentRunner.container.image ?? "morpheus-agent:local";
+  const containerProfile =
+    answers.containerProfile ??
+    existingConfig?.agentRunner.container.profile ??
+    ".morpheus/container/Dockerfile";
+  const containerMounts = answers.containerMounts ??
+    existingConfig?.agentRunner.container.mounts ?? [
+      { hostPath: ".", containerPath: "/workspace" },
+    ];
+  const profileChanged =
+    existingConfig !== undefined &&
+    containerProfile !== existingConfig.agentRunner.container.profile;
+  const defaultBuildContainer = input.detected?.dockerAvailable === true && !profileChanged;
+  const buildContainer = answers.buildContainer ?? defaultBuildContainer;
+  const containerBuildCommand = `docker build -f ${containerProfile} -t ${containerImage} .`;
+  const verificationCommands =
+    answers.verificationCommands ??
+    existingConfig?.verification.commands ??
+    input.detected?.verificationCommands ??
+    [];
+  const pollIntervalSeconds =
+    answers.pollIntervalSeconds ?? existingConfig?.daemon.pollIntervalSeconds ?? 30;
+  const laneConcurrency = {
+    preparation:
+      answers.laneConcurrency?.preparation ?? existingConfig?.lanes.preparation.concurrency ?? 1,
+    implementation:
+      answers.laneConcurrency?.implementation ??
+      existingConfig?.lanes.implementation.concurrency ??
+      1,
+    review: answers.laneConcurrency?.review ?? existingConfig?.lanes.review.concurrency ?? 1,
+  };
+  const overwriteTemplates = answers.overwriteTemplates ?? false;
+  const writeChanges = answers.writeChanges ?? mode === "create";
+  const shouldCreateSecretFile = answers.createSecretFile ?? !existingFiles.has(authEnvFile);
+  const authEnvKeys = new Set(input.existing?.authEnvKeys ?? []);
+  const authFileExists = existingFiles.has(authEnvFile);
+  const requiredAuthKeysPresent = requiredAuthKeys.every((key) => authEnvKeys.has(key));
+  const agentAuthReady = authFileExists && requiredAuthKeysPresent;
+  const syncReady =
+    agentAuthReady &&
+    input.detected?.doctor?.beadsOk === true &&
+    input.detected.doctor.gitlabOk === true &&
+    !input.detected.doctor.hasFail;
+  const daemonOnceReady = agentAuthReady && input.detected?.doctor?.hasFail === false;
+
+  const nextConfig: MorpheusConfig = {
+    ...baseConfig,
+    targetRepo: ".",
+    gitlab: {
+      project: gitlabProject,
+      readyLabel,
+      targetBranch,
+    },
+    daemon: { pollIntervalSeconds },
+    agentRunner: {
+      ...baseConfig.agentRunner,
+      agent: {
+        provider: "codex",
+        model: agentModel,
+        effort: agentEffort,
+      },
+      auth: {
+        envFile: authEnvFile,
+        requiredKeys: [...requiredAuthKeys],
+      },
+      container: {
+        ...baseConfig.agentRunner.container,
+        image: containerImage,
+        profile: containerProfile,
+        mounts: [...containerMounts],
+      },
+    },
+    lanes: {
+      preparation: { concurrency: laneConcurrency.preparation },
+      implementation: { concurrency: laneConcurrency.implementation },
+      review: { concurrency: laneConcurrency.review },
+    },
+    verification: {
+      commands: [...verificationCommands],
+      ...(answers.addToolchainProbes === false
+        ? {}
+        : toolchainProbes.length === 0
+          ? existingConfig?.verification.toolchainProbes === undefined
+            ? {}
+            : { toolchainProbes: existingConfig.verification.toolchainProbes }
+          : { toolchainProbes: [...toolchainProbes] }),
+    },
+  };
+
+  const promptValidations = [
+    targetValidation,
+    input.existing?.configError === undefined
+      ? valid()
+      : invalid(`Existing Morpheus config is invalid: ${input.existing.configError.kind}`),
+    overwriteTemplatesValidation(overwriteTemplates, existingFiles),
+    gitlabProjectValidation(gitlabProject),
+    nonEmptyValidation(targetBranch, "Target branch is required."),
+    nonEmptyValidation(readyLabel, "Ready label is required."),
+    valid(),
+    nonEmptyValidation(agentModel, "Agent model is required."),
+    agentEffortValidation(agentEffort),
+    authEnvFileValidation(authEnvFile, answers.confirmAbsoluteAuthEnvFile === true),
+    envKeysValidation(requiredAuthKeys),
+    valid(),
+    nonEmptyValidation(containerImage, "Container image tag is required."),
+    containerProfileValidation(containerProfile),
+    containerMountsValidation(containerMounts, answers.confirmExternalContainerMounts === true),
+    answers.buildContainer === true && input.detected?.dockerAvailable !== true
+      ? invalid("Container build requires docker info to pass.")
+      : valid(),
+    valid(),
+    verificationCommands.every((command) => command.trim().length > 0)
+      ? verificationCommands.length === 0
+        ? warning("No verification commands configured.")
+        : valid()
+      : invalid("Verification commands must be non-empty shell commands."),
+    positiveIntegerValidation(
+      pollIntervalSeconds,
+      "Daemon poll interval must be a positive integer.",
+    ),
+    laneConcurrencyValidation(laneConcurrency),
+    valid(),
+    writeChanges && answers.runDoctor === false
+      ? invalid("Setup completion requires morpheus doctor after writing changes.")
+      : valid(),
+    answers.runSync === true && !syncReady
+      ? invalid("Sync requires doctor-confirmed Beads and GitLab health.")
+      : agentAuthReady
+        ? valid()
+        : warning("Sync waits until doctor has no blocking auth or GitLab failures."),
+    writeChanges && answers.runDaemonOnce === false
+      ? invalid("Setup completion requires morpheus daemon --once after writing changes.")
+      : answers.runDaemonOnce === true && !daemonOnceReady
+        ? invalid("Daemon tick requires doctor to have no FAIL results.")
+        : agentAuthReady
+          ? valid()
+          : warning("Daemon tick waits until doctor has no FAIL results."),
+  ] as const;
+
+  const prompts: readonly SetupPrompt[] = [
+    setupPrompt(
+      "targetPath",
+      input.targetPath === undefined ? "." : input.targetPath,
+      resolvedTargetPath,
+      promptValidations[0],
+      {
+        kind: "setup-target",
+        path: resolvedTargetPath,
+      },
+    ),
+    setupPrompt(
+      "existingConfig",
+      existingConfig !== undefined,
+      existingConfig !== undefined,
+      promptValidations[1],
+      {
+        kind: "config",
+        field: "morpheus.config.json",
+      },
+    ),
+    setupPrompt("overwriteTemplates", false, overwriteTemplates, promptValidations[2], {
+      kind: "file",
+      path: ".morpheus/",
+      action: overwriteTemplates ? "update" : "skip",
+    }),
+    setupPrompt(
+      "gitlabProject",
+      existingConfig?.gitlab.project ?? input.detected?.gitlabProject ?? "",
+      gitlabProject,
+      promptValidations[3],
+      {
+        kind: "config",
+        field: "gitlab.project",
+      },
+    ),
+    setupPrompt(
+      "targetBranch",
+      existingConfig?.gitlab.targetBranch ?? input.detected?.defaultBranch ?? "main",
+      targetBranch,
+      promptValidations[4],
+      {
+        kind: "config",
+        field: "gitlab.targetBranch",
+      },
+    ),
+    setupPrompt(
+      "readyLabel",
+      existingConfig?.gitlab.readyLabel ?? "agent:ready",
+      readyLabel,
+      promptValidations[5],
+      {
+        kind: "config",
+        field: "gitlab.readyLabel",
+      },
+    ),
+    setupPrompt("agentProvider", "codex", "codex", promptValidations[6], {
+      kind: "config",
+      field: "agentRunner.agent.provider",
+    }),
+    setupPrompt(
+      "agentModel",
+      existingConfig?.agentRunner.agent.model ?? "gpt-5.5",
+      agentModel,
+      promptValidations[7],
+      {
+        kind: "config",
+        field: "agentRunner.agent.model",
+      },
+    ),
+    setupPrompt(
+      "agentEffort",
+      existingConfig?.agentRunner.agent.effort ?? "xhigh",
+      agentEffort,
+      promptValidations[8],
+      {
+        kind: "config",
+        field: "agentRunner.agent.effort",
+      },
+    ),
+    setupPrompt(
+      "authEnvFile",
+      existingConfig?.agentRunner.auth.envFile ?? ".morpheus/secrets/agent.env",
+      authEnvFile,
+      promptValidations[9],
+      {
+        kind: "config",
+        field: "agentRunner.auth.envFile",
+      },
+    ),
+    setupPrompt(
+      "requiredAuthKeys",
+      existingConfig?.agentRunner.auth.requiredKeys ?? ["OPENAI_API_KEY"],
+      requiredAuthKeys,
+      promptValidations[10],
+      {
+        kind: "config",
+        field: "agentRunner.auth.requiredKeys",
+      },
+    ),
+    setupPrompt(
+      "createSecretFile",
+      !existingFiles.has(authEnvFile),
+      shouldCreateSecretFile,
+      promptValidations[11],
+      {
+        kind: "file",
+        path: authEnvFile,
+        action: existingFiles.has(authEnvFile)
+          ? "refuse"
+          : shouldCreateSecretFile
+            ? "create"
+            : "skip",
+      },
+    ),
+    setupPrompt(
+      "containerImage",
+      existingConfig?.agentRunner.container.image ?? "morpheus-agent:local",
+      containerImage,
+      promptValidations[12],
+      {
+        kind: "config",
+        field: "agentRunner.container.image",
+      },
+    ),
+    setupPrompt(
+      "containerProfile",
+      existingConfig?.agentRunner.container.profile ?? ".morpheus/container/Dockerfile",
+      containerProfile,
+      promptValidations[13],
+      {
+        kind: "config",
+        field: "agentRunner.container.profile",
+      },
+    ),
+    setupPrompt(
+      "containerMounts",
+      existingConfig?.agentRunner.container.mounts ?? [
+        { hostPath: ".", containerPath: "/workspace" },
+      ],
+      containerMounts,
+      promptValidations[14],
+      {
+        kind: "config",
+        field: "agentRunner.container.mounts",
+      },
+    ),
+    setupPrompt("containerBuild", defaultBuildContainer, buildContainer, promptValidations[15], {
+      kind: "command",
+      command: containerBuildCommand,
+    }),
+    setupPrompt("toolchainProbes", true, toolchainProbes, promptValidations[16], {
+      kind: "config",
+      field: "verification.toolchainProbes",
+    }),
+    setupPrompt(
+      "verificationCommands",
+      existingConfig?.verification.commands ?? input.detected?.verificationCommands ?? [],
+      verificationCommands,
+      promptValidations[17],
+      {
+        kind: "config",
+        field: "verification.commands",
+      },
+    ),
+    setupPrompt(
+      "pollIntervalSeconds",
+      existingConfig?.daemon.pollIntervalSeconds ?? 30,
+      pollIntervalSeconds,
+      promptValidations[18],
+      {
+        kind: "config",
+        field: "daemon.pollIntervalSeconds",
+      },
+    ),
+    setupPrompt(
+      "laneConcurrency",
+      existingConfig?.lanes === undefined
+        ? { preparation: 1, implementation: 1, review: 1 }
+        : laneConcurrency,
+      laneConcurrency,
+      promptValidations[19],
+      {
+        kind: "config",
+        field: "lanes",
+      },
+    ),
+    setupPrompt("writeChanges", mode === "create", writeChanges, promptValidations[20], {
+      kind: "file",
+      path: ".",
+      action: "patch",
+    }),
+    setupPrompt("doctor", true, writeChanges ? true : (answers.runDoctor ?? true), promptValidations[21], {
+      kind: "command",
+      command: "morpheus doctor",
+    }),
+    setupPrompt("sync", false, answers.runSync ?? false, promptValidations[22], {
+      kind: "command",
+      command: "morpheus sync",
+    }),
+    setupPrompt(
+      "daemonOnce",
+      writeChanges,
+      writeChanges ? (answers.runDaemonOnce ?? true) : (answers.runDaemonOnce ?? false),
+      promptValidations[23],
+      {
+        kind: "command",
+        command: "morpheus daemon --once",
+      },
+    ),
+  ];
+
+  const errors = prompts.flatMap((prompt) =>
+    prompt.validation.status === "invalid" ? [prompt.validation.message] : [],
+  );
+  const warningMessages = prompts.flatMap((prompt) =>
+    prompt.validation.status === "warning" ? [prompt.validation.message] : [],
+  );
+
+  const fileMutations: readonly SetupFileMutation[] =
+    errors.length > 0
+      ? setupBaselineFilePaths.map<SetupFileMutation>((path) => ({
+          path,
+          action: "skip",
+          apply: false,
+          reason: "Setup plan is blocked by invalid input.",
+        }))
+      : [
+          {
+            path: "morpheus.config.json",
+            action: existingFiles.has("morpheus.config.json")
+              ? mode === "update"
+                ? "update"
+                : "skip"
+              : "create",
+            apply: writeChanges,
+          },
+          ...setupTemplatePaths
+            .filter((path) => path !== ".morpheus/container/Dockerfile")
+            .map((path) =>
+              templateFileMutation(path, existingFiles, overwriteTemplates, writeChanges),
+            ),
+          templateFileMutation(containerProfile, existingFiles, overwriteTemplates, writeChanges),
+          templateFileMutation(
+            ".morpheus/secrets/agent.env.example",
+            existingFiles,
+            overwriteTemplates,
+            writeChanges,
+          ),
+          existingFiles.has(authEnvFile)
+            ? {
+                path: authEnvFile,
+                action: "refuse" as const,
+                apply: false,
+                reason: "Refusing to overwrite existing secret env file.",
+              }
+            : {
+                path: authEnvFile,
+                action: shouldCreateSecretFile ? ("create" as const) : ("skip" as const),
+                apply: shouldCreateSecretFile && writeChanges,
+                reason: shouldCreateSecretFile
+                  ? "Create empty key placeholders only; no secret values are requested."
+                  : "Operator chose to create the secret file later.",
+              },
+          { path: ".gitignore", action: "patch", apply: writeChanges },
+        ];
+
+  const preserveWarnings = fileMutations.some((mutation) => mutation.action === "skip")
+    ? ["Preserving existing target-owned Morpheus templates by default."]
+    : [];
+
+  return {
+    target: {
+      inputPath: input.targetPath,
+      resolvedPath: resolvedTargetPath,
+      validation: targetValidation,
+    },
+    mode,
+    prompts,
+    configMutation:
+      errors.length === 0
+        ? {
+            action: mode === "create" ? "create" : "update",
+            path: "morpheus.config.json",
+            nextConfig,
+            apply: writeChanges,
+          }
+        : {
+            action: "blocked",
+            path: "morpheus.config.json",
+            nextConfig,
+            apply: false,
+          },
+    fileMutations,
+    warnings: [
+      ...warningMessages,
+      ...preserveWarnings,
+      ...(verificationCommands.length === 0 ? ["No verification commands configured."] : []),
+      ...(authFileExists && !requiredAuthKeysPresent
+        ? [`Required agent auth keys are missing from ${authEnvFile}.`]
+        : []),
+    ].filter((message, index, messages) => messages.indexOf(message) === index),
+    errors: errors.filter((message, index, messages) => messages.indexOf(message) === index),
+    nextSteps: setupNextSteps(
+      readyLabel,
+      authEnvFile,
+      containerImage,
+      containerProfile,
+      syncReady && errors.length === 0,
+      daemonOnceReady && errors.length === 0,
+    ),
+  };
+};
+
+export const formatMorpheusSetupPreview = (plan: SetupPlan): string =>
+  [
+    "Morpheus setup preview",
+    `target: ${plan.target.resolvedPath}`,
+    `mode: ${plan.mode}`,
+    "",
+    "Prompts:",
+    ...plan.prompts.map((prompt) =>
+      [
+        `- ${prompt.id}`,
+        `default=${JSON.stringify(prompt.defaultValue)}`,
+        `value=${JSON.stringify(prompt.value)}`,
+        `validation=${prompt.validation.status}${
+          prompt.validation.status === "valid" ? "" : `:${prompt.validation.message}`
+        }`,
+        `mutation=${JSON.stringify(prompt.mutation)}`,
+      ].join(" "),
+    ),
+    "",
+    "Config:",
+    `- ${plan.configMutation.action} ${plan.configMutation.path} apply=${plan.configMutation.apply}`,
+    "",
+    "Files:",
+    ...plan.fileMutations.map(
+      (mutation) =>
+        `- ${mutation.action} ${mutation.path} apply=${mutation.apply}${mutation.reason === undefined ? "" : ` (${mutation.reason})`}`,
+    ),
+    ...(plan.warnings.length === 0
+      ? []
+      : ["", "Warnings:", ...plan.warnings.map((message) => `- ${message}`)]),
+    ...(plan.errors.length === 0
+      ? []
+      : ["", "Errors:", ...plan.errors.map((message) => `- ${message}`)]),
+    "",
+    "Next steps:",
+    ...plan.nextSteps.map((step) => `- ${step.command ?? step.id} (${step.gate})`),
+  ].join("\n");
+
+export const detectMorpheusSetupInput = (
+  options?: Parameters<SetupEnvironmentService["detect"]>[0],
+): Effect.Effect<SetupPlanningInput, SetupEnvironmentError, SetupEnvironment> =>
+  Effect.gen(function* () {
+    const setupEnvironment = yield* SetupEnvironment;
+    return yield* setupEnvironment.detect(options);
+  });
+
+export const applyMorpheusSetupPlan = (
+  plan: SetupPlan,
+): Effect.Effect<void, SetupEnvironmentError, SetupEnvironment> =>
+  Effect.gen(function* () {
+    const setupEnvironment = yield* SetupEnvironment;
+    return yield* setupEnvironment.apply(plan);
+  });
+
+export const setupSecretFileTemplate = (keys: readonly string[]): string =>
+  [
+    "# Fill these values manually. Morpheus setup never asks for or prints secret values.",
+    ...keys.map((key) => `${key}=`),
+    "",
+  ].join("\n");
+
+export const setupAgentEnvExampleTemplate = (keys: readonly string[]): string =>
+  [
+    "# Copy to .morpheus/secrets/agent.env and fill with real token values.",
+    "# Morpheus requires this explicit file for agent runs.",
+    ...keys.map((key) => `${key}=`),
+    "",
+  ].join("\n");
+
+export const setupGeneratedFileContents = (
+  target: string,
+  path: string,
+  config: MorpheusConfig,
+): string | undefined => {
+  switch (path) {
+    case ".morpheus/prompts/prepare.md":
+      return starterPrompts.prepare;
+    case ".morpheus/prompts/implement.md":
+      return starterPrompts.implement;
+    case ".morpheus/prompts/review.md":
+      return starterPrompts.review;
+    case ".morpheus/container/README.md":
+      return containerReadmeTemplate(detectTargetCapabilities(target));
+    case ".morpheus/secrets/agent.env.example":
+      return setupAgentEnvExampleTemplate(config.agentRunner.auth.requiredKeys);
+    default:
+      if (path === config.agentRunner.container.profile || path.endsWith("/Dockerfile")) {
+        return containerDockerfileTemplate;
+      }
+
+      for (const skill of bundledAgentSkillMappings) {
+        if (path === skill.path) {
+          return readBundledAgentSkill(skill.name as (typeof bundledAgentSkills)[number]);
+        }
+      }
+
+      return undefined;
+  }
+};
+
+export type SetupDoctorHealth = {
+  readonly beadsOk: boolean;
+  readonly gitlabOk: boolean;
+  readonly hasFail: boolean;
+};
+
+export const interpretMorpheusSetupDoctorOutput = (output: string): SetupDoctorHealth => ({
+  beadsOk: output.includes("OK beads:"),
+  gitlabOk: output.includes("OK gitlab:"),
+  hasFail: output.split(/\r?\n/).some((line) => line.startsWith("FAIL ")),
+});
+
+export const setupAuthReady = (input: SetupPlanningInput): boolean => {
+  const config = input.existing?.config;
+  if (config === undefined) {
+    return false;
+  }
+
+  const files = new Set(input.existing?.files ?? []);
+  const keys = new Set(input.existing?.authEnvKeys ?? []);
+  return (
+    files.has(config.agentRunner.auth.envFile) &&
+    config.agentRunner.auth.requiredKeys.every((key) => keys.has(key))
+  );
+};
+
+export const setupCanRunSync = (input: SetupPlanningInput): boolean =>
+  setupAuthReady(input) &&
+  input.detected?.doctor?.beadsOk === true &&
+  input.detected.doctor.gitlabOk === true &&
+  !input.detected.doctor.hasFail;
+
+export const setupCanRunDaemonOnce = (input: SetupPlanningInput): boolean =>
+  setupAuthReady(input) && input.detected?.doctor?.hasFail === false;
+
+export const planMorpheusSetupExecution = (input: SetupPlanningInput): SetupExecutionGates => ({
+  sync: setupCanRunSync(input)
+    ? { canRun: true }
+    : {
+        canRun: false,
+        skipReason: "doctor-confirmed Beads and GitLab health is required.",
+      },
+  daemonOnce: setupCanRunDaemonOnce(input)
+    ? { canRun: true }
+    : {
+        canRun: false,
+        skipReason: "doctor must have no FAIL results.",
+      },
+});
+
+export const runMorpheusSetupContainerBuild = (
+  plan: SetupPlan,
+): Effect.Effect<string, SetupEnvironmentError, SetupEnvironment> =>
+  Effect.gen(function* () {
+    const setupEnvironment = yield* SetupEnvironment;
+    return yield* setupEnvironment.buildContainer(plan);
+  });
 
 const bundledAgentSkillPromptReferences = bundledAgentSkillMappings
   .map((skill) => `- ${skill.name}: ${skill.path}`)
@@ -3691,7 +4768,7 @@ const starterPrompts = {
   ].join("\n"),
 } as const;
 
-const gitignoreEntries = [
+export const gitignoreEntries = [
   ".morpheus/ledger.sqlite*",
   ".morpheus/runs/",
   ".morpheus/agent-logs/",
@@ -3713,7 +4790,13 @@ const containerDockerfileTemplate = [
   "",
   "WORKDIR /workspace",
   "",
-  "RUN corepack enable",
+  "RUN apt-get update && apt-get install -y --no-install-recommends git ca-certificates && rm -rf /var/lib/apt/lists/* && corepack enable && npm install -g @openai/codex@0.133.0",
+  "",
+  "# Run as container-internal root for Morpheus Docker sandbox UID preflight and writable setup.",
+  "USER 0",
+  "",
+  "# Morpheus starts the container once, then execs agent commands into it.",
+  "CMD [\"sleep\", \"infinity\"]",
   "",
 ].join("\n");
 
@@ -3758,7 +4841,7 @@ const packageJsonUsesPnpm = (target: string): boolean => {
   }
 };
 
-const detectTargetCapabilities = (target: string): readonly TargetCapability[] => {
+export const detectTargetCapabilities = (target: string): readonly TargetCapability[] => {
   const capabilities: TargetCapability[] = [];
   const rootAndAndroid = ["", "android"] as const;
   const rootAndIos = ["", "ios"] as const;
@@ -3895,6 +4978,8 @@ const containerReadmeTemplate = (capabilities: readonly TargetCapability[]): str
     `Detected capabilities: ${detected}`,
     "",
     "Morpheus does not auto-install Android SDK or Xcode in v1. Operators opt in by editing `.morpheus/container/Dockerfile`, rebuilding the image, and keeping verification failures explicit in run evidence.",
+    "",
+    "The generated image runs as container-internal root for Docker sandbox compatibility: Morpheus performs UID preflight before container start and writes setup files inside the isolated container workspace. Do not mount host-sensitive paths into this profile; keep secrets in `.morpheus/secrets/agent.env` only.",
     "",
     "Required operator setup:",
     ...(setupLines.length === 0

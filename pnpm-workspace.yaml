@@ -1,5 +1,15 @@
 packages:
   - "packages/*"
 
+allowBuilds:
+  '@parcel/watcher': true
+  better-sqlite3: true
+  msgpackr-extract: true
+
 onlyBuiltDependencies:
+  - "@parcel/watcher"
   - better-sqlite3
+  - msgpackr-extract
+
+overrides:
+  '@morpheus/cli': link:packages/cli
