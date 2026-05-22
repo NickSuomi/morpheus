@@ -586,7 +586,7 @@ describe("SandcastleAgentRunner", () => {
       },
       agentConfig: {
         provider: "codex",
-        model: "gpt-5.4-nano",
+        model: "gpt-5.5",
         effort: "xhigh",
       },
       dockerFactory: (options) => {
@@ -615,15 +615,26 @@ describe("SandcastleAgentRunner", () => {
 
     await Effect.runPromise(runner.prepareIssue({ issue: trackedIssue() }));
 
-    expect(commands).toEqual([
-      `codex exec --json --dangerously-bypass-approvals-and-sandbox -m 'gpt-5.4-nano' -c 'model_reasoning_effort="xhigh"'`,
-    ]);
+    expect(commands).toHaveLength(1);
+    expect(commands[0]).toContain("codex login --with-api-key");
+    expect(commands[0]).toContain(
+      `codex exec --json --dangerously-bypass-approvals-and-sandbox -m`,
+    );
+    expect(commands[0]).toContain("gpt-5.5");
+    expect(commands[0]).toContain('model_reasoning_effort="xhigh"');
     expect(dockerOptions).toEqual([
       {
         imageName: "morpheus-agent:test",
+        containerUid: 0,
+        containerGid: 0,
         dockerfilePath: join(dir, ".morpheus/container/Dockerfile"),
         mounts: [{ hostPath: join(dir, ".cache"), sandboxPath: "/cache", readonly: true }],
-        env: { OPENAI_API_KEY: "test-token" },
+        env: {
+          OPENAI_API_KEY: "test-token",
+          CODEX_HOME: "/tmp/morpheus-codex-home",
+          HOME: "/tmp/morpheus-home",
+          XDG_CONFIG_HOME: "/tmp/morpheus-home/.config",
+        },
       },
     ]);
   });
@@ -677,6 +688,34 @@ describe("SandcastleAgentRunner", () => {
     expect(runCalled).toBe(false);
     expect(result._tag).toBe("Failure");
     expect(String(result)).toContain("Agent auth env file missing required keys: OPENAI_API_KEY");
+  });
+
+  it("fails before running when Codex auth env file sets CODEX_HOME", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "morpheus-sandcastle-"));
+    writeFileSync(join(dir, "agent.env"), "OPENAI_API_KEY=test-token\nCODEX_HOME=/host/.codex\n");
+    let runCalled = false;
+    const runner = createSandcastleAgentRunner({
+      cwd: dir,
+      logDirectory: join(dir, ".morpheus", "sandcastle-logs"),
+      authEnvFile: "agent.env",
+      run: async () => {
+        runCalled = true;
+        return {
+          iterations: [],
+          stdout: `<morpheus_result>{"status":"blocked","reason":"x","transcript":"","artifact":{}}</morpheus_result>`,
+          commits: [],
+          branch: "agent/morph-bbp",
+        };
+      },
+    });
+
+    const result = await Effect.runPromiseExit(runner.prepareIssue({ issue: trackedIssue() }));
+
+    expect(runCalled).toBe(false);
+    expect(result._tag).toBe("Failure");
+    expect(String(result)).toContain(
+      "Codex agent auth env file must not set CODEX_HOME; use OPENAI_API_KEY only",
+    );
   });
 
   it("runs implementation in the prepared workspace with MR and contract context", async () => {
