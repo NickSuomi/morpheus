@@ -4792,6 +4792,9 @@ const containerDockerfileTemplate = [
   "",
   "RUN corepack enable",
   "",
+  "# Morpheus starts the container once, then execs agent commands into it.",
+  "CMD [\"sleep\", \"infinity\"]",
+  "",
 ].join("\n");
 
 type TargetCapability = "node" | "pnpm" | "android" | "ios";
