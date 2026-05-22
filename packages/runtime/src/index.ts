@@ -4790,7 +4790,7 @@ const containerDockerfileTemplate = [
   "",
   "WORKDIR /workspace",
   "",
-  "RUN apt-get update && apt-get install -y --no-install-recommends git ca-certificates && rm -rf /var/lib/apt/lists/* && corepack enable",
+  "RUN apt-get update && apt-get install -y --no-install-recommends git ca-certificates && rm -rf /var/lib/apt/lists/* && corepack enable && npm install -g @openai/codex@0.133.0",
   "",
   "# Run as container-internal root for Morpheus Docker sandbox UID preflight and writable setup.",
   "USER 0",
