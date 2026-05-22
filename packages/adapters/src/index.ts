@@ -1425,7 +1425,11 @@ const runSandcastlePhase = (
               sandboxPath: mount.containerPath,
               readonly: mount.readOnly,
             })),
-            env: authEnv,
+            env: {
+              ...authEnv,
+              HOME: "/tmp/morpheus-home",
+              XDG_CONFIG_HOME: "/tmp/morpheus-home/.config",
+            },
           }),
         cwd,
         prompt: resolvePromptText(input, options.promptPaths, options.skills, options.cwd),
