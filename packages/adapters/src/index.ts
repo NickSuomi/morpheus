@@ -1594,6 +1594,8 @@ const checkToolchainProbe = (
             `${options.cwd ?? process.cwd()}:/workspace`,
             "-w",
             "/workspace",
+            "--entrypoint",
+            "",
             options.containerImage,
             probe.command,
             ...probe.args,
