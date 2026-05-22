@@ -678,7 +678,6 @@ const collectSetupAnswers = async (
   if (plan.mode === "update") {
     answers.overwriteTemplates = await yesNo(rl, "Overwrite existing generated templates", false);
   }
-  answers.runDoctor = await yesNo(rl, "Run doctor after writing", true);
 
   return answers;
 };
@@ -741,7 +740,7 @@ const setup = Command.make("setup", { target: setupTarget }, ({ target }) =>
       }
 
       let doctorHealth: ReturnType<typeof interpretMorpheusSetupDoctorOutput> | undefined;
-      if (writeChanges && answers.runDoctor !== false) {
+      if (writeChanges) {
         console.log("");
         await Effect.runPromise(
           formatConfigSummary(
@@ -787,13 +786,9 @@ const setup = Command.make("setup", { target: setupTarget }, ({ target }) =>
       }
 
       if (writeChanges && !executionGates.daemonOnce.canRun) {
-        console.log(`Daemon --once not ready: ${executionGates.daemonOnce.skipReason}`);
+        throw new Error(`Setup completion blocked: ${executionGates.daemonOnce.skipReason}`);
       }
-      if (
-        writeChanges &&
-        executionGates.daemonOnce.canRun &&
-        (await yesNo(rl, "Run one daemon tick now", false))
-      ) {
+      if (writeChanges && executionGates.daemonOnce.canRun) {
         const config = loadCliConfig(Option.some(join(initialTarget, "morpheus.config.json")));
         console.log(
           await Effect.runPromise(

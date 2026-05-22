@@ -1046,4 +1046,56 @@ describe("setup planning", () => {
       expect(setupCanRunDaemonOnce(afterRemoval)).toBe(false);
     });
   });
+
+  it("requires doctor and daemon-once when setup writes changes", () => {
+    const declinedDoctor = planMorpheusSetup({
+      currentWorkingDirectory: "/repos/app",
+      detected: {
+        targetPath: {
+          exists: true,
+          isDirectory: true,
+          isReadable: true,
+          isGitWorktree: true,
+        },
+        gitlabProject: "group/app",
+      },
+      answers: { writeChanges: true, runDoctor: false },
+    });
+
+    expect(declinedDoctor.errors).toContain(
+      "Setup completion requires morpheus doctor after writing changes.",
+    );
+
+    const ready = planMorpheusSetup({
+      currentWorkingDirectory: "/repos/app",
+      detected: {
+        targetPath: {
+          exists: true,
+          isDirectory: true,
+          isReadable: true,
+          isGitWorktree: true,
+        },
+        gitlabProject: "group/app",
+        doctor: { beadsOk: true, gitlabOk: true, hasFail: false },
+      },
+      existing: {
+        config: existingConfig,
+        files: ["morpheus.config.json", ".morpheus/secrets/agent.env"],
+        authEnvKeys: ["OPENAI_API_KEY"],
+      },
+      answers: { writeChanges: true },
+    });
+
+    expect(ready.prompts).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ id: "doctor", value: true, validation: { status: "valid" } }),
+        expect.objectContaining({
+          id: "daemonOnce",
+          defaultValue: true,
+          value: true,
+          validation: { status: "valid" },
+        }),
+      ]),
+    );
+  });
 });

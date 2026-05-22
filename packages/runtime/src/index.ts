@@ -4209,17 +4209,21 @@ export const planMorpheusSetup = (input: SetupPlanningInput = {}): SetupPlan => 
     ),
     laneConcurrencyValidation(laneConcurrency),
     valid(),
-    valid(),
+    writeChanges && answers.runDoctor === false
+      ? invalid("Setup completion requires morpheus doctor after writing changes.")
+      : valid(),
     answers.runSync === true && !syncReady
       ? invalid("Sync requires doctor-confirmed Beads and GitLab health.")
       : agentAuthReady
         ? valid()
         : warning("Sync waits until doctor has no blocking auth or GitLab failures."),
-    answers.runDaemonOnce === true && !daemonOnceReady
-      ? invalid("Daemon tick requires doctor to have no FAIL results.")
-      : agentAuthReady
-        ? valid()
-        : warning("Daemon tick waits until doctor has no FAIL results."),
+    writeChanges && answers.runDaemonOnce === false
+      ? invalid("Setup completion requires morpheus daemon --once after writing changes.")
+      : answers.runDaemonOnce === true && !daemonOnceReady
+        ? invalid("Daemon tick requires doctor to have no FAIL results.")
+        : agentAuthReady
+          ? valid()
+          : warning("Daemon tick waits until doctor has no FAIL results."),
   ] as const;
 
   const prompts: readonly SetupPrompt[] = [
@@ -4414,7 +4418,7 @@ export const planMorpheusSetup = (input: SetupPlanningInput = {}): SetupPlan => 
       path: ".",
       action: "patch",
     }),
-    setupPrompt("doctor", true, answers.runDoctor ?? true, promptValidations[21], {
+    setupPrompt("doctor", true, writeChanges ? true : (answers.runDoctor ?? true), promptValidations[21], {
       kind: "command",
       command: "morpheus doctor",
     }),
@@ -4422,10 +4426,16 @@ export const planMorpheusSetup = (input: SetupPlanningInput = {}): SetupPlan => 
       kind: "command",
       command: "morpheus sync",
     }),
-    setupPrompt("daemonOnce", false, answers.runDaemonOnce ?? false, promptValidations[23], {
-      kind: "command",
-      command: "morpheus daemon --once",
-    }),
+    setupPrompt(
+      "daemonOnce",
+      writeChanges,
+      writeChanges ? (answers.runDaemonOnce ?? true) : (answers.runDaemonOnce ?? false),
+      promptValidations[23],
+      {
+        kind: "command",
+        command: "morpheus daemon --once",
+      },
+    ),
   ];
 
   const errors = prompts.flatMap((prompt) =>
