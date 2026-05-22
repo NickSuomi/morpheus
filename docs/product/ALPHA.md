@@ -67,7 +67,7 @@ Real agent execution is a separate Alpha signoff gate.
 
 Alpha signoff requires both:
 
-1. a tiny fixture/demo target repository for repeatable smoke verification;
+1. a tiny fixture/demo target repository for repeatable smoke verification (`fixtures/alpha-target-repo`; see `docs/product/alpha-fixture-smoke.md`);
 2. `private-target-repo` real-world PRIVATE_TARGET_WORKFLOW workflow signoff.
 
 The E2E path must prove at least one real container Codex execution through Morpheus, with operator-inspectable status, runs, slice, and logs.

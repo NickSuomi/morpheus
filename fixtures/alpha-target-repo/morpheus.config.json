@@ -1,0 +1,85 @@
+{
+  "targetRepo": ".",
+  "issueTracker": {
+    "kind": "beads"
+  },
+  "gitlab": {
+    "project": "local/alpha-fixture",
+    "readyLabel": "agent:ready",
+    "targetBranch": "main"
+  },
+  "daemon": {
+    "pollIntervalSeconds": 30
+  },
+  "mergeRequests": {
+    "kind": "gitlab-glab"
+  },
+  "agentRunner": {
+    "kind": "container",
+    "agent": {
+      "provider": "codex",
+      "model": "gpt-5.4-nano",
+      "effort": "low"
+    },
+    "auth": {
+      "envFile": ".morpheus/secrets/alpha-smoke.env",
+      "requiredKeys": ["OPENAI_API_KEY"]
+    },
+    "container": {
+      "image": "morpheus-alpha-fixture:local",
+      "profile": ".morpheus/container/Dockerfile",
+      "mounts": [
+        {
+          "hostPath": ".",
+          "containerPath": "/workspace"
+        }
+      ],
+      "setupHooks": []
+    },
+    "skills": {
+      "directory": ".morpheus/skills",
+      "mappings": [
+        {
+          "name": "alpha-smoke",
+          "path": ".morpheus/skills/alpha-smoke/SKILL.md"
+        }
+      ],
+      "stageMappings": {
+        "prepare": ["alpha-smoke"],
+        "implement": ["alpha-smoke"],
+        "review": ["alpha-smoke"]
+      }
+    }
+  },
+  "ledger": {
+    "path": ".morpheus/ledger.sqlite"
+  },
+  "lanes": {
+    "preparation": {
+      "concurrency": 1
+    },
+    "implementation": {
+      "concurrency": 1
+    },
+    "review": {
+      "concurrency": 1
+    }
+  },
+  "verification": {
+    "commands": ["node scripts/verify.js"]
+  },
+  "retention": {
+    "completedIntermediate": {
+      "keepDays": 14,
+      "keepLast": 20
+    },
+    "failed": "manual",
+    "reviewCandidate": "until-mr-closed-or-manual",
+    "active": "never"
+  },
+  "prompts": {
+    "prepare": ".morpheus/prompts/prepare.md",
+    "implement": ".morpheus/prompts/implement.md",
+    "review": ".morpheus/prompts/review.md"
+  }
+}

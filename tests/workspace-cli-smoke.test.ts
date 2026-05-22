@@ -2,6 +2,7 @@ import { beforeAll, describe, expect, it } from "vitest";
 import { execFileSync, spawnSync } from "node:child_process";
 import {
   chmodSync,
+  cpSync,
   existsSync,
   mkdirSync,
   mkdtempSync,
@@ -381,6 +382,54 @@ describe("morpheus cli", () => {
       rmSync(dir, { force: true, recursive: true });
     }
   });
+
+  it("smokes the Alpha fixture target repo through doctor and daemon once", () => {
+    const dir = mkdtempSync(join(tmpdir(), "morpheus-alpha-fixture-"));
+    try {
+      const fixtureRoot = join(process.cwd(), "fixtures", "alpha-target-repo");
+      cpSync(fixtureRoot, dir, { recursive: true });
+      execFileSync("git", ["init"], { cwd: dir, stdio: "ignore" });
+
+      const binDir = join(dir, "bin");
+      mkdirSync(binDir);
+      const shims: Record<string, string> = {
+        bd: "#!/bin/sh\nprintf '[]\\n'\n",
+        glab: "#!/bin/sh\nif [ \"$1\" = auth ] && [ \"$2\" = status ]; then printf 'Logged in\\n'; exit 0; fi\nprintf '[]\\n'\n",
+        docker: "#!/bin/sh\nexit 0\n",
+      };
+      for (const [command, script] of Object.entries(shims)) {
+        const path = join(binDir, command);
+        writeFileSync(path, script);
+        chmodSync(path, 0o755);
+      }
+
+      const env = { PATH: `${binDir}:${process.env.PATH ?? ""}` };
+      const configPath = join(dir, "morpheus.config.json");
+
+      const doctorOutput = runPnpm(
+        ["--filter", "@morpheus/cli", "morpheus", "doctor", "--config", configPath],
+        env,
+      );
+      expect(doctorOutput).toContain("Morpheus doctor");
+      expect(doctorOutput).not.toContain("FAIL ");
+      expect(doctorOutput).toContain("OK config: agent auth env file contains required keys");
+
+      const daemonOutput = runPnpm(
+        ["--filter", "@morpheus/cli", "morpheus", "daemon", "--once", "--config", configPath],
+        env,
+      );
+      expect(daemonOutput).toContain("Morpheus daemon tick");
+      expect(daemonOutput).toContain("selected: preparation=0 implementation=0 review=0");
+      expect(daemonOutput).toContain("work: None");
+
+      const readme = readFileSync(join(dir, "README.md"), "utf8");
+      expect(readme).toContain("Alpha E2E smoke fixture");
+      expect(readme).toContain("morpheus doctor");
+      expect(readme).toContain("morpheus daemon --once");
+    } finally {
+      rmSync(dir, { force: true, recursive: true });
+    }
+  }, 20_000);
 
   it("runs daemon once and reports no work", () => {
     const dir = mkdtempSync(join(tmpdir(), "morpheus-cli-daemon-"));
