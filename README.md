@@ -47,10 +47,38 @@ pnpm typecheck:fast
 per-package `tsgo --noEmit`. This keeps workspace package imports resolvable
 while TypeScript native workspace resolution is still being proven.
 
+## Alpha Curl Installer
+
+Alpha installation is release-artifact based and must not build Morpheus from
+source on operator machines. The installer installs `morpheus` into a
+configurable bin directory, verifies published checksums when a checksum URL is
+provided, validates `morpheus --version`, and prints the setup next step.
+
+```bash
+curl -fsSL <install-url> | sh
+morpheus --version
+```
+
+Optional installer environment:
+
+```bash
+MORPHEUS_INSTALL_DIR="$HOME/.local/bin" \
+MORPHEUS_VERSION="0.1.0" \
+MORPHEUS_RELEASE_URL="https://example.com/morpheus-0.1.0-darwin-arm64.tar.gz" \
+MORPHEUS_CHECKSUM_URL="https://example.com/checksums.txt" \
+sh scripts/install.sh
+```
+
+After install, run:
+
+```bash
+cd target-repo && morpheus setup
+```
+
 ## Local CLI Install
 
-Morpheus is not published to npm yet. Use pnpm from this repo to build and link
-the local CLI package:
+For development only, use pnpm from this repo to build and link the local CLI
+package:
 
 ```bash
 cd /Users/nicksuomi/sandbox/morpheus
