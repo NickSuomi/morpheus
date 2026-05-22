@@ -1358,6 +1358,25 @@ const authRequiredKeysForOptions = (
   options: Pick<SandcastleAgentRunnerOptions, "authRequiredKeys">,
 ): readonly string[] => options.authRequiredKeys ?? defaultAuthRequiredKeys(agentConfig);
 
+const shellQuote = (value: string): string => `'${value.replaceAll("'", `'"'"'`)}'`;
+
+const codexWithApiKeyLogin = (
+  model: string,
+  options: { readonly effort: ContainerAgentConfig["effort"] },
+): AgentProvider => {
+  const baseAgent = codex(model, options);
+
+  return {
+    ...baseAgent,
+    buildPrintCommand: (input) => {
+      const command = baseAgent.buildPrintCommand(input).command;
+      return {
+        command: `sh -lc ${shellQuote(`mkdir -p "$CODEX_HOME" && printf '%s\n' "$OPENAI_API_KEY" | codex login --with-api-key >/dev/null && ${command}`)}`,
+      };
+    },
+  };
+};
+
 const checkDockerCompatibleRuntime = (
   processRunner: ProcessRunnerService,
 ): Effect.Effect<void, AgentRunnerError> =>
@@ -1399,7 +1418,7 @@ const runSandcastlePhase = (
       const runner = options.run ?? sandcastleRun;
       const agentConfig = options.agentConfig ?? {
         provider: "codex" as const,
-        model: "gpt-5.4-nano",
+        model: "gpt-5.5",
         effort: "xhigh" as const,
       };
       const authEnv = readAuthEnv(
@@ -1407,12 +1426,15 @@ const runSandcastlePhase = (
         authRequiredKeysForOptions(agentConfig, options),
         options.authEnvFile,
       );
+      if (agentConfig.provider === "codex" && authEnv.CODEX_HOME !== undefined) {
+        throw new Error("Codex agent auth env file must not set CODEX_HOME; use OPENAI_API_KEY only");
+      }
       const containerConfig = options.containerConfig ?? {
         image: "morpheus-agent:local",
         mounts: [],
       };
       const result = await runner({
-        agent: options.agent ?? codex(agentConfig.model, { effort: agentConfig.effort }),
+        agent: options.agent ?? codexWithApiKeyLogin(agentConfig.model, { effort: agentConfig.effort }),
         sandbox:
           options.sandbox ??
           (options.dockerFactory ?? docker)({
@@ -1430,6 +1452,7 @@ const runSandcastlePhase = (
             env: {
               ...authEnv,
               HOME: "/tmp/morpheus-home",
+              CODEX_HOME: "/tmp/morpheus-codex-home",
               XDG_CONFIG_HOME: "/tmp/morpheus-home/.config",
             },
           }),
@@ -1475,7 +1498,7 @@ export const createSandcastleAgentRunner = (
         try: () => {
           const agentConfig = options.agentConfig ?? {
             provider: "codex" as const,
-            model: "gpt-5.4-nano",
+            model: "gpt-5.5",
             effort: "xhigh" as const,
           };
           readAuthEnv(

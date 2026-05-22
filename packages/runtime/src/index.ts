@@ -3591,7 +3591,7 @@ const makeInitialConfig = (
     kind: "container",
     agent: {
       provider: "codex",
-      model: "gpt-5.4-nano",
+      model: "gpt-5.5",
       effort: "xhigh",
     },
     auth: {
@@ -4078,7 +4078,7 @@ export const planMorpheusSetup = (input: SetupPlanningInput = {}): SetupPlan => 
     "main";
   const readyLabel = answers.readyLabel ?? existingConfig?.gitlab.readyLabel ?? "agent:ready";
   const agentModel =
-    answers.agentModel ?? existingConfig?.agentRunner.agent.model ?? "gpt-5.4-nano";
+    answers.agentModel ?? existingConfig?.agentRunner.agent.model ?? "gpt-5.5";
   const agentEffort = answers.agentEffort ?? existingConfig?.agentRunner.agent.effort ?? "xhigh";
   const authEnvFile =
     answers.authEnvFile ??
@@ -4288,7 +4288,7 @@ export const planMorpheusSetup = (input: SetupPlanningInput = {}): SetupPlan => 
     }),
     setupPrompt(
       "agentModel",
-      existingConfig?.agentRunner.agent.model ?? "gpt-5.4-nano",
+      existingConfig?.agentRunner.agent.model ?? "gpt-5.5",
       agentModel,
       promptValidations[7],
       {
