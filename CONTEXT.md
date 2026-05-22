@@ -54,6 +54,14 @@ Container runtime reachable through Docker CLI/API semantics, such as Docker Des
 
 Explicit target/runtime environment file containing the token an agent may use, such as Codex API credentials. Default path is `.morpheus/secrets/agent.env`, with `.morpheus/secrets/agent.env.example` as the non-secret template. Morpheus must not silently use global host Codex authentication like `~/.codex` for agent runs. If the configured auth file is missing or lacks the required token, agent execution fails with an operator-auth error before work starts.
 
+### Blocking Health Check
+
+Doctor check that prevents Morpheus from safely running lanes. Blocking checks cover prerequisites Morpheus itself needs to explain and execute work, such as config, Beads, GitLab access, Docker-compatible runtime access, ledger access, agent auth, workspace access, and the configured container image for container-backed agents.
+
+### Advisory Health Check
+
+Doctor check that exposes target- or task-specific risk but does not prevent daemon startup. Advisory checks cover optional target toolchains such as Java, Android SDK, pnpm, Node inside a container image, or other verification tools that may be required by a later task. Morpheus reports these risks so operators and agents can see them before a run, but task-specific verification owns the eventual pass/fail evidence.
+
 ### Container Profile
 
 Editable Morpheus-owned container setup generated for a target repository, such as `.morpheus/container/Dockerfile` and supporting docs. Morpheus may detect likely repo capabilities like Node, Android, or iOS and generate guidance/probes, but v1 does not auto-install heavyweight toolchains such as Android SDK or Xcode. Operators opt in by editing the container profile.
