@@ -34,7 +34,7 @@ const validConfig = {
     kind: "container",
     agent: {
       provider: "codex",
-      model: "gpt-5.4-nano",
+      model: "gpt-5.5",
       effort: "xhigh",
     },
     auth: {
@@ -244,7 +244,7 @@ describe("Morpheus config", () => {
           kind: "container",
           agent: {
             provider: "codex",
-            model: "gpt-5.4-nano",
+            model: "gpt-5.5",
             effort: "xhigh",
           },
           auth: {
@@ -612,7 +612,7 @@ describe("Morpheus config", () => {
             kind: "container",
             agent: {
               provider: "codex",
-              model: "gpt-5.4-nano",
+              model: "gpt-5.5",
               effort: "xhigh",
             },
             auth: {
