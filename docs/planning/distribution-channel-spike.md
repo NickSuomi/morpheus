@@ -57,6 +57,10 @@ Packaging entry points:
 - local dry run: `scripts/package-release.sh --version <version> --skip-build`;
 - release workflow: `.github/workflows/release-artifacts.yml`.
 
+`scripts/package-release.sh` writes `SHA256SUMS` beside the tarballs. The
+installer checks `MORPHEUS_CHECKSUM_URL` when provided and defaults to the
+release's `SHA256SUMS` asset for GitHub Release URLs.
+
 ## Rejected Alternatives
 
 Homebrew is not v1 because it needs a tap, formula maintenance, bottle workflow,

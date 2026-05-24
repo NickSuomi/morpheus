@@ -111,4 +111,41 @@ describe("curl release installer", () => {
       rmSync(dir, { force: true, recursive: true });
     }
   });
+
+  it("fails when release artifact checksum does not match", () => {
+    const dir = mkdtempSync(join(tmpdir(), "morpheus-install-checksum-test-"));
+    try {
+      const binDir = join(dir, "bin");
+      const shimPath = join(dir, "morpheus-shim");
+      const checksumPath = join(dir, "SHA256SUMS");
+      mkdirSync(binDir, { recursive: true });
+      writeFileSync(
+        shimPath,
+        '#!/bin/sh\nif [ "$1" = "--version" ]; then echo "0.1.0-bad"; else echo "morpheus shim"; fi\n',
+      );
+      chmodSync(shimPath, 0o755);
+      writeFileSync(
+        checksumPath,
+        `0000000000000000000000000000000000000000000000000000000000000000  ${basename(shimPath)}\n`,
+      );
+
+      const result = spawnSync("sh", [installScript], {
+        cwd: repoRoot,
+        env: {
+          ...process.env,
+          MORPHEUS_BIN_DIR: binDir,
+          MORPHEUS_RELEASE_URL: `file://${shimPath}`,
+          MORPHEUS_CHECKSUM_URL: `file://${checksumPath}`,
+          MORPHEUS_VERSION: "0.1.0-bad",
+        },
+        encoding: "utf8",
+        stdio: ["ignore", "pipe", "pipe"],
+      });
+
+      expect(result.status).toBe(1);
+      expect(result.stderr).toContain("checksum mismatch for Morpheus release artifact");
+    } finally {
+      rmSync(dir, { force: true, recursive: true });
+    }
+  });
 });

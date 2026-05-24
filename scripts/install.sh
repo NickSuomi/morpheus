@@ -56,10 +56,22 @@ morpheus_default_artifact_url() {
   printf 'https://github.com/nicksuomi/morpheus/releases/download/v%s/morpheus-%s-%s-%s.tar.gz\n' "$MORPHEUS_VERSION" "$MORPHEUS_VERSION" "$os" "$arch"
 }
 
+morpheus_default_checksum_url() {
+  case "$MORPHEUS_RELEASE_URL" in
+    https://github.com/*/releases/download/*/*)
+      base=${MORPHEUS_RELEASE_URL%/*}
+      printf '%s/SHA256SUMS\n' "$base"
+      ;;
+    *)
+      printf '\n'
+      ;;
+  esac
+}
+
 MORPHEUS_VERSION=${MORPHEUS_VERSION:-0.1.0}
 MORPHEUS_INSTALL_DIR=${MORPHEUS_INSTALL_DIR:-${MORPHEUS_BIN_DIR:-${BIN_DIR:-$HOME/.local/bin}}}
 MORPHEUS_RELEASE_URL=${MORPHEUS_RELEASE_URL:-$(morpheus_default_artifact_url)}
-MORPHEUS_CHECKSUM_URL=${MORPHEUS_CHECKSUM_URL:-}
+MORPHEUS_CHECKSUM_URL=${MORPHEUS_CHECKSUM_URL:-$(morpheus_default_checksum_url)}
 
 morpheus_need tar
 morpheus_need mkdir

@@ -1,5 +1,5 @@
 import { execFileSync } from "node:child_process";
-import { mkdtempSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
@@ -22,13 +22,18 @@ describe("release packaging", () => {
         `${JSON.stringify(packageScript)} --version 0.1.0-test --out-dir ${JSON.stringify(dir)} --skip-build`,
         repoRoot,
       );
+      const checksums = readFileSync(join(dir, "SHA256SUMS"), "utf8");
 
       for (const os of ["darwin", "linux"]) {
         for (const arch of ["arm64", "x64"]) {
           const artifact = join(dir, `morpheus-0.1.0-test-${os}-${arch}.tar.gz`);
           const listing = sh(`tar -tzf ${JSON.stringify(artifact)}`, repoRoot);
 
+          expect(existsSync(artifact)).toBe(true);
           expect(output).toContain(`morpheus-0.1.0-test-${os}-${arch}.tar.gz`);
+          expect(checksums).toMatch(
+            new RegExp(`[0-9a-f]{64}  morpheus-0\\.1\\.0-test-${os}-${arch}\\.tar\\.gz`),
+          );
           expect(listing).toContain("bin/morpheus");
           expect(listing).toContain("lib/index.mjs");
 
