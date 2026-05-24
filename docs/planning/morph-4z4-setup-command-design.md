@@ -155,19 +155,21 @@ If the configured ready label is not `agent:ready`, the printed guidance should 
 
 ## Non-Interactive And CI Considerations
 
-Do not implement non-interactive setup in the first production slice, but design the interactive flow so it can become scriptable later.
+Non-interactive setup is available for CI and scripted target onboarding. It
+uses the same runtime setup planner as the interactive command, but never opens
+terminal prompts.
 
-Likely later flags:
+Supported flags:
 
 - `--target <path>`: target repository path.
 - `--gitlab-project <group/project>`: GitLab project path.
 - `--target-branch <branch>`: GitLab MR target branch.
 - `--gitlab-ready-label <label>`: GitLab import trigger label.
 - `--auth-env-file <path>`: explicit agent auth env file path.
-- `--required-auth-key <key>` repeated or comma-separated.
+- `--required-auth-key <key[,key]>`: required auth env keys.
 - `--container-image <image>`: configured agent image tag.
 - `--container-profile <path>`: editable container Dockerfile path.
-- `--verification-command <command>` repeated.
+- `--verification-command <command[,command]>`: configured verification commands.
 - `--poll-interval-seconds <number>`: daemon poll interval.
 - `--yes`: accept safe defaults and file writes, but still never fill secret values.
 - `--no-build`: skip image build and print command.
@@ -177,7 +179,10 @@ Likely later flags:
 - `--config-input <json>`: read a declarative setup answer file.
 - `--dry-run`: render planned prompts, defaults, validation, and mutations without writing.
 
-CI mode should fail closed when required inputs are missing. It should emit machine-readable result data only after a later output contract exists; v1 can keep plain text.
+CI mode fails closed when required inputs are missing. `--dry-run` is always
+non-mutating, including when paired with `--yes`. Config input accepts public
+setup answers only; secret values are rejected instead of stored or printed.
+Machine-readable result data remains future work; v1 keeps plain text.
 
 ## Implementation Shape For Later
 

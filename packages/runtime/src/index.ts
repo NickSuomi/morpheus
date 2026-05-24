@@ -4105,8 +4105,7 @@ export const planMorpheusSetup = (input: SetupPlanningInput = {}): SetupPlan => 
     input.detected?.defaultBranch ??
     "main";
   const readyLabel = answers.readyLabel ?? existingConfig?.gitlab.readyLabel ?? "agent:ready";
-  const agentModel =
-    answers.agentModel ?? existingConfig?.agentRunner.agent.model ?? "gpt-5.5";
+  const agentModel = answers.agentModel ?? existingConfig?.agentRunner.agent.model ?? "gpt-5.5";
   const agentEffort = answers.agentEffort ?? existingConfig?.agentRunner.agent.effort ?? "xhigh";
   const authEnvFile =
     answers.authEnvFile ??
@@ -4206,7 +4205,8 @@ export const planMorpheusSetup = (input: SetupPlanningInput = {}): SetupPlan => 
 
   const promptValidations = [
     targetValidation,
-    input.existing?.configError === undefined
+    input.existing?.configError === undefined ||
+    input.existing.configError.kind === "missing_config"
       ? valid()
       : invalid(`Existing Morpheus config is invalid: ${input.existing.configError.kind}`),
     overwriteTemplatesValidation(overwriteTemplates, existingFiles),
@@ -4446,10 +4446,16 @@ export const planMorpheusSetup = (input: SetupPlanningInput = {}): SetupPlan => 
       path: ".",
       action: "patch",
     }),
-    setupPrompt("doctor", true, writeChanges ? true : (answers.runDoctor ?? true), promptValidations[21], {
-      kind: "command",
-      command: "morpheus doctor",
-    }),
+    setupPrompt(
+      "doctor",
+      true,
+      writeChanges ? true : (answers.runDoctor ?? true),
+      promptValidations[21],
+      {
+        kind: "command",
+        command: "morpheus doctor",
+      },
+    ),
     setupPrompt("sync", false, answers.runSync ?? false, promptValidations[22], {
       kind: "command",
       command: "morpheus sync",
@@ -4824,7 +4830,7 @@ const containerDockerfileTemplate = [
   "USER 0",
   "",
   "# Morpheus starts the container once, then execs agent commands into it.",
-  "CMD [\"sleep\", \"infinity\"]",
+  'CMD ["sleep", "infinity"]',
   "",
 ].join("\n");
 
