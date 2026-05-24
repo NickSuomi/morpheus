@@ -59,6 +59,14 @@ need cp
 need mkdir
 need rm
 need tar
+if command -v sha256sum >/dev/null 2>&1; then
+  sha256_cmd="sha256sum"
+elif command -v shasum >/dev/null 2>&1; then
+  sha256_cmd="shasum -a 256"
+else
+  printf '%s\n' "package-release: missing required command: sha256sum or shasum" >&2
+  exit 127
+fi
 
 repo_root=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
 mkdir -p "$(dirname -- "$out_dir")"
@@ -76,6 +84,8 @@ fi
 
 rm -rf "$out_dir_abs"
 mkdir -p "$out_dir_abs"
+checksums="$out_dir_abs/SHA256SUMS"
+: >"$checksums"
 
 for os in darwin linux; do
   for arch in arm64 x64; do
@@ -96,7 +106,12 @@ fi
 exec node "\$(dirname "\$0")/../lib/index.mjs" "\$@"
 EOF
     chmod 0755 "$stage/bin/morpheus"
-    tar -czf "$out_dir_abs/$name.tar.gz" -C "$stage" .
-    printf '%s\n' "$out_dir_abs/$name.tar.gz"
+    artifact="$out_dir_abs/$name.tar.gz"
+    tar -czf "$artifact" -C "$stage" .
+    # shellcheck disable=SC2086
+    digest=$($sha256_cmd "$artifact" | awk '{print $1}')
+    printf '%s  %s\n' "$digest" "$(basename -- "$artifact")" >>"$checksums"
+    printf '%s\n' "$artifact"
   done
 done
+printf '%s\n' "$checksums"
