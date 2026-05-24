@@ -241,6 +241,68 @@ describe("SandcastleAgentRunner", () => {
     });
   });
 
+  it("runs implementation in the prepared worktree, not the base checkout", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "morpheus-sandcastle-"));
+    const worktreePath = join(dir, "../.morpheus-worktree-run_123");
+    const calls: Array<{ cwd?: string }> = [];
+    const runner = createSandcastleAgentRunner({
+      cwd: dir,
+      logDirectory: join(dir, ".morpheus", "sandcastle-logs"),
+      agent: {
+        name: "fake",
+        env: {},
+        captureSessions: false,
+        buildPrintCommand: () => ({ command: "fake" }),
+        parseStreamLine: () => [],
+      },
+      sandbox: {
+        kind: "none",
+        exec: async () => ({ stdout: "", stderr: "", exitCode: 0 }),
+        close: async () => ({}),
+      } as never,
+      run: async (options) => {
+        calls.push({ cwd: options.cwd });
+        return {
+          iterations: [],
+          stdout: `<morpheus_result>{"status":"implemented","implementationEvidence":[],"verificationEvidence":[],"transcript":"","artifact":{}}</morpheus_result>`,
+          commits: [],
+          branch: "morpheus/morph-bbp-run_123",
+        };
+      },
+    });
+
+    const effect = runner.implementIssue?.({
+      issue: trackedIssue(),
+      contract: {
+        category: "task",
+        summary: "Prepared",
+        currentBehavior: "Before",
+        desiredBehavior: "After",
+        keyInterfaces: ["AgentRunner"],
+        acceptanceCriteria: ["Runs"],
+        outOfScope: ["None"],
+        verificationPlan: ["pnpm check"],
+        blockedBy: "None",
+        hitlDecisions: "None",
+        riskLevel: "medium",
+      },
+      workspace: {
+        workspacePath: dir,
+        worktreePath,
+        branch: "morpheus/morph-bbp-run_123",
+        targetBranch: "dev",
+        remote: "origin",
+      },
+      mergeRequest: {
+        reference: "!42",
+        url: "https://example.invalid/group/project/mr/42",
+      },
+    });
+    await Effect.runPromise(effect ?? Effect.die("missing implementIssue"));
+
+    expect(calls).toEqual([{ cwd: worktreePath }]);
+  });
+
   it("uses prompt override files relative to the target repo", async () => {
     const dir = mkdtempSync(join(tmpdir(), "morpheus-sandcastle-"));
     writeFileSync(join(dir, "prepare.md"), "custom prompt that cannot remove required gates");
@@ -783,7 +845,7 @@ describe("SandcastleAgentRunner", () => {
       }) ?? Effect.die("missing implementIssue"),
     );
 
-    expect(calls[0].cwd).toBe("/workspace/morph-bbp");
+    expect(calls[0].cwd).toBe("/worktree/morph-bbp");
     expect(calls[0].name).toBe("morpheus-implement-morph-bbp");
     expect(calls[0].prompt).toContain("Workspace: /workspace/morph-bbp");
     expect(calls[0].prompt).toContain("Branch: agent/morph-bbp");
