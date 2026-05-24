@@ -14,6 +14,9 @@ local clones.
 - Private target signoff evidence stays outside Morpheus git.
 - Public docs, tests, fixtures, commits, and release artifacts use anonymized
   public target names only.
+- `pnpm scan:private-data` is the local/CI gate for current-tree private data.
+  Set `MORPHEUS_FORBIDDEN_PRIVATE_PATTERNS` to the current operator-approved
+  private target names, hostnames, and path fragments before running it.
 
 ## Required Tools
 
@@ -31,6 +34,7 @@ in this file.
 
    ```sh
    git ls-files .beads
+   pnpm scan:private-data
    rg -n "$MORPHEUS_FORBIDDEN_PRIVATE_PATTERNS" \
      README.md AGENTS.md CONTEXT.md ARCHITECTURE.md docs packages tests fixtures scripts .gitignore package.json
    gitleaks detect --source . --redact --verbose

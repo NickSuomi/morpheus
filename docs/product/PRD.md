@@ -14,7 +14,7 @@ Motto: **If it can't explain itself, it can't run.**
 
 ## Solution
 
-Build **Morpheus** as a separate project under `/Users/nicksuomi/sandbox/morpheus`.
+Build **Morpheus** as a separate public project outside the private target repository.
 
 Morpheus is the product name, CLI name, daemon name, and public vocabulary. "Sandcastle" must not appear as product vocabulary. It may appear only as a low-level adapter implementation detail, because Morpheus can use the `@ai-hero/sandcastle` library internally.
 
@@ -65,7 +65,7 @@ Target repo owns:
 ## Implementation Decisions
 
 - Project name is **Morpheus**.
-- Project path is `/Users/nicksuomi/sandbox/morpheus`.
+- Project location is outside the private target repository.
 - Current private target repo-local agent implementations are reference material, not the long-term product location.
 - Public naming should use Morpheus vocabulary, not Sandcastle vocabulary.
 - Allowed Sandcastle name use: `SandcastleAgentRunner` as adapter around `@ai-hero/sandcastle`.

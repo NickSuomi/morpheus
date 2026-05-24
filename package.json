@@ -10,8 +10,9 @@
     "typecheck:fast": "pnpm build && pnpm -r typecheck:fast",
     "test": "vitest run",
     "lint": "oxlint .",
+    "scan:private-data": "scripts/private-data-scan.sh .",
     "format": "oxfmt --write .",
-    "check": "pnpm lint && pnpm build && pnpm typecheck && pnpm test"
+    "check": "pnpm scan:private-data && pnpm lint && pnpm build && pnpm typecheck && pnpm test"
   },
   "devDependencies": {
     "@types/node": "24.10.1",
