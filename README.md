@@ -235,7 +235,7 @@ ALPHA includes `morpheus setup` as the guided target-repo onboarding path. The r
 
 ### Production Distribution
 
-Planned beyond the current ALPHA release process. The chosen ALPHA direction is curl-installed release artifacts. Public hosting, checksums/signing policy, Homebrew, npm/binary packaging, and update flow are still distribution work.
+Planned through GitHub Release artifacts plus `scripts/install.sh`; see `docs/planning/distribution-channel-spike.md`. Homebrew and npm/binary packaging are intentionally deferred until the release artifact path is stable.
 
 ### ALPHA E2E Signoff
 
