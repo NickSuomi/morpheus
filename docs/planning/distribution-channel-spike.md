@@ -52,6 +52,11 @@ morpheus-<version>-linux-x64.tar.gz
 SHA256SUMS
 ```
 
+Packaging entry points:
+
+- local dry run: `scripts/package-release.sh --version <version> --skip-build`;
+- release workflow: `.github/workflows/release-artifacts.yml`.
+
 ## Rejected Alternatives
 
 Homebrew is not v1 because it needs a tap, formula maintenance, bottle workflow,
