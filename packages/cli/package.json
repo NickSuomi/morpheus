@@ -1,14 +1,14 @@
 {
   "name": "@morpheus/cli",
   "version": "0.1.0",
-  "type": "module",
   "bin": {
     "morpheus": "./dist/index.mjs"
   },
+  "type": "module",
+  "types": "./dist/index.d.mts",
   "exports": {
     ".": "./dist/index.mjs"
   },
-  "types": "./dist/index.d.mts",
   "scripts": {
     "build": "tsdown",
     "typecheck": "tsc --noEmit --incremental",

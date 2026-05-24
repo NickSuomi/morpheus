@@ -40,9 +40,11 @@ describe("release packaging", () => {
           const extractDir = join(dir, `${os}-${arch}`);
           sh(`mkdir -p ${JSON.stringify(extractDir)}`, repoRoot);
           sh(`tar -xzf ${JSON.stringify(artifact)} -C ${JSON.stringify(extractDir)}`, repoRoot);
-          expect(execFileSync(join(extractDir, "bin", "morpheus"), ["--version"], {
-            encoding: "utf8",
-          }).trim()).toBe("0.1.0-test");
+          expect(
+            execFileSync(join(extractDir, "bin", "morpheus"), ["--version"], {
+              encoding: "utf8",
+            }).trim(),
+          ).toBe("0.1.0-test");
         }
       }
     } finally {

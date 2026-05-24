@@ -2,10 +2,10 @@
   "name": "@morpheus/runtime",
   "version": "0.1.0",
   "type": "module",
+  "types": "./dist/index.d.mts",
   "exports": {
     ".": "./dist/index.mjs"
   },
-  "types": "./dist/index.d.mts",
   "scripts": {
     "build": "tsdown",
     "typecheck": "tsc --noEmit --incremental",
@@ -13,8 +13,8 @@
     "test": "vitest run"
   },
   "dependencies": {
-    "@morpheus/core": "workspace:*",
     "@effect/schema": "0.75.5",
+    "@morpheus/core": "workspace:*",
     "effect": "3.21.2"
   },
   "devDependencies": {

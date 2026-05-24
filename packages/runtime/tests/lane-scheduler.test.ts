@@ -36,7 +36,8 @@ const fakeIssueTracker = (issues: readonly TrackedIssue[]) => {
       calls.push("listRunnableIssues");
       return Effect.succeed(issues);
     },
-    getIssue: (issueId) => Effect.succeed(issues.find((issue) => issue.id === issueId) ?? issues[0]),
+    getIssue: (issueId) =>
+      Effect.succeed(issues.find((issue) => issue.id === issueId) ?? issues[0]),
     applyAgentState: (issueId, transitionPlan) =>
       Effect.succeed({
         status: "applied",

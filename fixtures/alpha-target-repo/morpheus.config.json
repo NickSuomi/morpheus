@@ -18,8 +18,8 @@
     "kind": "container",
     "agent": {
       "provider": "codex",
-      "model": "gpt-5.4-nano",
-      "effort": "low"
+      "model": "gpt-5.4-mini",
+      "effort": "xhigh"
     },
     "auth": {
       "envFile": ".morpheus/secrets/alpha-smoke.env",

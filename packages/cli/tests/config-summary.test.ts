@@ -19,7 +19,7 @@ describe("config summary", () => {
           kind: "container",
           agent: {
             provider: "codex",
-            model: "gpt-5.5",
+            model: "gpt-5.4-mini",
             effort: "xhigh",
           },
           auth: {
@@ -84,7 +84,7 @@ describe("config summary", () => {
     });
 
     expect(output).toContain("agentRunner: container");
-    expect(output).toContain("agent: provider=codex model=gpt-5.5 effort=xhigh");
+    expect(output).toContain("agent: provider=codex model=gpt-5.4-mini effort=xhigh");
     expect(output).toContain(
       "auth: envFile=.morpheus/secrets/agent.env requiredKeys=OPENAI_API_KEY",
     );

@@ -3,20 +3,8 @@
   "kind": "codebase",
   "project": {
     "name": "Morpheus",
-    "languages": [
-      "dockerfile",
-      "javascript",
-      "json",
-      "markdown",
-      "shell",
-      "typescript",
-      "yaml"
-    ],
-    "frameworks": [
-      "Effect",
-      "Vitest",
-      "pnpm workspace"
-    ],
+    "languages": ["dockerfile", "javascript", "json", "markdown", "shell", "typescript", "yaml"],
+    "frameworks": ["Effect", "Vitest", "pnpm workspace"],
     "description": "Local repo-based agent orchestration system for explainable software work across Beads lifecycle state, GitLab review artifacts, container-backed agents, and run ledgers.",
     "analyzedAt": "2026-05-23T21:41:57.807Z",
     "gitCommitHash": "f99d9a4dc0414360da85fada3016878a8fe6f2f2"
@@ -28,9 +16,7 @@
       "name": "SKILL.md",
       "filePath": ".agents/skills/beads/SKILL.md",
       "summary": "Source file in .agents/skills/beads.",
-      "tags": [
-        "documentation"
-      ],
+      "tags": ["documentation"],
       "complexity": "simple"
     },
     {
@@ -39,9 +25,7 @@
       "name": "openai.yaml",
       "filePath": ".agents/skills/beads/agents/openai.yaml",
       "summary": "Project or package configuration used by builds, tests, TypeScript, Vitest, or workspace tooling.",
-      "tags": [
-        "configuration"
-      ],
+      "tags": ["configuration"],
       "complexity": "simple"
     },
     {
@@ -50,10 +34,7 @@
       "name": "AGENTS.md",
       "filePath": "AGENTS.md",
       "summary": "Repository instructions for agents, required docs, Beads workflow, vocabulary, and commit hygiene.",
-      "tags": [
-        "agent-guidance",
-        "documentation"
-      ],
+      "tags": ["agent-guidance", "documentation"],
       "complexity": "simple"
     },
     {
@@ -62,9 +43,7 @@
       "name": "ARCHITECTURE.md",
       "filePath": "ARCHITECTURE.md",
       "summary": "Describes Morpheus monorepo package ownership, Effect runtime boundary, config shape, scheduler, and run ledger architecture.",
-      "tags": [
-        "documentation"
-      ],
+      "tags": ["documentation"],
       "complexity": "moderate"
     },
     {
@@ -73,9 +52,7 @@
       "name": "CONTEXT.md",
       "filePath": "CONTEXT.md",
       "summary": "Defines Morpheus product vocabulary, target repository boundary, run/ledger terms, auth expectations, and operator health concepts.",
-      "tags": [
-        "documentation"
-      ],
+      "tags": ["documentation"],
       "complexity": "simple"
     },
     {
@@ -84,9 +61,7 @@
       "name": "Dockerfile",
       "filePath": "Dockerfile",
       "summary": "Container/service definition used by Morpheus development or target runtime setup.",
-      "tags": [
-        "source"
-      ],
+      "tags": ["source"],
       "complexity": "simple"
     },
     {
@@ -95,9 +70,7 @@
       "name": "README.md",
       "filePath": "README.md",
       "summary": "Operator-facing overview, quickstart, daemon usage, inspection commands, troubleshooting, and development scripts.",
-      "tags": [
-        "documentation"
-      ],
+      "tags": ["documentation"],
       "complexity": "moderate"
     },
     {
@@ -106,11 +79,7 @@
       "name": "0001-use-typescript-monorepo-with-effect-runtime.md",
       "filePath": "docs/adr/0001-use-typescript-monorepo-with-effect-runtime.md",
       "summary": "Accepted architecture decision: ADR 0001: Use TypeScript Monorepo With Effect Runtime.",
-      "tags": [
-        "adr",
-        "architecture-decision",
-        "documentation"
-      ],
+      "tags": ["adr", "architecture-decision", "documentation"],
       "complexity": "simple"
     },
     {
@@ -119,11 +88,7 @@
       "name": "0002-use-beads-as-issue-state-and-gitlab-mrs-as-review-artifacts.md",
       "filePath": "docs/adr/0002-use-beads-as-issue-state-and-gitlab-mrs-as-review-artifacts.md",
       "summary": "Accepted architecture decision: ADR 0002: Use Beads As Issue State And GitLab MRs As Review Artifacts.",
-      "tags": [
-        "adr",
-        "architecture-decision",
-        "documentation"
-      ],
+      "tags": ["adr", "architecture-decision", "documentation"],
       "complexity": "simple"
     },
     {
@@ -132,11 +97,7 @@
       "name": "0003-use-hybrid-run-ledger.md",
       "filePath": "docs/adr/0003-use-hybrid-run-ledger.md",
       "summary": "Accepted architecture decision: ADR 0003: Use Hybrid Run Ledger.",
-      "tags": [
-        "adr",
-        "architecture-decision",
-        "documentation"
-      ],
+      "tags": ["adr", "architecture-decision", "documentation"],
       "complexity": "simple"
     },
     {
@@ -145,11 +106,7 @@
       "name": "0004-use-polling-daemon-with-independent-lanes.md",
       "filePath": "docs/adr/0004-use-polling-daemon-with-independent-lanes.md",
       "summary": "Accepted architecture decision: ADR 0004: Use Polling Daemon With Independent Lanes.",
-      "tags": [
-        "adr",
-        "architecture-decision",
-        "documentation"
-      ],
+      "tags": ["adr", "architecture-decision", "documentation"],
       "complexity": "simple"
     },
     {
@@ -158,11 +115,7 @@
       "name": "0005-defer-effect-v4-migration.md",
       "filePath": "docs/adr/0005-defer-effect-v4-migration.md",
       "summary": "Accepted architecture decision: ADR 0005: Defer Effect v4 Migration.",
-      "tags": [
-        "adr",
-        "architecture-decision",
-        "documentation"
-      ],
+      "tags": ["adr", "architecture-decision", "documentation"],
       "complexity": "simple"
     },
     {
@@ -171,11 +124,7 @@
       "name": "0006-defer-effect-v4-after-reevaluation.md",
       "filePath": "docs/adr/0006-defer-effect-v4-after-reevaluation.md",
       "summary": "Accepted architecture decision: ADR 0006: Defer Effect v4 After Re-evaluation.",
-      "tags": [
-        "adr",
-        "architecture-decision",
-        "documentation"
-      ],
+      "tags": ["adr", "architecture-decision", "documentation"],
       "complexity": "simple"
     },
     {
@@ -184,10 +133,7 @@
       "name": "domain.md",
       "filePath": "docs/agents/domain.md",
       "summary": "Agent workflow guidance: Domain Docs.",
-      "tags": [
-        "agent-guidance",
-        "documentation"
-      ],
+      "tags": ["agent-guidance", "documentation"],
       "complexity": "simple"
     },
     {
@@ -196,10 +142,7 @@
       "name": "issue-tracker.md",
       "filePath": "docs/agents/issue-tracker.md",
       "summary": "Agent workflow guidance: Issue Tracker: Beads.",
-      "tags": [
-        "agent-guidance",
-        "documentation"
-      ],
+      "tags": ["agent-guidance", "documentation"],
       "complexity": "simple"
     },
     {
@@ -208,10 +151,7 @@
       "name": "triage-labels.md",
       "filePath": "docs/agents/triage-labels.md",
       "summary": "Agent workflow guidance: Triage Labels.",
-      "tags": [
-        "agent-guidance",
-        "documentation"
-      ],
+      "tags": ["agent-guidance", "documentation"],
       "complexity": "simple"
     },
     {
@@ -220,9 +160,7 @@
       "name": "morph-4z4-setup-command-design.md",
       "filePath": "docs/planning/morph-4z4-setup-command-design.md",
       "summary": "Source file in docs/planning.",
-      "tags": [
-        "documentation"
-      ],
+      "tags": ["documentation"],
       "complexity": "moderate"
     },
     {
@@ -231,9 +169,7 @@
       "name": "morph-bbp-prototype-handoff.md",
       "filePath": "docs/planning/morph-bbp-prototype-handoff.md",
       "summary": "Source file in docs/planning.",
-      "tags": [
-        "documentation"
-      ],
+      "tags": ["documentation"],
       "complexity": "simple"
     },
     {
@@ -242,9 +178,7 @@
       "name": "morph-nqk-prototype-handoff.md",
       "filePath": "docs/planning/morph-nqk-prototype-handoff.md",
       "summary": "Source file in docs/planning.",
-      "tags": [
-        "documentation"
-      ],
+      "tags": ["documentation"],
       "complexity": "simple"
     },
     {
@@ -253,9 +187,7 @@
       "name": "morph-thi-prototype-handoff.md",
       "filePath": "docs/planning/morph-thi-prototype-handoff.md",
       "summary": "Source file in docs/planning.",
-      "tags": [
-        "documentation"
-      ],
+      "tags": ["documentation"],
       "complexity": "simple"
     },
     {
@@ -264,10 +196,7 @@
       "name": "ALPHA.md",
       "filePath": "docs/product/ALPHA.md",
       "summary": "Source file in docs/product.",
-      "tags": [
-        "product-doc",
-        "documentation"
-      ],
+      "tags": ["product-doc", "documentation"],
       "complexity": "simple"
     },
     {
@@ -276,10 +205,7 @@
       "name": "PRD.md",
       "filePath": "docs/product/PRD.md",
       "summary": "Canonical product requirements for explainable repo-local agent orchestration, lifecycle state, review artifacts, and tracer bullet slices.",
-      "tags": [
-        "product-doc",
-        "documentation"
-      ],
+      "tags": ["product-doc", "documentation"],
       "complexity": "moderate"
     },
     {
@@ -288,10 +214,7 @@
       "name": "alpha-fixture-smoke.md",
       "filePath": "docs/product/alpha-fixture-smoke.md",
       "summary": "Source file in docs/product.",
-      "tags": [
-        "product-doc",
-        "documentation"
-      ],
+      "tags": ["product-doc", "documentation"],
       "complexity": "simple"
     },
     {
@@ -300,10 +223,7 @@
       "name": "README.md",
       "filePath": "fixtures/alpha-target-repo/README.md",
       "summary": "Anonymized fixture target repository file used for public smoke tests and alpha validation.",
-      "tags": [
-        "fixture",
-        "documentation"
-      ],
+      "tags": ["fixture", "documentation"],
       "complexity": "simple"
     },
     {
@@ -312,10 +232,7 @@
       "name": "morpheus.config.json",
       "filePath": "fixtures/alpha-target-repo/morpheus.config.json",
       "summary": "Anonymized fixture target repository file used for public smoke tests and alpha validation.",
-      "tags": [
-        "fixture",
-        "configuration"
-      ],
+      "tags": ["fixture", "configuration"],
       "complexity": "simple"
     },
     {
@@ -324,9 +241,7 @@
       "name": "verify.js",
       "filePath": "fixtures/alpha-target-repo/scripts/verify.js",
       "summary": "Anonymized fixture target repository file used for public smoke tests and alpha validation.",
-      "tags": [
-        "fixture"
-      ],
+      "tags": ["fixture"],
       "complexity": "simple"
     },
     {
@@ -335,9 +250,7 @@
       "name": "package.json",
       "filePath": "package.json",
       "summary": "Project or package configuration used by builds, tests, TypeScript, Vitest, or workspace tooling.",
-      "tags": [
-        "configuration"
-      ],
+      "tags": ["configuration"],
       "complexity": "simple"
     },
     {
@@ -346,11 +259,7 @@
       "name": "package.json",
       "filePath": "packages/adapters/package.json",
       "summary": "Concrete adapter package for Beads, GitLab, SQLite ledger, process, workspace, and container-backed agent execution.",
-      "tags": [
-        "adapters",
-        "side-effects",
-        "configuration"
-      ],
+      "tags": ["adapters", "side-effects", "configuration"],
       "complexity": "simple"
     },
     {
@@ -359,10 +268,7 @@
       "name": "index.ts",
       "filePath": "packages/adapters/src/index.ts",
       "summary": "Concrete adapter package for Beads, GitLab, SQLite ledger, process, workspace, and container-backed agent execution.",
-      "tags": [
-        "adapters",
-        "side-effects"
-      ],
+      "tags": ["adapters", "side-effects"],
       "complexity": "complex"
     },
     {
@@ -371,10 +277,7 @@
       "name": "index.ts",
       "filePath": "packages/adapters/src/sqlite-ledger/index.ts",
       "summary": "Concrete adapter package for Beads, GitLab, SQLite ledger, process, workspace, and container-backed agent execution.",
-      "tags": [
-        "adapters",
-        "side-effects"
-      ],
+      "tags": ["adapters", "side-effects"],
       "complexity": "complex"
     },
     {
@@ -383,11 +286,7 @@
       "name": "beads-issue-tracker.test.ts",
       "filePath": "packages/adapters/tests/beads-issue-tracker.test.ts",
       "summary": "Concrete adapter package for Beads, GitLab, SQLite ledger, process, workspace, and container-backed agent execution.",
-      "tags": [
-        "adapters",
-        "side-effects",
-        "test"
-      ],
+      "tags": ["adapters", "side-effects", "test"],
       "complexity": "complex"
     },
     {
@@ -396,11 +295,7 @@
       "name": "glab-issue-source.test.ts",
       "filePath": "packages/adapters/tests/glab-issue-source.test.ts",
       "summary": "Concrete adapter package for Beads, GitLab, SQLite ledger, process, workspace, and container-backed agent execution.",
-      "tags": [
-        "adapters",
-        "side-effects",
-        "test"
-      ],
+      "tags": ["adapters", "side-effects", "test"],
       "complexity": "moderate"
     },
     {
@@ -409,11 +304,7 @@
       "name": "glab-merge-request-client.test.ts",
       "filePath": "packages/adapters/tests/glab-merge-request-client.test.ts",
       "summary": "Concrete adapter package for Beads, GitLab, SQLite ledger, process, workspace, and container-backed agent execution.",
-      "tags": [
-        "adapters",
-        "side-effects",
-        "test"
-      ],
+      "tags": ["adapters", "side-effects", "test"],
       "complexity": "moderate"
     },
     {
@@ -422,11 +313,7 @@
       "name": "operator-health.test.ts",
       "filePath": "packages/adapters/tests/operator-health.test.ts",
       "summary": "Concrete adapter package for Beads, GitLab, SQLite ledger, process, workspace, and container-backed agent execution.",
-      "tags": [
-        "adapters",
-        "side-effects",
-        "test"
-      ],
+      "tags": ["adapters", "side-effects", "test"],
       "complexity": "moderate"
     },
     {
@@ -435,11 +322,7 @@
       "name": "sandcastle-agent-runner.test.ts",
       "filePath": "packages/adapters/tests/sandcastle-agent-runner.test.ts",
       "summary": "Concrete adapter package for Beads, GitLab, SQLite ledger, process, workspace, and container-backed agent execution.",
-      "tags": [
-        "adapters",
-        "side-effects",
-        "test"
-      ],
+      "tags": ["adapters", "side-effects", "test"],
       "complexity": "complex"
     },
     {
@@ -448,11 +331,7 @@
       "name": "setup-planning.test.ts",
       "filePath": "packages/adapters/tests/setup-planning.test.ts",
       "summary": "Concrete adapter package for Beads, GitLab, SQLite ledger, process, workspace, and container-backed agent execution.",
-      "tags": [
-        "adapters",
-        "side-effects",
-        "test"
-      ],
+      "tags": ["adapters", "side-effects", "test"],
       "complexity": "complex"
     },
     {
@@ -461,11 +340,7 @@
       "name": "sqlite-run-ledger.test.ts",
       "filePath": "packages/adapters/tests/sqlite-run-ledger.test.ts",
       "summary": "Concrete adapter package for Beads, GitLab, SQLite ledger, process, workspace, and container-backed agent execution.",
-      "tags": [
-        "adapters",
-        "side-effects",
-        "test"
-      ],
+      "tags": ["adapters", "side-effects", "test"],
       "complexity": "complex"
     },
     {
@@ -474,11 +349,7 @@
       "name": "tsconfig.json",
       "filePath": "packages/adapters/tsconfig.json",
       "summary": "Concrete adapter package for Beads, GitLab, SQLite ledger, process, workspace, and container-backed agent execution.",
-      "tags": [
-        "adapters",
-        "side-effects",
-        "configuration"
-      ],
+      "tags": ["adapters", "side-effects", "configuration"],
       "complexity": "simple"
     },
     {
@@ -487,11 +358,7 @@
       "name": "package.json",
       "filePath": "packages/cli/package.json",
       "summary": "Thin operator CLI package that renders config/status/setup UX and runs runtime programs at the edge.",
-      "tags": [
-        "cli",
-        "operator-ui",
-        "configuration"
-      ],
+      "tags": ["cli", "operator-ui", "configuration"],
       "complexity": "simple"
     },
     {
@@ -500,10 +367,7 @@
       "name": "config-summary.ts",
       "filePath": "packages/cli/src/config-summary.ts",
       "summary": "Thin operator CLI package that renders config/status/setup UX and runs runtime programs at the edge.",
-      "tags": [
-        "cli",
-        "operator-ui"
-      ],
+      "tags": ["cli", "operator-ui"],
       "complexity": "simple"
     },
     {
@@ -512,10 +376,7 @@
       "name": "index.ts",
       "filePath": "packages/cli/src/index.ts",
       "summary": "Thin operator CLI package that renders config/status/setup UX and runs runtime programs at the edge.",
-      "tags": [
-        "cli",
-        "operator-ui"
-      ],
+      "tags": ["cli", "operator-ui"],
       "complexity": "complex"
     },
     {
@@ -524,10 +385,7 @@
       "name": "setup-prompts.ts",
       "filePath": "packages/cli/src/setup-prompts.ts",
       "summary": "Thin operator CLI package that renders config/status/setup UX and runs runtime programs at the edge.",
-      "tags": [
-        "cli",
-        "operator-ui"
-      ],
+      "tags": ["cli", "operator-ui"],
       "complexity": "moderate"
     },
     {
@@ -536,11 +394,7 @@
       "name": "config-summary.test.ts",
       "filePath": "packages/cli/tests/config-summary.test.ts",
       "summary": "Thin operator CLI package that renders config/status/setup UX and runs runtime programs at the edge.",
-      "tags": [
-        "cli",
-        "operator-ui",
-        "test"
-      ],
+      "tags": ["cli", "operator-ui", "test"],
       "complexity": "simple"
     },
     {
@@ -549,11 +403,7 @@
       "name": "setup-prompts.test.ts",
       "filePath": "packages/cli/tests/setup-prompts.test.ts",
       "summary": "Thin operator CLI package that renders config/status/setup UX and runs runtime programs at the edge.",
-      "tags": [
-        "cli",
-        "operator-ui",
-        "test"
-      ],
+      "tags": ["cli", "operator-ui", "test"],
       "complexity": "simple"
     },
     {
@@ -562,11 +412,7 @@
       "name": "tsconfig.json",
       "filePath": "packages/cli/tsconfig.json",
       "summary": "Thin operator CLI package that renders config/status/setup UX and runs runtime programs at the edge.",
-      "tags": [
-        "cli",
-        "operator-ui",
-        "configuration"
-      ],
+      "tags": ["cli", "operator-ui", "configuration"],
       "complexity": "simple"
     },
     {
@@ -575,11 +421,7 @@
       "name": "package.json",
       "filePath": "packages/core/package.json",
       "summary": "Pure TypeScript domain package for state machine, scheduler, contracts, and review artifact models.",
-      "tags": [
-        "core",
-        "pure-domain",
-        "configuration"
-      ],
+      "tags": ["core", "pure-domain", "configuration"],
       "complexity": "simple"
     },
     {
@@ -588,10 +430,7 @@
       "name": "index.ts",
       "filePath": "packages/core/src/index.ts",
       "summary": "Pure TypeScript domain package for state machine, scheduler, contracts, and review artifact models.",
-      "tags": [
-        "core",
-        "pure-domain"
-      ],
+      "tags": ["core", "pure-domain"],
       "complexity": "complex"
     },
     {
@@ -600,11 +439,7 @@
       "name": "issue-state-machine.test.ts",
       "filePath": "packages/core/tests/issue-state-machine.test.ts",
       "summary": "Pure TypeScript domain package for state machine, scheduler, contracts, and review artifact models.",
-      "tags": [
-        "core",
-        "pure-domain",
-        "test"
-      ],
+      "tags": ["core", "pure-domain", "test"],
       "complexity": "moderate"
     },
     {
@@ -613,11 +448,7 @@
       "name": "lane-scheduler.test.ts",
       "filePath": "packages/core/tests/lane-scheduler.test.ts",
       "summary": "Pure TypeScript domain package for state machine, scheduler, contracts, and review artifact models.",
-      "tags": [
-        "core",
-        "pure-domain",
-        "test"
-      ],
+      "tags": ["core", "pure-domain", "test"],
       "complexity": "moderate"
     },
     {
@@ -626,11 +457,7 @@
       "name": "review-artifact.test.ts",
       "filePath": "packages/core/tests/review-artifact.test.ts",
       "summary": "Pure TypeScript domain package for state machine, scheduler, contracts, and review artifact models.",
-      "tags": [
-        "core",
-        "pure-domain",
-        "test"
-      ],
+      "tags": ["core", "pure-domain", "test"],
       "complexity": "simple"
     },
     {
@@ -639,11 +466,7 @@
       "name": "tsconfig.json",
       "filePath": "packages/core/tsconfig.json",
       "summary": "Pure TypeScript domain package for state machine, scheduler, contracts, and review artifact models.",
-      "tags": [
-        "core",
-        "pure-domain",
-        "configuration"
-      ],
+      "tags": ["core", "pure-domain", "configuration"],
       "complexity": "simple"
     },
     {
@@ -652,11 +475,7 @@
       "name": "SKILL.md",
       "filePath": "packages/runtime/bundled-skills/matt-pocock-caveman/SKILL.md",
       "summary": "Effect-based orchestration package for use cases, ports, daemon workflow, config, and runtime errors.",
-      "tags": [
-        "runtime",
-        "effect",
-        "documentation"
-      ],
+      "tags": ["runtime", "effect", "documentation"],
       "complexity": "simple"
     },
     {
@@ -665,11 +484,7 @@
       "name": "SKILL.md",
       "filePath": "packages/runtime/bundled-skills/matt-pocock-diagnose/SKILL.md",
       "summary": "Effect-based orchestration package for use cases, ports, daemon workflow, config, and runtime errors.",
-      "tags": [
-        "runtime",
-        "effect",
-        "documentation"
-      ],
+      "tags": ["runtime", "effect", "documentation"],
       "complexity": "simple"
     },
     {
@@ -678,11 +493,7 @@
       "name": "SKILL.md",
       "filePath": "packages/runtime/bundled-skills/matt-pocock-grill-me/SKILL.md",
       "summary": "Effect-based orchestration package for use cases, ports, daemon workflow, config, and runtime errors.",
-      "tags": [
-        "runtime",
-        "effect",
-        "documentation"
-      ],
+      "tags": ["runtime", "effect", "documentation"],
       "complexity": "simple"
     },
     {
@@ -691,11 +502,7 @@
       "name": "SKILL.md",
       "filePath": "packages/runtime/bundled-skills/matt-pocock-grill-with-docs/SKILL.md",
       "summary": "Effect-based orchestration package for use cases, ports, daemon workflow, config, and runtime errors.",
-      "tags": [
-        "runtime",
-        "effect",
-        "documentation"
-      ],
+      "tags": ["runtime", "effect", "documentation"],
       "complexity": "simple"
     },
     {
@@ -704,11 +511,7 @@
       "name": "SKILL.md",
       "filePath": "packages/runtime/bundled-skills/matt-pocock-tdd/SKILL.md",
       "summary": "Effect-based orchestration package for use cases, ports, daemon workflow, config, and runtime errors.",
-      "tags": [
-        "runtime",
-        "effect",
-        "documentation"
-      ],
+      "tags": ["runtime", "effect", "documentation"],
       "complexity": "simple"
     },
     {
@@ -717,11 +520,7 @@
       "name": "SKILL.md",
       "filePath": "packages/runtime/bundled-skills/matt-pocock-to-issues/SKILL.md",
       "summary": "Effect-based orchestration package for use cases, ports, daemon workflow, config, and runtime errors.",
-      "tags": [
-        "runtime",
-        "effect",
-        "documentation"
-      ],
+      "tags": ["runtime", "effect", "documentation"],
       "complexity": "simple"
     },
     {
@@ -730,11 +529,7 @@
       "name": "SKILL.md",
       "filePath": "packages/runtime/bundled-skills/matt-pocock-to-prd/SKILL.md",
       "summary": "Effect-based orchestration package for use cases, ports, daemon workflow, config, and runtime errors.",
-      "tags": [
-        "runtime",
-        "effect",
-        "documentation"
-      ],
+      "tags": ["runtime", "effect", "documentation"],
       "complexity": "simple"
     },
     {
@@ -743,11 +538,7 @@
       "name": "package.json",
       "filePath": "packages/runtime/package.json",
       "summary": "Effect-based orchestration package for use cases, ports, daemon workflow, config, and runtime errors.",
-      "tags": [
-        "runtime",
-        "effect",
-        "configuration"
-      ],
+      "tags": ["runtime", "effect", "configuration"],
       "complexity": "simple"
     },
     {
@@ -756,10 +547,7 @@
       "name": "index.ts",
       "filePath": "packages/runtime/src/index.ts",
       "summary": "Effect-based orchestration package for use cases, ports, daemon workflow, config, and runtime errors.",
-      "tags": [
-        "runtime",
-        "effect"
-      ],
+      "tags": ["runtime", "effect"],
       "complexity": "complex"
     },
     {
@@ -768,11 +556,7 @@
       "name": "agent-ready-contract.test.ts",
       "filePath": "packages/runtime/tests/agent-ready-contract.test.ts",
       "summary": "Effect-based orchestration package for use cases, ports, daemon workflow, config, and runtime errors.",
-      "tags": [
-        "runtime",
-        "effect",
-        "test"
-      ],
+      "tags": ["runtime", "effect", "test"],
       "complexity": "simple"
     },
     {
@@ -781,11 +565,7 @@
       "name": "config.test.ts",
       "filePath": "packages/runtime/tests/config.test.ts",
       "summary": "Effect-based orchestration package for use cases, ports, daemon workflow, config, and runtime errors.",
-      "tags": [
-        "runtime",
-        "effect",
-        "test"
-      ],
+      "tags": ["runtime", "effect", "test"],
       "complexity": "complex"
     },
     {
@@ -794,11 +574,7 @@
       "name": "daemon.test.ts",
       "filePath": "packages/runtime/tests/daemon.test.ts",
       "summary": "Effect-based orchestration package for use cases, ports, daemon workflow, config, and runtime errors.",
-      "tags": [
-        "runtime",
-        "effect",
-        "test"
-      ],
+      "tags": ["runtime", "effect", "test"],
       "complexity": "complex"
     },
     {
@@ -807,11 +583,7 @@
       "name": "lane-scheduler.test.ts",
       "filePath": "packages/runtime/tests/lane-scheduler.test.ts",
       "summary": "Effect-based orchestration package for use cases, ports, daemon workflow, config, and runtime errors.",
-      "tags": [
-        "runtime",
-        "effect",
-        "test"
-      ],
+      "tags": ["runtime", "effect", "test"],
       "complexity": "simple"
     },
     {
@@ -820,11 +592,7 @@
       "name": "operator-cli.test.ts",
       "filePath": "packages/runtime/tests/operator-cli.test.ts",
       "summary": "Effect-based orchestration package for use cases, ports, daemon workflow, config, and runtime errors.",
-      "tags": [
-        "runtime",
-        "effect",
-        "test"
-      ],
+      "tags": ["runtime", "effect", "test"],
       "complexity": "moderate"
     },
     {
@@ -833,11 +601,7 @@
       "name": "prepare-issue.test.ts",
       "filePath": "packages/runtime/tests/prepare-issue.test.ts",
       "summary": "Effect-based orchestration package for use cases, ports, daemon workflow, config, and runtime errors.",
-      "tags": [
-        "runtime",
-        "effect",
-        "test"
-      ],
+      "tags": ["runtime", "effect", "test"],
       "complexity": "complex"
     },
     {
@@ -846,11 +610,7 @@
       "name": "review-issue.test.ts",
       "filePath": "packages/runtime/tests/review-issue.test.ts",
       "summary": "Effect-based orchestration package for use cases, ports, daemon workflow, config, and runtime errors.",
-      "tags": [
-        "runtime",
-        "effect",
-        "test"
-      ],
+      "tags": ["runtime", "effect", "test"],
       "complexity": "complex"
     },
     {
@@ -859,11 +619,7 @@
       "name": "run-ledger-cli.test.ts",
       "filePath": "packages/runtime/tests/run-ledger-cli.test.ts",
       "summary": "Effect-based orchestration package for use cases, ports, daemon workflow, config, and runtime errors.",
-      "tags": [
-        "runtime",
-        "effect",
-        "test"
-      ],
+      "tags": ["runtime", "effect", "test"],
       "complexity": "moderate"
     },
     {
@@ -872,11 +628,7 @@
       "name": "start-implementation.test.ts",
       "filePath": "packages/runtime/tests/start-implementation.test.ts",
       "summary": "Effect-based orchestration package for use cases, ports, daemon workflow, config, and runtime errors.",
-      "tags": [
-        "runtime",
-        "effect",
-        "test"
-      ],
+      "tags": ["runtime", "effect", "test"],
       "complexity": "complex"
     },
     {
@@ -885,11 +637,7 @@
       "name": "sync-gitlab-issues.test.ts",
       "filePath": "packages/runtime/tests/sync-gitlab-issues.test.ts",
       "summary": "Effect-based orchestration package for use cases, ports, daemon workflow, config, and runtime errors.",
-      "tags": [
-        "runtime",
-        "effect",
-        "test"
-      ],
+      "tags": ["runtime", "effect", "test"],
       "complexity": "moderate"
     },
     {
@@ -898,11 +646,7 @@
       "name": "tsconfig.json",
       "filePath": "packages/runtime/tsconfig.json",
       "summary": "Effect-based orchestration package for use cases, ports, daemon workflow, config, and runtime errors.",
-      "tags": [
-        "runtime",
-        "effect",
-        "configuration"
-      ],
+      "tags": ["runtime", "effect", "configuration"],
       "complexity": "simple"
     },
     {
@@ -911,9 +655,7 @@
       "name": "pnpm-lock.yaml",
       "filePath": "pnpm-lock.yaml",
       "summary": "Project or package configuration used by builds, tests, TypeScript, Vitest, or workspace tooling.",
-      "tags": [
-        "configuration"
-      ],
+      "tags": ["configuration"],
       "complexity": "complex"
     },
     {
@@ -922,9 +664,7 @@
       "name": "pnpm-workspace.yaml",
       "filePath": "pnpm-workspace.yaml",
       "summary": "Project or package configuration used by builds, tests, TypeScript, Vitest, or workspace tooling.",
-      "tags": [
-        "configuration"
-      ],
+      "tags": ["configuration"],
       "complexity": "simple"
     },
     {
@@ -933,9 +673,7 @@
       "name": "install.sh",
       "filePath": "scripts/install.sh",
       "summary": "Source file in scripts.",
-      "tags": [
-        "source"
-      ],
+      "tags": ["source"],
       "complexity": "moderate"
     },
     {
@@ -944,9 +682,7 @@
       "name": "validate-commit-msg.sh",
       "filePath": "scripts/validate-commit-msg.sh",
       "summary": "Source file in scripts.",
-      "tags": [
-        "source"
-      ],
+      "tags": ["source"],
       "complexity": "simple"
     },
     {
@@ -955,9 +691,7 @@
       "name": "commit-msg-hook.test.ts",
       "filePath": "tests/commit-msg-hook.test.ts",
       "summary": "Test coverage for public behavior and adapter/runtime contracts.",
-      "tags": [
-        "test"
-      ],
+      "tags": ["test"],
       "complexity": "simple"
     },
     {
@@ -966,9 +700,7 @@
       "name": "install-script.test.ts",
       "filePath": "tests/install-script.test.ts",
       "summary": "Test coverage for public behavior and adapter/runtime contracts.",
-      "tags": [
-        "test"
-      ],
+      "tags": ["test"],
       "complexity": "simple"
     },
     {
@@ -977,9 +709,7 @@
       "name": "workspace-cli-smoke.test.ts",
       "filePath": "tests/workspace-cli-smoke.test.ts",
       "summary": "Test coverage for public behavior and adapter/runtime contracts.",
-      "tags": [
-        "test"
-      ],
+      "tags": ["test"],
       "complexity": "complex"
     },
     {
@@ -988,9 +718,7 @@
       "name": "workspace.test.ts",
       "filePath": "tests/workspace.test.ts",
       "summary": "Test coverage for public behavior and adapter/runtime contracts.",
-      "tags": [
-        "test"
-      ],
+      "tags": ["test"],
       "complexity": "simple"
     },
     {
@@ -999,9 +727,7 @@
       "name": "tsconfig.base.json",
       "filePath": "tsconfig.base.json",
       "summary": "Project or package configuration used by builds, tests, TypeScript, Vitest, or workspace tooling.",
-      "tags": [
-        "configuration"
-      ],
+      "tags": ["configuration"],
       "complexity": "simple"
     },
     {
@@ -1010,9 +736,7 @@
       "name": "vitest.config.ts",
       "filePath": "vitest.config.ts",
       "summary": "Source file in ..",
-      "tags": [
-        "source"
-      ],
+      "tags": ["source"],
       "complexity": "simple"
     },
     {
@@ -1020,11 +744,7 @@
       "type": "concept",
       "name": "Agent-Ready Contract",
       "summary": "Structured prep output that must explain current behavior, desired behavior, interfaces, acceptance criteria, verification, risk, blockers, and HITL decisions before implementation runs.",
-      "tags": [
-        "contract",
-        "workflow",
-        "quality-gate"
-      ],
+      "tags": ["contract", "workflow", "quality-gate"],
       "complexity": "moderate"
     },
     {
@@ -1032,11 +752,7 @@
       "type": "concept",
       "name": "Run Ledger",
       "summary": "SQLite-backed audit model with mutable run summaries and immutable ordered run events for operator inspection.",
-      "tags": [
-        "observability",
-        "sqlite",
-        "audit"
-      ],
+      "tags": ["observability", "sqlite", "audit"],
       "complexity": "moderate"
     },
     {
@@ -1044,11 +760,7 @@
       "type": "concept",
       "name": "Lane Scheduler",
       "summary": "Pure scheduling boundary that derives runnable preparation, implementation, and review lane work from Beads issue state and configured concurrency.",
-      "tags": [
-        "scheduler",
-        "lanes",
-        "core"
-      ],
+      "tags": ["scheduler", "lanes", "core"],
       "complexity": "moderate"
     },
     {
@@ -1056,11 +768,7 @@
       "type": "concept",
       "name": "Adapter Boundary",
       "summary": "Effect runtime ports isolate shell, GitLab, Beads, SQLite, workspace, and container effects from pure core logic and use cases.",
-      "tags": [
-        "architecture",
-        "effect",
-        "ports"
-      ],
+      "tags": ["architecture", "effect", "ports"],
       "complexity": "moderate"
     }
   ],

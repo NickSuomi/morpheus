@@ -29,11 +29,13 @@ const bundledSkillMappings = bundledSkillNames.map((name) => ({
 }));
 
 const relativeFiles = (root: string, current = root): readonly string[] =>
-  readdirSync(current, { withFileTypes: true }).flatMap((entry) => {
-    const fullPath = join(current, entry.name);
-    const relativePath = fullPath.slice(root.length + 1);
-    return entry.isDirectory() ? relativeFiles(root, fullPath) : [relativePath];
-  }).sort();
+  readdirSync(current, { withFileTypes: true })
+    .flatMap((entry) => {
+      const fullPath = join(current, entry.name);
+      const relativePath = fullPath.slice(root.length + 1);
+      return entry.isDirectory() ? relativeFiles(root, fullPath) : [relativePath];
+    })
+    .sort();
 
 const expectedInitFiles = [
   ".gitignore",
@@ -61,7 +63,7 @@ const validConfig = {
     kind: "container",
     agent: {
       provider: "codex",
-      model: "gpt-5.5",
+      model: "gpt-5.4-mini",
       effort: "xhigh",
     },
     auth: {
@@ -271,7 +273,7 @@ describe("Morpheus config", () => {
           kind: "container",
           agent: {
             provider: "codex",
-            model: "gpt-5.5",
+            model: "gpt-5.4-mini",
             effort: "xhigh",
           },
           auth: {
@@ -639,7 +641,7 @@ describe("Morpheus config", () => {
             kind: "container",
             agent: {
               provider: "codex",
-              model: "gpt-5.5",
+              model: "gpt-5.4-mini",
               effort: "xhigh",
             },
             auth: {
@@ -723,7 +725,9 @@ describe("Morpheus config", () => {
       const dockerfile = readFileSync(join(dir, ".morpheus/container/Dockerfile"), "utf8");
       expect(dockerfile).toContain("FROM node:22-bookworm-slim");
       expect(dockerfile).toContain("Morpheus container profile");
-      expect(dockerfile).toContain("apt-get install -y --no-install-recommends git ca-certificates");
+      expect(dockerfile).toContain(
+        "apt-get install -y --no-install-recommends git ca-certificates",
+      );
       expect(dockerfile).toContain("npm install -g @openai/codex@0.133.0");
       expect(dockerfile).toContain("USER 0");
       expect(dockerfile).toContain('CMD ["sleep", "infinity"]');
@@ -788,7 +792,9 @@ describe("Morpheus config", () => {
 
       const dockerfile = readFileSync(join(dir, ".morpheus/container/Dockerfile"), "utf8");
       expect(dockerfile).toContain("corepack enable");
-      expect(dockerfile).toContain("apt-get install -y --no-install-recommends git ca-certificates");
+      expect(dockerfile).toContain(
+        "apt-get install -y --no-install-recommends git ca-certificates",
+      );
       expect(dockerfile).toContain("npm install -g @openai/codex@0.133.0");
       expect(dockerfile).toContain("USER 0");
       expect(dockerfile).toContain('CMD ["sleep", "infinity"]');

@@ -1,7 +1,12 @@
 import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { OperatorHealth, ProcessRunner, type ProcessResult, type ProcessRunnerService } from "@morpheus/runtime";
+import {
+  OperatorHealth,
+  ProcessRunner,
+  type ProcessResult,
+  type ProcessRunnerService,
+} from "@morpheus/runtime";
 import { Effect, Layer } from "effect";
 import { describe, expect, it } from "vitest";
 import { operatorHealthLayer } from "../src/index.js";
@@ -36,7 +41,10 @@ const fakeProcessRunner = (results: readonly ProcessResult[]) => {
 const runWithHealth = <A, E>(
   processRunnerLayer: Layer.Layer<ProcessRunner>,
   program: Effect.Effect<A, E, OperatorHealth>,
-) => Effect.runPromise(program.pipe(Effect.provide(operatorHealthLayer().pipe(Layer.provide(processRunnerLayer)))));
+) =>
+  Effect.runPromise(
+    program.pipe(Effect.provide(operatorHealthLayer().pipe(Layer.provide(processRunnerLayer)))),
+  );
 
 const runWithAuthHealth = <A, E>(
   processRunnerLayer: Layer.Layer<ProcessRunner>,
@@ -77,7 +85,7 @@ const runWithProbeHealth = <A, E>(
             {
               name: "android-sdk",
               command: "sh",
-              args: ["-lc", "test -n \"$ANDROID_HOME\""],
+              args: ["-lc", 'test -n "$ANDROID_HOME"'],
               action: "Install Android SDK or set ANDROID_HOME for the container profile.",
               scope: "container",
             },
@@ -96,7 +104,16 @@ const runWithProbeHealth = <A, E>(
 
 describe("OperatorHealth", () => {
   it("checks read-only adapter health through process runner commands", async () => {
-    const processRunner = fakeProcessRunner([ok(), failed("not logged in"), ok(), ok(), ok(), ok(), ok(), ok()]);
+    const processRunner = fakeProcessRunner([
+      ok(),
+      failed("not logged in"),
+      ok(),
+      ok(),
+      ok(),
+      ok(),
+      ok(),
+      ok(),
+    ]);
 
     const checks = await runWithHealth(
       processRunner.layer,
@@ -241,7 +258,8 @@ describe("OperatorHealth", () => {
     expect(checks).toContainEqual({
       name: "toolchain",
       status: "warn",
-      detail: "java missing: java: command not found. Install a JDK and rebuild the Morpheus container image.",
+      detail:
+        "java missing: java: command not found. Install a JDK and rebuild the Morpheus container image.",
     });
     expect(checks).toContainEqual({
       name: "toolchain",
@@ -285,7 +303,7 @@ describe("OperatorHealth", () => {
           "morpheus-agent:local",
           "sh",
           "-lc",
-          "test -n \"$ANDROID_HOME\"",
+          'test -n "$ANDROID_HOME"',
         ],
       },
       { command: "xcodebuild", args: ["-version"] },

@@ -45,7 +45,7 @@ const validAgentRunnerConfig = {
   kind: "container",
   agent: {
     provider: "codex",
-    model: "gpt-5.4-nano",
+    model: "gpt-5.4-mini",
     effort: "xhigh",
   },
   auth: {

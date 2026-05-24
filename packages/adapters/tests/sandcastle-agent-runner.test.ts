@@ -574,6 +574,7 @@ describe("SandcastleAgentRunner", () => {
     const dir = mkdtempSync(join(tmpdir(), "morpheus-sandcastle-"));
     writeFileSync(join(dir, "agent.env"), "OPENAI_API_KEY=test-token\n");
     const commands: string[] = [];
+    const stdins: Array<string | undefined> = [];
     const dockerOptions: unknown[] = [];
     const runner = createSandcastleAgentRunner({
       cwd: dir,
@@ -586,7 +587,7 @@ describe("SandcastleAgentRunner", () => {
       },
       agentConfig: {
         provider: "codex",
-        model: "gpt-5.5",
+        model: "gpt-5.4-mini",
         effort: "xhigh",
       },
       dockerFactory: (options) => {
@@ -598,12 +599,12 @@ describe("SandcastleAgentRunner", () => {
         } as never;
       },
       run: async (options) => {
-        commands.push(
-          options.agent.buildPrintCommand({
-            prompt: "prompt",
-            dangerouslySkipPermissions: true,
-          }).command,
-        );
+        const printCommand = options.agent.buildPrintCommand({
+          prompt: "prompt",
+          dangerouslySkipPermissions: true,
+        });
+        commands.push(printCommand.command);
+        stdins.push(printCommand.stdin);
         return {
           iterations: [],
           stdout: `<morpheus_result>{"status":"blocked","reason":"x","transcript":"","artifact":{}}</morpheus_result>`,
@@ -620,8 +621,9 @@ describe("SandcastleAgentRunner", () => {
     expect(commands[0]).toContain(
       `codex exec --json --dangerously-bypass-approvals-and-sandbox -m`,
     );
-    expect(commands[0]).toContain("gpt-5.5");
+    expect(commands[0]).toContain("gpt-5.4-mini");
     expect(commands[0]).toContain('model_reasoning_effort="xhigh"');
+    expect(stdins).toEqual(["prompt"]);
     expect(dockerOptions).toEqual([
       {
         imageName: "morpheus-agent:test",
