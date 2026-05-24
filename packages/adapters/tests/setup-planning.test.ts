@@ -385,6 +385,34 @@ describe("setup planning", () => {
     );
   });
 
+  it("allows create mode when no existing config is present", () => {
+    const plan = planMorpheusSetup({
+      currentWorkingDirectory: "/repos/app",
+      detected: {
+        targetPath: {
+          exists: true,
+          isDirectory: true,
+          isReadable: true,
+          isGitWorktree: true,
+        },
+      },
+      existing: {
+        configError: {
+          kind: "missing_config",
+          path: "/repos/app/morpheus.config.json",
+        },
+        files: [],
+      },
+      answers: {
+        gitlabProject: "group/app",
+        writeChanges: false,
+      },
+    });
+
+    expect(plan.configMutation.action).toBe("create");
+    expect(plan.errors).not.toContain("Existing Morpheus config is invalid: missing_config");
+  });
+
   it("uses the configured container profile for template mutation and build guidance", () => {
     const plan = planMorpheusSetup({
       currentWorkingDirectory: "/repos/app",

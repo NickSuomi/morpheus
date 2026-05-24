@@ -57,6 +57,11 @@ import {
   type SelectorOption,
   type SelectorPromptInput,
 } from "./setup-prompts.js";
+import {
+  buildNonInteractiveSetupAnswers,
+  readSetupConfigInput,
+  type NonInteractiveSetupInput,
+} from "./setup-non-interactive.js";
 
 const configPath = Options.text("config").pipe(Options.optional);
 const runId = Args.text({ name: "runId" });
@@ -403,6 +408,22 @@ const config = Command.make("config", {}, () => Console.log("Morpheus config com
 );
 
 const setupTarget = Options.text("target").pipe(Options.optional);
+const setupYes = Options.boolean("yes");
+const setupDryRun = Options.boolean("dry-run");
+const setupGitlabProject = Options.text("gitlab-project").pipe(Options.optional);
+const setupTargetBranch = Options.text("target-branch").pipe(Options.optional);
+const setupGitlabReadyLabel = Options.text("gitlab-ready-label").pipe(Options.optional);
+const setupAuthEnvFile = Options.text("auth-env-file").pipe(Options.optional);
+const setupRequiredAuthKey = Options.text("required-auth-key").pipe(Options.optional);
+const setupContainerImage = Options.text("container-image").pipe(Options.optional);
+const setupContainerProfile = Options.text("container-profile").pipe(Options.optional);
+const setupVerificationCommand = Options.text("verification-command").pipe(Options.optional);
+const setupPollIntervalSeconds = Options.text("poll-interval-seconds").pipe(Options.optional);
+const setupNoBuild = Options.boolean("no-build");
+const setupBuild = Options.boolean("build");
+const setupNoSync = Options.boolean("no-sync");
+const setupRunOnce = Options.boolean("once");
+const setupConfigInput = Options.text("config-input").pipe(Options.optional);
 
 type SetupAnswers = NonNullable<SetupPlanningInput["answers"]>;
 type MutableSetupAnswers = {
@@ -691,116 +712,294 @@ const runSetupDoctor = async (configPathValue: string): Promise<string> => {
   return output;
 };
 
-const setup = Command.make("setup", { target: setupTarget }, ({ target }) =>
-  Effect.promise(async () => {
-    const rl = createInterface({ input: process.stdin, output: process.stdout });
+const optionString = (value: Option.Option<string>): string | undefined =>
+  Option.getOrUndefined(value);
 
-    try {
-      const targetPath = await question(
-        rl,
-        "Target repository path",
-        Option.getOrElse(target, () => "."),
-      );
-      const initialTarget = resolve(process.cwd(), targetPath);
-      const initialInput = await Effect.runPromise(
-        detectMorpheusSetupInput({
-          targetPath: initialTarget,
-          currentWorkingDirectory: process.cwd(),
-        }).pipe(
+const commaList = (value: string | undefined): readonly string[] | undefined =>
+  value === undefined ? undefined : parseList(value);
+
+const runNonInteractiveSetup = async (
+  options: NonInteractiveSetupInput & { readonly target?: string },
+): Promise<void> => {
+  const targetPath = options.target ?? ".";
+  const initialTarget = resolve(process.cwd(), targetPath);
+  const initialInput = await Effect.runPromise(
+    detectMorpheusSetupInput({
+      targetPath: initialTarget,
+      currentWorkingDirectory: process.cwd(),
+    }).pipe(
+      Effect.provide(nodeSetupEnvironmentLayer()),
+      Effect.provide(nodeProcessRunnerLayer({ cwd: initialTarget })),
+    ),
+  );
+  const answers = buildNonInteractiveSetupAnswers(options);
+  const plan = planMorpheusSetup({ ...initialInput, answers });
+  console.log(formatMorpheusSetupPreview(plan));
+
+  if (plan.errors.length > 0) {
+    throw new Error("Setup plan is blocked by invalid input.");
+  }
+
+  if (answers.writeChanges !== true) {
+    return;
+  }
+
+  await Effect.runPromise(
+    applyMorpheusSetupPlan(plan).pipe(
+      Effect.provide(nodeSetupEnvironmentLayer()),
+      Effect.provide(nodeProcessRunnerLayer({ cwd: initialTarget })),
+    ),
+  );
+
+  if (answers.buildContainer === true) {
+    console.log(
+      await Effect.runPromise(
+        runMorpheusSetupContainerBuild(plan).pipe(
           Effect.provide(nodeSetupEnvironmentLayer()),
           Effect.provide(nodeProcessRunnerLayer({ cwd: initialTarget })),
         ),
-      );
-      const initialPlan = planMorpheusSetup(initialInput);
-      console.log(formatMorpheusSetupPreview(initialPlan));
-      const answers = await collectSetupAnswers(initialPlan, rl);
-      let plan = planMorpheusSetup({ ...initialInput, answers });
-      console.log(formatMorpheusSetupPreview(plan));
+      ),
+    );
+  }
 
-      if (plan.errors.length > 0) {
-        throw new Error("Setup plan is blocked by invalid input.");
+  console.log("");
+  await Effect.runPromise(
+    formatConfigSummary(
+      loadMorpheusConfig({ configPath: join(initialTarget, "morpheus.config.json") }),
+    ),
+  );
+  console.log("");
+  const doctorHealth = interpretMorpheusSetupDoctorOutput(
+    await runSetupDoctor(join(initialTarget, "morpheus.config.json")),
+  );
+  const postDoctorInput = await Effect.runPromise(
+    detectMorpheusSetupInput({
+      targetPath: initialTarget,
+      currentWorkingDirectory: process.cwd(),
+      doctor: doctorHealth,
+    }).pipe(
+      Effect.provide(nodeSetupEnvironmentLayer()),
+      Effect.provide(nodeProcessRunnerLayer({ cwd: initialTarget })),
+    ),
+  );
+  const executionGates = planMorpheusSetupExecution(postDoctorInput);
+
+  if (!executionGates.sync.canRun) {
+    console.log(`Sync not ready: ${executionGates.sync.skipReason}`);
+  }
+
+  if (answers.runDaemonOnce === true && !executionGates.daemonOnce.canRun) {
+    throw new Error(`Setup completion blocked: ${executionGates.daemonOnce.skipReason}`);
+  }
+
+  if (answers.runDaemonOnce === true) {
+    const config = loadCliConfig(Option.some(join(initialTarget, "morpheus.config.json")));
+    console.log(
+      await Effect.runPromise(
+        daemonTickForConfig(config, Option.some(join(initialTarget, "morpheus.config.json"))),
+      ),
+    );
+  }
+};
+
+const setup = Command.make(
+  "setup",
+  {
+    target: setupTarget,
+    yes: setupYes,
+    dryRun: setupDryRun,
+    gitlabProject: setupGitlabProject,
+    targetBranch: setupTargetBranch,
+    gitlabReadyLabel: setupGitlabReadyLabel,
+    authEnvFile: setupAuthEnvFile,
+    requiredAuthKey: setupRequiredAuthKey,
+    containerImage: setupContainerImage,
+    containerProfile: setupContainerProfile,
+    verificationCommand: setupVerificationCommand,
+    pollIntervalSeconds: setupPollIntervalSeconds,
+    noBuild: setupNoBuild,
+    build: setupBuild,
+    noSync: setupNoSync,
+    once: setupRunOnce,
+    configInput: setupConfigInput,
+  },
+  ({
+    target,
+    yes,
+    dryRun,
+    gitlabProject,
+    targetBranch,
+    gitlabReadyLabel,
+    authEnvFile,
+    requiredAuthKey,
+    containerImage,
+    containerProfile,
+    verificationCommand,
+    pollIntervalSeconds,
+    noBuild,
+    build,
+    noSync,
+    once,
+    configInput,
+  }) =>
+    Effect.promise(async () => {
+      const configInputPath = optionString(configInput);
+      const nonInteractive =
+        yes ||
+        dryRun ||
+        configInputPath !== undefined ||
+        optionString(gitlabProject) !== undefined ||
+        optionString(targetBranch) !== undefined ||
+        optionString(gitlabReadyLabel) !== undefined ||
+        optionString(authEnvFile) !== undefined ||
+        optionString(requiredAuthKey) !== undefined ||
+        optionString(containerImage) !== undefined ||
+        optionString(containerProfile) !== undefined ||
+        optionString(verificationCommand) !== undefined ||
+        optionString(pollIntervalSeconds) !== undefined ||
+        noBuild ||
+        build ||
+        noSync ||
+        once;
+
+      if (nonInteractive) {
+        const fileInput =
+          configInputPath === undefined ? {} : readSetupConfigInput(configInputPath);
+        await runNonInteractiveSetup({
+          ...fileInput,
+          target: optionString(target) ?? fileInput.target,
+          yes,
+          dryRun,
+          gitlabProject: optionString(gitlabProject) ?? fileInput.gitlabProject,
+          targetBranch: optionString(targetBranch) ?? fileInput.targetBranch,
+          gitlabReadyLabel: optionString(gitlabReadyLabel) ?? fileInput.gitlabReadyLabel,
+          authEnvFile: optionString(authEnvFile) ?? fileInput.authEnvFile,
+          requiredAuthKey: commaList(optionString(requiredAuthKey)) ?? fileInput.requiredAuthKey,
+          containerImage: optionString(containerImage) ?? fileInput.containerImage,
+          containerProfile: optionString(containerProfile) ?? fileInput.containerProfile,
+          verificationCommand:
+            commaList(optionString(verificationCommand)) ?? fileInput.verificationCommand,
+          pollIntervalSeconds:
+            optionString(pollIntervalSeconds) === undefined
+              ? fileInput.pollIntervalSeconds
+              : Number(optionString(pollIntervalSeconds)),
+          noBuild: noBuild || fileInput.noBuild,
+          build: build || fileInput.build,
+          noSync: noSync || fileInput.noSync,
+          once: once || fileInput.once,
+          authSecret: fileInput.authSecret,
+        });
+        return;
       }
 
-      const writeChanges = await yesNo(rl, "Write these changes", plan.mode === "create");
-      plan = planMorpheusSetup({ ...initialInput, answers: { ...answers, writeChanges } });
-      await Effect.runPromise(
-        applyMorpheusSetupPlan(plan).pipe(
-          Effect.provide(nodeSetupEnvironmentLayer()),
-          Effect.provide(nodeProcessRunnerLayer({ cwd: initialTarget })),
-        ),
-      );
+      const rl = createInterface({ input: process.stdin, output: process.stdout });
 
-      if (writeChanges && answers.buildContainer === true) {
-        const output = await Effect.runPromise(
-          runMorpheusSetupContainerBuild(plan).pipe(
+      try {
+        const targetPath = await question(
+          rl,
+          "Target repository path",
+          Option.getOrElse(target, () => "."),
+        );
+        const initialTarget = resolve(process.cwd(), targetPath);
+        const initialInput = await Effect.runPromise(
+          detectMorpheusSetupInput({
+            targetPath: initialTarget,
+            currentWorkingDirectory: process.cwd(),
+          }).pipe(
             Effect.provide(nodeSetupEnvironmentLayer()),
             Effect.provide(nodeProcessRunnerLayer({ cwd: initialTarget })),
           ),
         );
-        console.log(output);
-      }
+        const initialPlan = planMorpheusSetup(initialInput);
+        console.log(formatMorpheusSetupPreview(initialPlan));
+        const answers = await collectSetupAnswers(initialPlan, rl);
+        let plan = planMorpheusSetup({ ...initialInput, answers });
+        console.log(formatMorpheusSetupPreview(plan));
 
-      let doctorHealth: ReturnType<typeof interpretMorpheusSetupDoctorOutput> | undefined;
-      if (writeChanges) {
-        console.log("");
+        if (plan.errors.length > 0) {
+          throw new Error("Setup plan is blocked by invalid input.");
+        }
+
+        const writeChanges = await yesNo(rl, "Write these changes", plan.mode === "create");
+        plan = planMorpheusSetup({ ...initialInput, answers: { ...answers, writeChanges } });
         await Effect.runPromise(
-          formatConfigSummary(
-            loadMorpheusConfig({ configPath: join(initialTarget, "morpheus.config.json") }),
+          applyMorpheusSetupPlan(plan).pipe(
+            Effect.provide(nodeSetupEnvironmentLayer()),
+            Effect.provide(nodeProcessRunnerLayer({ cwd: initialTarget })),
           ),
         );
-        console.log("");
-        doctorHealth = interpretMorpheusSetupDoctorOutput(
-          await runSetupDoctor(join(initialTarget, "morpheus.config.json")),
-        );
-      }
 
-      const postDoctorInput = await Effect.runPromise(
-        detectMorpheusSetupInput({
-          targetPath: initialTarget,
-          currentWorkingDirectory: process.cwd(),
-          doctor: doctorHealth,
-        }).pipe(
-          Effect.provide(nodeSetupEnvironmentLayer()),
-          Effect.provide(nodeProcessRunnerLayer({ cwd: initialTarget })),
-        ),
-      );
-      const executionGates = planMorpheusSetupExecution(postDoctorInput);
+        if (writeChanges && answers.buildContainer === true) {
+          const output = await Effect.runPromise(
+            runMorpheusSetupContainerBuild(plan).pipe(
+              Effect.provide(nodeSetupEnvironmentLayer()),
+              Effect.provide(nodeProcessRunnerLayer({ cwd: initialTarget })),
+            ),
+          );
+          console.log(output);
+        }
 
-      if (writeChanges && !executionGates.sync.canRun) {
-        console.log(`Sync not ready: ${executionGates.sync.skipReason}`);
-      }
-      if (
-        writeChanges &&
-        executionGates.sync.canRun &&
-        (await yesNo(rl, "Run sync now", false))
-      ) {
-        const config = loadCliConfig(Option.some(join(initialTarget, "morpheus.config.json")));
-        await Effect.runPromise(
-          provideSync(
-            Option.some(join(initialTarget, "morpheus.config.json")),
-            syncGitLabIssuesForCli({
-              project: config.gitlab.project,
-              readyLabel: config.gitlab.readyLabel,
-            }),
-          ).pipe(Effect.flatMap((output) => Console.log(output))),
-        );
-      }
-
-      if (writeChanges && !executionGates.daemonOnce.canRun) {
-        throw new Error(`Setup completion blocked: ${executionGates.daemonOnce.skipReason}`);
-      }
-      if (writeChanges && executionGates.daemonOnce.canRun) {
-        const config = loadCliConfig(Option.some(join(initialTarget, "morpheus.config.json")));
-        console.log(
+        let doctorHealth: ReturnType<typeof interpretMorpheusSetupDoctorOutput> | undefined;
+        if (writeChanges) {
+          console.log("");
           await Effect.runPromise(
-            daemonTickForConfig(config, Option.some(join(initialTarget, "morpheus.config.json"))),
+            formatConfigSummary(
+              loadMorpheusConfig({ configPath: join(initialTarget, "morpheus.config.json") }),
+            ),
+          );
+          console.log("");
+          doctorHealth = interpretMorpheusSetupDoctorOutput(
+            await runSetupDoctor(join(initialTarget, "morpheus.config.json")),
+          );
+        }
+
+        const postDoctorInput = await Effect.runPromise(
+          detectMorpheusSetupInput({
+            targetPath: initialTarget,
+            currentWorkingDirectory: process.cwd(),
+            doctor: doctorHealth,
+          }).pipe(
+            Effect.provide(nodeSetupEnvironmentLayer()),
+            Effect.provide(nodeProcessRunnerLayer({ cwd: initialTarget })),
           ),
         );
+        const executionGates = planMorpheusSetupExecution(postDoctorInput);
+
+        if (writeChanges && !executionGates.sync.canRun) {
+          console.log(`Sync not ready: ${executionGates.sync.skipReason}`);
+        }
+        if (
+          writeChanges &&
+          executionGates.sync.canRun &&
+          (await yesNo(rl, "Run sync now", false))
+        ) {
+          const config = loadCliConfig(Option.some(join(initialTarget, "morpheus.config.json")));
+          await Effect.runPromise(
+            provideSync(
+              Option.some(join(initialTarget, "morpheus.config.json")),
+              syncGitLabIssuesForCli({
+                project: config.gitlab.project,
+                readyLabel: config.gitlab.readyLabel,
+              }),
+            ).pipe(Effect.flatMap((output) => Console.log(output))),
+          );
+        }
+
+        if (writeChanges && !executionGates.daemonOnce.canRun) {
+          throw new Error(`Setup completion blocked: ${executionGates.daemonOnce.skipReason}`);
+        }
+        if (writeChanges && executionGates.daemonOnce.canRun) {
+          const config = loadCliConfig(Option.some(join(initialTarget, "morpheus.config.json")));
+          console.log(
+            await Effect.runPromise(
+              daemonTickForConfig(config, Option.some(join(initialTarget, "morpheus.config.json"))),
+            ),
+          );
+        }
+      } finally {
+        rl.close();
       }
-    } finally {
-      rl.close();
-    }
-  }),
+    }),
 ).pipe(Command.withDescription("Interactively set up Morpheus in a target repository"));
 
 const initTarget = Options.text("target");
