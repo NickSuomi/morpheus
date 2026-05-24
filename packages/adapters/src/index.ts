@@ -1416,7 +1416,9 @@ const runSandcastlePhase = (
     try: async () => {
       const { phase, issue } = input;
       const cwd =
-        phase === "implement" || phase === "review" ? input.workspace.workspacePath : options.cwd;
+        phase === "implement" || phase === "review"
+          ? (input.workspace.worktreePath ?? input.workspace.workspacePath)
+          : options.cwd;
       mkdirSync(options.logDirectory, { recursive: true });
       const runner = options.run ?? sandcastleRun;
       const agentConfig = options.agentConfig ?? {
