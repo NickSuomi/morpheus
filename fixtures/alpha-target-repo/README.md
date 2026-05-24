@@ -1,6 +1,6 @@
-# Alpha E2E smoke fixture
+# ALPHA E2E smoke fixture
 
-This is a tiny public/local target repository fixture for Morpheus Alpha smoke verification. It has no private GitLab dependency and no heavyweight application stack.
+This is a tiny public/local target repository fixture for Morpheus ALPHA smoke verification. It has no private GitLab dependency and no heavyweight application stack.
 
 It is intentionally small:
 
@@ -21,4 +21,4 @@ morpheus status --config morpheus.config.json
 morpheus runs --config morpheus.config.json
 ```
 
-The Alpha smoke gate for this fixture is: `morpheus doctor` has no `FAIL` rows and `morpheus daemon --once` exits successfully with operator-inspectable output.
+The ALPHA smoke gate for this fixture is: `morpheus doctor` has no `FAIL` rows and `morpheus daemon --once` exits successfully with operator-inspectable output.

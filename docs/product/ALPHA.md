@@ -1,8 +1,8 @@
-# Morpheus Alpha
+# Morpheus ALPHA
 
 ## Purpose
 
-Morpheus Alpha is the first end-to-end operator path where a maintainer can install Morpheus, enter a target repository, run guided setup, prove the scheduler path, and then run a real agentic task through Morpheus.
+Morpheus ALPHA is the first end-to-end operator path where a maintainer can install Morpheus, enter a target repository, run guided setup, prove the scheduler path, and then run a real agentic task through Morpheus.
 
 Product principle: **If it can't explain itself, it can't run.**
 
@@ -18,11 +18,11 @@ Product principle: **If it can't explain itself, it can't run.**
 8. Start `morpheus daemon` when ready.
 9. Mark GitLab issues with the configured ready label.
 10. Use Morpheus status/run/slice/log commands to inspect work.
-11. Prove real agent execution in Alpha E2E signoff.
+11. Prove real agent execution in ALPHA E2E signoff.
 
 ## Installation Contract
 
-Alpha installation uses a curl installer that downloads a pinned runnable release artifact or shim. It must not build Morpheus from source on the operator machine.
+ALPHA installation uses a curl installer that downloads a pinned runnable release artifact or shim. It must not build Morpheus from source on the operator machine.
 
 Minimum contract:
 
@@ -48,7 +48,7 @@ The installer must:
 - secret values are never requested, printed, logged, copied, or summarized;
 - setup creates or points to an explicit env file and tells the operator which required keys to fill.
 
-The current readline setup is an implementation step toward this Alpha UX; selector UI is an Alpha blocker.
+The current readline setup is an implementation step toward this ALPHA UX; selector UI is an ALPHA blocker.
 
 ## Setup Completion Gate
 
@@ -61,14 +61,14 @@ WARN results may remain only when they do not block the no-FAIL and daemon-once 
 
 Setup completion proves the scheduler/runtime path. It does not have to execute a real container Codex agent run.
 
-## Alpha E2E Signoff Gate
+## ALPHA E2E Signoff Gate
 
-Real agent execution is a separate Alpha signoff gate.
+Real agent execution is a separate ALPHA signoff gate.
 
-Alpha signoff requires both:
+ALPHA signoff requires both:
 
 1. a tiny fixture/demo target repository for repeatable smoke verification (`fixtures/alpha-target-repo`; see `docs/product/alpha-fixture-smoke.md`);
-2. `private-target-repo` real-world PRIVATE_TARGET_WORKFLOW workflow signoff.
+2. private target signoff against a real non-public repository.
 
 The E2E path must prove at least one real container Codex execution through Morpheus, with operator-inspectable status, runs, slice, and logs.
 
@@ -81,25 +81,32 @@ After successful setup, the target repository has:
 - generated `.morpheus/skills/*` bundle mappings where applicable;
 - `.morpheus/container/*` profile files;
 - `.morpheus/secrets/agent.env.example`;
-- ignored real secret env file path;
+- `.gitignore` entries for local Morpheus runtime state and the real secret env file path;
 - configured GitLab project, target branch, ready label, agent model/effort, auth keys, container image/profile, verification commands, daemon interval, and lane concurrency.
 
-## Alpha Blockers
+Setup must not create `.sandcastle` artifacts, private host auth paths, or a real secret env file containing token values. Operators create/fill the real auth env file manually.
 
-Alpha is not complete until these blockers are closed in Beads:
+## Intentional Lowercase Slugs
+
+ALPHA milestone prose uses uppercase `ALPHA`. Lowercase `alpha` remains only in stable path, config, test, and fixture identifiers, including `fixtures/alpha-target-repo`, `docs/product/alpha-fixture-smoke.md`, `morpheus-alpha-fixture` temporary names, `local/alpha-fixture`, and `alpha-smoke` fixture skill/auth identifiers.
+
+## ALPHA Blockers
+
+ALPHA is not complete until these blockers are closed in Beads:
 
 - finish readline `morpheus setup` implementation;
 - upgrade setup prompts to hybrid selector UI;
 - implement curl release installer;
 - enforce strict setup completion gate;
 - add fixture/demo E2E smoke target;
-- run `private-target-repo` E2E signoff;
-- update README to point operators to the Alpha golden path.
+- run private target E2E signoff without committing private target names, URLs, paths, tokens, or evidence;
+- update README to point operators to the ALPHA golden path.
 
-## Non-Goals For Alpha
+## Non-Goals For ALPHA
 
 - Homebrew distribution.
 - Source-build installation on the operator machine.
 - Collecting secret values in setup.
 - Auto-merging GitLab merge requests.
 - Hiding lifecycle state from the operator.
+- Storing private target signoff evidence in Morpheus git.

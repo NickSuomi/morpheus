@@ -1,0 +1,451 @@
+{
+  "lastAnalyzedAt": "2026-05-23T21:41:57.807Z",
+  "gitCommitHash": "f99d9a4dc0414360da85fada3016878a8fe6f2f2",
+  "version": "1.0.0",
+  "analyzedFiles": 81,
+  "generator": "deterministic-ua-compatible",
+  "sourceFilePaths": [
+    "fixtures/alpha-target-repo/scripts/verify.js",
+    "packages/adapters/src/index.ts",
+    "packages/adapters/src/sqlite-ledger/index.ts",
+    "packages/adapters/tests/beads-issue-tracker.test.ts",
+    "packages/adapters/tests/glab-issue-source.test.ts",
+    "packages/adapters/tests/glab-merge-request-client.test.ts",
+    "packages/adapters/tests/operator-health.test.ts",
+    "packages/adapters/tests/sandcastle-agent-runner.test.ts",
+    "packages/adapters/tests/setup-planning.test.ts",
+    "packages/adapters/tests/sqlite-run-ledger.test.ts",
+    "packages/cli/src/config-summary.ts",
+    "packages/cli/src/index.ts",
+    "packages/cli/src/setup-prompts.ts",
+    "packages/cli/tests/config-summary.test.ts",
+    "packages/cli/tests/setup-prompts.test.ts",
+    "packages/core/src/index.ts",
+    "packages/core/tests/issue-state-machine.test.ts",
+    "packages/core/tests/lane-scheduler.test.ts",
+    "packages/core/tests/review-artifact.test.ts",
+    "packages/runtime/src/index.ts",
+    "packages/runtime/tests/agent-ready-contract.test.ts",
+    "packages/runtime/tests/config.test.ts",
+    "packages/runtime/tests/daemon.test.ts",
+    "packages/runtime/tests/lane-scheduler.test.ts",
+    "packages/runtime/tests/operator-cli.test.ts",
+    "packages/runtime/tests/prepare-issue.test.ts",
+    "packages/runtime/tests/review-issue.test.ts",
+    "packages/runtime/tests/run-ledger-cli.test.ts",
+    "packages/runtime/tests/start-implementation.test.ts",
+    "packages/runtime/tests/sync-gitlab-issues.test.ts",
+    "tests/commit-msg-hook.test.ts",
+    "tests/install-script.test.ts",
+    "tests/workspace-cli-smoke.test.ts",
+    "tests/workspace.test.ts",
+    "vitest.config.ts"
+  ],
+  "fingerprints": {
+    ".agents/skills/beads/SKILL.md": {
+      "sha1": "f9dbfbee46567d6832eca83fdeaa7fa0cddd7fbd",
+      "bytes": 2146,
+      "lines": 81
+    },
+    ".agents/skills/beads/agents/openai.yaml": {
+      "sha1": "7b3925df1daa517e47c8ba76024a839e74c67325",
+      "bytes": 175,
+      "lines": 5
+    },
+    "AGENTS.md": {
+      "sha1": "59d4c98223475be1d76acbe08923ae7c9aca1cee",
+      "bytes": 2677,
+      "lines": 72
+    },
+    "ARCHITECTURE.md": {
+      "sha1": "04bfd1ac01eed1072eb7f7d86650de669342beeb",
+      "bytes": 10370,
+      "lines": 330
+    },
+    "CONTEXT.md": {
+      "sha1": "7b2515b12e6a0a434346b448269c4359d055f4dc",
+      "bytes": 5193,
+      "lines": 82
+    },
+    "Dockerfile": {
+      "sha1": "34359b0bd61c2ed55896505895b1775a3f8a3bb3",
+      "bytes": 1505,
+      "lines": 47
+    },
+    "README.md": {
+      "sha1": "43933bbe484bce3507c70061c246653cb8675205",
+      "bytes": 9197,
+      "lines": 285
+    },
+    "docs/adr/0001-use-typescript-monorepo-with-effect-runtime.md": {
+      "sha1": "a5674d92ffa97a388fa1837bf1e5dec7b4a4b0ff",
+      "bytes": 1552,
+      "lines": 41
+    },
+    "docs/adr/0002-use-beads-as-issue-state-and-gitlab-mrs-as-review-artifacts.md": {
+      "sha1": "d05578dde197b9d88f4cca2e1831be9007f94007",
+      "bytes": 973,
+      "lines": 30
+    },
+    "docs/adr/0003-use-hybrid-run-ledger.md": {
+      "sha1": "1fca094501d45dda2f98803f636ae69af0a44c03",
+      "bytes": 1190,
+      "lines": 37
+    },
+    "docs/adr/0004-use-polling-daemon-with-independent-lanes.md": {
+      "sha1": "9b35f6af35a280351e9c585f66403bd71c55da19",
+      "bytes": 811,
+      "lines": 28
+    },
+    "docs/adr/0005-defer-effect-v4-migration.md": {
+      "sha1": "847cd52dca509850999353423093c8e241680a70",
+      "bytes": 5333,
+      "lines": 96
+    },
+    "docs/adr/0006-defer-effect-v4-after-reevaluation.md": {
+      "sha1": "cddd9656a25935bf7a9d2fc7e47659cf8fa2f842",
+      "bytes": 4171,
+      "lines": 111
+    },
+    "docs/agents/domain.md": {
+      "sha1": "a4ed0b05b7090a903f5605ed728a87a8830d492d",
+      "bytes": 1060,
+      "lines": 35
+    },
+    "docs/agents/issue-tracker.md": {
+      "sha1": "07bd918fedc451232dd8b6bfc5d293fc8135af3b",
+      "bytes": 1670,
+      "lines": 76
+    },
+    "docs/agents/triage-labels.md": {
+      "sha1": "5de71477f3ebdffbf9ece26166b94745f8f5a95c",
+      "bytes": 778,
+      "lines": 16
+    },
+    "docs/planning/morph-4z4-setup-command-design.md": {
+      "sha1": "6d2c008396483f79af69df398dd3b4529aba7234",
+      "bytes": 21900,
+      "lines": 192
+    },
+    "docs/planning/morph-bbp-prototype-handoff.md": {
+      "sha1": "45fe22ec5e8718c3b1ff7cdd6eb16410f89958ae",
+      "bytes": 1706,
+      "lines": 35
+    },
+    "docs/planning/morph-nqk-prototype-handoff.md": {
+      "sha1": "235aa123f692ce7f3bd85c343aeeeb77ea3d83cd",
+      "bytes": 1493,
+      "lines": 36
+    },
+    "docs/planning/morph-thi-prototype-handoff.md": {
+      "sha1": "802dce0bb077c905be51d5fada1a6cf8514b6039",
+      "bytes": 1409,
+      "lines": 28
+    },
+    "docs/product/ALPHA.md": {
+      "sha1": "9354b7e9351413a2a5d493ad3a2b9b9973be0f77",
+      "bytes": 3950,
+      "lines": 107
+    },
+    "docs/product/PRD.md": {
+      "sha1": "caacaeaa2fac743fa54da5e67b322398ab7876f8",
+      "bytes": 13455,
+      "lines": 206
+    },
+    "docs/product/alpha-fixture-smoke.md": {
+      "sha1": "c3f1f6a08b7dd59b43d319b253380a354dc90771",
+      "bytes": 1512,
+      "lines": 34
+    },
+    "fixtures/alpha-target-repo/README.md": {
+      "sha1": "8aade1a530e76e0aed4d59b69259e29297f1fb8f",
+      "bytes": 1164,
+      "lines": 25
+    },
+    "fixtures/alpha-target-repo/morpheus.config.json": {
+      "sha1": "2d34a08a098be796d61af90034131a883a564900",
+      "bytes": 1813,
+      "lines": 86
+    },
+    "fixtures/alpha-target-repo/scripts/verify.js": {
+      "sha1": "0dd890289a4b0de6ab8158bc077637ae0f8e5ed0",
+      "bytes": 46,
+      "lines": 2
+    },
+    "package.json": {
+      "sha1": "b45b1a8fe534afcb5637241d31923fe7afb84234",
+      "bytes": 726,
+      "lines": 29
+    },
+    "packages/adapters/package.json": {
+      "sha1": "99f073388c5952d2f1125809a12723131ca15ef0",
+      "bytes": 666,
+      "lines": 30
+    },
+    "packages/adapters/src/index.ts": {
+      "sha1": "b3a4e22513b01c8f8ff980412c12c476140221eb",
+      "bytes": 73554,
+      "lines": 2389
+    },
+    "packages/adapters/src/sqlite-ledger/index.ts": {
+      "sha1": "dbdeee8aa41ea7a5300f3de19c463f93a859ea0f",
+      "bytes": 27349,
+      "lines": 812
+    },
+    "packages/adapters/tests/beads-issue-tracker.test.ts": {
+      "sha1": "acfa4ece2c2ca5c56b0486ce040f99cb955bdc15",
+      "bytes": 31966,
+      "lines": 1144
+    },
+    "packages/adapters/tests/glab-issue-source.test.ts": {
+      "sha1": "9f6c68f9002bea954c0465ce0946156555aa1520",
+      "bytes": 6111,
+      "lines": 219
+    },
+    "packages/adapters/tests/glab-merge-request-client.test.ts": {
+      "sha1": "2a09beba229d16d03865e24f6b9f2fa115e71359",
+      "bytes": 6761,
+      "lines": 240
+    },
+    "packages/adapters/tests/operator-health.test.ts": {
+      "sha1": "92cda95aa38157eb25eff45431a8a100b5ada146",
+      "bytes": 10808,
+      "lines": 336
+    },
+    "packages/adapters/tests/sandcastle-agent-runner.test.ts": {
+      "sha1": "722625e7e913c7229a6e23f32f699cbb9ce067e1",
+      "bytes": 31807,
+      "lines": 867
+    },
+    "packages/adapters/tests/setup-planning.test.ts": {
+      "sha1": "3a51b91ed4567a0e82f85be3790f928bd00d2cff",
+      "bytes": 34663,
+      "lines": 1102
+    },
+    "packages/adapters/tests/sqlite-run-ledger.test.ts": {
+      "sha1": "e1cd1a052c48938fe4f5071c3df7b7c08d87e4b9",
+      "bytes": 29517,
+      "lines": 942
+    },
+    "packages/adapters/tsconfig.json": {
+      "sha1": "aa48c236f20ccfb59b8e7e3690d4f2bad476c1c6",
+      "bytes": 204,
+      "lines": 10
+    },
+    "packages/cli/package.json": {
+      "sha1": "1900e70adeb85a27fadc210c5284c22feb441fa4",
+      "bytes": 733,
+      "lines": 33
+    },
+    "packages/cli/src/config-summary.ts": {
+      "sha1": "8ea3d4c1e64ff65d621fa54e341825d9f73a365a",
+      "bytes": 1797,
+      "lines": 27
+    },
+    "packages/cli/src/index.ts": {
+      "sha1": "fa2b72701e044d55849f39b53bbacfe23b8de921",
+      "bytes": 33563,
+      "lines": 1008
+    },
+    "packages/cli/src/setup-prompts.ts": {
+      "sha1": "69f89af54e9048a8df7f795737ba27700e1a4411",
+      "bytes": 5977,
+      "lines": 192
+    },
+    "packages/cli/tests/config-summary.test.ts": {
+      "sha1": "696f4d0c3efbebcb7ce5c268b5f259bc1c9228a2",
+      "bytes": 3306,
+      "lines": 104
+    },
+    "packages/cli/tests/setup-prompts.test.ts": {
+      "sha1": "f16194693ddcd7c9a30adf0804a42601f5d4c0f2",
+      "bytes": 1983,
+      "lines": 55
+    },
+    "packages/cli/tsconfig.json": {
+      "sha1": "0912ecd4f9ca4e2e52cc2ec6c14a83d7d11dc112",
+      "bytes": 189,
+      "lines": 10
+    },
+    "packages/core/package.json": {
+      "sha1": "ff18ec7e4dacac476c9e3ec8879bcc6e133035fc",
+      "bytes": 409,
+      "lines": 21
+    },
+    "packages/core/src/index.ts": {
+      "sha1": "a712e4bc4a1146cf4463848c500554a441db16c8",
+      "bytes": 11224,
+      "lines": 455
+    },
+    "packages/core/tests/issue-state-machine.test.ts": {
+      "sha1": "345e7bdb7de3c680e05a0e26ec5b7d09e0b2119b",
+      "bytes": 4399,
+      "lines": 193
+    },
+    "packages/core/tests/lane-scheduler.test.ts": {
+      "sha1": "9d288ee49e7f3f2f5326a16c3a6dda47c900983d",
+      "bytes": 4079,
+      "lines": 155
+    },
+    "packages/core/tests/review-artifact.test.ts": {
+      "sha1": "881ef01ccdd42b37fc0f350e54b3fc98b9c7197e",
+      "bytes": 2453,
+      "lines": 64
+    },
+    "packages/core/tsconfig.json": {
+      "sha1": "aa48c236f20ccfb59b8e7e3690d4f2bad476c1c6",
+      "bytes": 204,
+      "lines": 10
+    },
+    "packages/runtime/bundled-skills/matt-pocock-caveman/SKILL.md": {
+      "sha1": "7ed57502edd9e0a7647091ba5503b355c4a1ba64",
+      "bytes": 1928,
+      "lines": 50
+    },
+    "packages/runtime/bundled-skills/matt-pocock-diagnose/SKILL.md": {
+      "sha1": "5982149466621c0eef64078b1d00e5d7ea8ca01a",
+      "bytes": 7175,
+      "lines": 118
+    },
+    "packages/runtime/bundled-skills/matt-pocock-grill-me/SKILL.md": {
+      "sha1": "552d565a83d045b2a295b8f2325167f3cd0d3e4e",
+      "bytes": 647,
+      "lines": 11
+    },
+    "packages/runtime/bundled-skills/matt-pocock-grill-with-docs/SKILL.md": {
+      "sha1": "f4a5659d72fc27f495b8712c379f05e3034d426f",
+      "bytes": 3564,
+      "lines": 89
+    },
+    "packages/runtime/bundled-skills/matt-pocock-tdd/SKILL.md": {
+      "sha1": "b2fbc71d70e7b1123089aebdc9d50c8a99c12810",
+      "bytes": 4407,
+      "lines": 110
+    },
+    "packages/runtime/bundled-skills/matt-pocock-to-issues/SKILL.md": {
+      "sha1": "30770c5ded345ef2270e5b2dc1d7d715bfd53748",
+      "bytes": 3588,
+      "lines": 84
+    },
+    "packages/runtime/bundled-skills/matt-pocock-to-prd/SKILL.md": {
+      "sha1": "2671d2d341c21c3de5c916f922dfe4ed05d31d39",
+      "bytes": 3125,
+      "lines": 77
+    },
+    "packages/runtime/package.json": {
+      "sha1": "f48c2e3e17ba14bcd19db1b2a0d127c8f8ae64bf",
+      "bytes": 529,
+      "lines": 26
+    },
+    "packages/runtime/src/index.ts": {
+      "sha1": "05c9e1e1cdd3a99b54a8414289b054ecb275c0ef",
+      "bytes": 157719,
+      "lines": 5096
+    },
+    "packages/runtime/tests/agent-ready-contract.test.ts": {
+      "sha1": "971f8335b9b8916f4959e2d1974f2a897c90dec8",
+      "bytes": 2004,
+      "lines": 76
+    },
+    "packages/runtime/tests/config.test.ts": {
+      "sha1": "8b2d31cf1457ceb893a68d81a27cc03f47a08578",
+      "bytes": 28109,
+      "lines": 903
+    },
+    "packages/runtime/tests/daemon.test.ts": {
+      "sha1": "eb228130a61225e59353ee633e360a24cbacfde8",
+      "bytes": 20060,
+      "lines": 598
+    },
+    "packages/runtime/tests/lane-scheduler.test.ts": {
+      "sha1": "ce2d8453f2713e2e15d877cf959f3a1ca901c94e",
+      "bytes": 3540,
+      "lines": 108
+    },
+    "packages/runtime/tests/operator-cli.test.ts": {
+      "sha1": "e288bc2d41b75e9a4de2403b3420242575fb7e7e",
+      "bytes": 8142,
+      "lines": 230
+    },
+    "packages/runtime/tests/prepare-issue.test.ts": {
+      "sha1": "4ff19e06a8a605afbae686bd3a281d1e9b9fc301",
+      "bytes": 26499,
+      "lines": 838
+    },
+    "packages/runtime/tests/review-issue.test.ts": {
+      "sha1": "a4a417dd3c2cedc9d1f0fa43c21a5bf09310d3cd",
+      "bytes": 15034,
+      "lines": 449
+    },
+    "packages/runtime/tests/run-ledger-cli.test.ts": {
+      "sha1": "1f84891a1f5b4692154c2f80253e9821159f8eaa",
+      "bytes": 6111,
+      "lines": 188
+    },
+    "packages/runtime/tests/start-implementation.test.ts": {
+      "sha1": "ca866ff2b2b6ef5ebef9cd0d1368e6cae5ecba47",
+      "bytes": 25510,
+      "lines": 822
+    },
+    "packages/runtime/tests/sync-gitlab-issues.test.ts": {
+      "sha1": "21d5e4fc111b0b5000c1ba5466533eba93ed6a7a",
+      "bytes": 8093,
+      "lines": 281
+    },
+    "packages/runtime/tsconfig.json": {
+      "sha1": "aa48c236f20ccfb59b8e7e3690d4f2bad476c1c6",
+      "bytes": 204,
+      "lines": 10
+    },
+    "pnpm-lock.yaml": {
+      "sha1": "49f4a2403df5b7a366514ebf58bc11c7c0b374fc",
+      "bytes": 103089,
+      "lines": 2717
+    },
+    "pnpm-workspace.yaml": {
+      "sha1": "e3ce10d38f5f902d0570455ffb22e8640ed93d9b",
+      "bytes": 250,
+      "lines": 16
+    },
+    "scripts/install.sh": {
+      "sha1": "c8f73f7655eda3edb7b174282911f80758cdd028",
+      "bytes": 4486,
+      "lines": 152
+    },
+    "scripts/validate-commit-msg.sh": {
+      "sha1": "240a83628855a3268371e5d10393a20f32e7b08e",
+      "bytes": 1519,
+      "lines": 75
+    },
+    "tests/commit-msg-hook.test.ts": {
+      "sha1": "416d8dd97559da6298686fa8b3e13766146e7608",
+      "bytes": 3118,
+      "lines": 96
+    },
+    "tests/install-script.test.ts": {
+      "sha1": "b73920ff1dd095bfd6725e0d849363045b9b9d0e",
+      "bytes": 4447,
+      "lines": 115
+    },
+    "tests/workspace-cli-smoke.test.ts": {
+      "sha1": "d63eaf0c9613b964edf6386c81ed5da7aa271860",
+      "bytes": 18419,
+      "lines": 570
+    },
+    "tests/workspace.test.ts": {
+      "sha1": "80450014da69d4572b5af9d124df13d98b3cfa1a",
+      "bytes": 1540,
+      "lines": 49
+    },
+    "tsconfig.base.json": {
+      "sha1": "40ce29016e98978d000c148f7a979d2cd651f7ee",
+      "bytes": 326,
+      "lines": 16
+    },
+    "vitest.config.ts": {
+      "sha1": "44b59422aa50bc3bb5a2cd788937289eeff64291",
+      "bytes": 535,
+      "lines": 20
+    }
+  }
+}

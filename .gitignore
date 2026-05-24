@@ -1,11 +1,15 @@
 
 # Beads / Dolt files (added by bd init)
+.beads/
 .dolt/
 *.db
 .beads-credential-key
 
 # Local planning scratch
 .scratch/
+
+# Local repo maps / generated agent navigation indexes
+.map/
 
 # Morpheus runtime artifacts
 .morpheus/

@@ -14,6 +14,10 @@ Repo-local agent orchestration system. Morpheus owns scheduling, state transitio
 
 Repository Morpheus operates on. Target repo owns `morpheus.config.json`, domain docs, verification commands, prompt overrides, Beads issue state, branch naming, and GitLab project settings.
 
+### Private Target Signoff
+
+Real-world ALPHA validation against a non-public target repository. Private target signoff proves Morpheus works outside fixtures, but private target names, hostnames, issue/MR URLs, local paths, tokens, and evidence must stay out of Morpheus git and Beads history when Beads is committed.
+
 ### Issue State
 
 Current Beads `agent:*` label on an issue. Exactly one active `agent:*` state is valid. Beads issue state is source of truth.
@@ -53,6 +57,8 @@ Container runtime reachable through Docker CLI/API semantics, such as Docker Des
 ### Agent Auth File
 
 Explicit target/runtime environment file containing the token an agent may use, such as Codex API credentials. Default path is `.morpheus/secrets/agent.env`, with `.morpheus/secrets/agent.env.example` as the non-secret template. Morpheus must not silently use global host Codex authentication like `~/.codex` for agent runs. If the configured auth file is missing or lacks the required token, agent execution fails with an operator-auth error before work starts.
+
+Agent auth file values are target-local secrets. Morpheus may document env var names and empty examples, but must not store real token values or private auth-home paths in git, Beads, run artifacts intended for sharing, or review artifacts.
 
 ### Blocking Health Check
 

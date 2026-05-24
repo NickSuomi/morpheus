@@ -1,4 +1,12 @@
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -19,6 +27,25 @@ const bundledSkillMappings = bundledSkillNames.map((name) => ({
   name,
   path: `.morpheus/skills/${name}/SKILL.md`,
 }));
+
+const relativeFiles = (root: string, current = root): readonly string[] =>
+  readdirSync(current, { withFileTypes: true }).flatMap((entry) => {
+    const fullPath = join(current, entry.name);
+    const relativePath = fullPath.slice(root.length + 1);
+    return entry.isDirectory() ? relativeFiles(root, fullPath) : [relativePath];
+  }).sort();
+
+const expectedInitFiles = [
+  ".gitignore",
+  ".morpheus/container/Dockerfile",
+  ".morpheus/container/README.md",
+  ".morpheus/prompts/implement.md",
+  ".morpheus/prompts/prepare.md",
+  ".morpheus/prompts/review.md",
+  ".morpheus/secrets/agent.env.example",
+  ...bundledSkillNames.map((name) => `.morpheus/skills/${name}/SKILL.md`),
+  "morpheus.config.json",
+].sort();
 
 const validConfig = {
   targetRepo: ".",
@@ -718,6 +745,14 @@ describe("Morpheus config", () => {
       expect(readFileSync(join(dir, ".morpheus/secrets/agent.env.example"), "utf8")).toContain(
         "OPENAI_API_KEY=",
       );
+      expect(
+        result.status === "initialized"
+          ? result.created.map((path) => path.slice(dir.length + 1)).sort()
+          : [],
+      ).toEqual(expectedInitFiles);
+      expect(relativeFiles(dir)).toEqual(expectedInitFiles);
+      expect(existsSync(join(dir, ".sandcastle"))).toBe(false);
+      expect(existsSync(join(dir, ".morpheus/secrets/agent.env"))).toBe(false);
     });
   });
 
@@ -897,6 +932,9 @@ describe("Morpheus config", () => {
       expect(readFileSync(skillPath, "utf8")).toBe(
         readFileSync(join(packageRoot, "bundled-skills/matt-pocock-caveman/SKILL.md"), "utf8"),
       );
+      expect(relativeFiles(dir)).toEqual(expectedInitFiles);
+      expect(existsSync(join(dir, ".sandcastle"))).toBe(false);
+      expect(existsSync(join(dir, ".morpheus/secrets/agent.env"))).toBe(false);
     });
   });
 });

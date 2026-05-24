@@ -1,6 +1,6 @@
-# Alpha fixture target repo smoke
+# ALPHA fixture target repo smoke
 
-`fixtures/alpha-target-repo` is the repeatable tiny target repository for the Alpha E2E smoke path described in `docs/product/ALPHA.md`.
+`fixtures/alpha-target-repo` is the repeatable tiny target repository for the ALPHA E2E smoke path described in `docs/product/ALPHA.md`.
 
 Purpose:
 
@@ -12,7 +12,7 @@ Purpose:
 Focused verification used by the test suite:
 
 ```sh
-pnpm vitest run tests/workspace-cli-smoke.test.ts -t "Alpha fixture"
+pnpm vitest run tests/workspace-cli-smoke.test.ts -t "ALPHA fixture"
 ```
 
 Manual smoke from a temporary copy:

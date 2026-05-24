@@ -2,7 +2,7 @@
 
 ## Problem Statement
 
-Current repo-local agent workflow grew from automation scripts into its own agent orchestration product. It now mixes daemon scheduling, issue state, sandbox execution, review, merge behavior, logs, prompts, and repo-specific app code inside `private-target-repo`.
+Current repo-local agent workflow grew from automation scripts into its own agent orchestration product. It now mixes daemon scheduling, issue state, sandbox execution, review, merge behavior, logs, prompts, and repo-specific app code inside a private target repository.
 
 This causes three problems:
 
@@ -18,7 +18,7 @@ Build **Morpheus** as a separate project under `/Users/nicksuomi/sandbox/morpheu
 
 Morpheus is the product name, CLI name, daemon name, and public vocabulary. "Sandcastle" must not appear as product vocabulary. It may appear only as a low-level adapter implementation detail, because Morpheus can use the `@ai-hero/sandcastle` library internally.
 
-Morpheus will run against a target repository, initially `private-target-repo`, via target repo configuration.
+Morpheus will run against target repositories via target repo configuration.
 
 Morpheus owns:
 
@@ -66,7 +66,7 @@ Target repo owns:
 
 - Project name is **Morpheus**.
 - Project path is `/Users/nicksuomi/sandbox/morpheus`.
-- Current `private-target-repo` repo-local agent implementation is reference material, not the long-term product location.
+- Current private target repo-local agent implementations are reference material, not the long-term product location.
 - Public naming should use Morpheus vocabulary, not Sandcastle vocabulary.
 - Allowed Sandcastle name use: `SandcastleAgentRunner` as adapter around `@ai-hero/sandcastle`.
 - Morpheus should expose deep modules: `IssueStateMachine`, `LaneScheduler`, `RunLedger`, `ReviewArtifact`, `AgentRunner`, `IssueTracker`, `MergeRequestClient`, and `WorkspaceRuntime`.
@@ -196,10 +196,10 @@ Target repo owns:
 
 ## Further Notes
 
-- Current `private-target-repo` repo-local runtime is reference implementation only.
+- Current private target repo-local runtime is reference implementation only.
 - Public docs and CLI should use Morpheus vocabulary.
 - “Sandcastle” is permitted only as adapter name where it describes usage of `@ai-hero/sandcastle`.
-- Initial target repo is `private-target-repo`.
+- ALPHA uses an anonymized fixture target plus private target signoff evidence kept outside Morpheus git.
 - Retention baseline: active runs retained until terminal; failed runs retained until manual prune; review-candidate runs retained until MR merged/closed or manual prune; completed intermediate runs retained for last 14 days or last 100 runs.
 - Required ADR: **Use GitLab MR as Morpheus review artifact while Beads remains issue state source**.
 - Core product principle: **If it can't explain itself, it can't run.**

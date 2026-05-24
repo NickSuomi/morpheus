@@ -32,6 +32,19 @@ describe("ReviewArtifact", () => {
     expect(output).toContain("- Draft MR exists before agent:running.")
     expect(output).toContain("- pnpm check")
     expect(output).toContain("Review verdict: pending")
+    expect(output).not.toContain("Source issue:")
+  })
+
+  it("renders a GitLab source issue reference when source IID is known", () => {
+    const output = renderDraftReviewArtifact({
+      issueId: "morph-7ky",
+      sourceIssue: {
+        iid: 1234
+      },
+      contract
+    })
+
+    expect(output).toContain("Source issue: #1234")
   })
 
   it("renders full curated MR context without raw transcript content", () => {

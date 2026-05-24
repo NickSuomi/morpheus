@@ -1,0 +1,2678 @@
+{
+  "version": "1.0.0",
+  "kind": "codebase",
+  "project": {
+    "name": "Morpheus",
+    "languages": [
+      "dockerfile",
+      "javascript",
+      "json",
+      "markdown",
+      "shell",
+      "typescript",
+      "yaml"
+    ],
+    "frameworks": [
+      "Effect",
+      "Vitest",
+      "pnpm workspace"
+    ],
+    "description": "Local repo-based agent orchestration system for explainable software work across Beads lifecycle state, GitLab review artifacts, container-backed agents, and run ledgers.",
+    "analyzedAt": "2026-05-23T21:41:57.807Z",
+    "gitCommitHash": "f99d9a4dc0414360da85fada3016878a8fe6f2f2"
+  },
+  "nodes": [
+    {
+      "id": "document:.agents/skills/beads/SKILL.md",
+      "type": "document",
+      "name": "SKILL.md",
+      "filePath": ".agents/skills/beads/SKILL.md",
+      "summary": "Source file in .agents/skills/beads.",
+      "tags": [
+        "documentation"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "config:.agents/skills/beads/agents/openai.yaml",
+      "type": "config",
+      "name": "openai.yaml",
+      "filePath": ".agents/skills/beads/agents/openai.yaml",
+      "summary": "Project or package configuration used by builds, tests, TypeScript, Vitest, or workspace tooling.",
+      "tags": [
+        "configuration"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "document:AGENTS.md",
+      "type": "document",
+      "name": "AGENTS.md",
+      "filePath": "AGENTS.md",
+      "summary": "Repository instructions for agents, required docs, Beads workflow, vocabulary, and commit hygiene.",
+      "tags": [
+        "agent-guidance",
+        "documentation"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "document:ARCHITECTURE.md",
+      "type": "document",
+      "name": "ARCHITECTURE.md",
+      "filePath": "ARCHITECTURE.md",
+      "summary": "Describes Morpheus monorepo package ownership, Effect runtime boundary, config shape, scheduler, and run ledger architecture.",
+      "tags": [
+        "documentation"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "document:CONTEXT.md",
+      "type": "document",
+      "name": "CONTEXT.md",
+      "filePath": "CONTEXT.md",
+      "summary": "Defines Morpheus product vocabulary, target repository boundary, run/ledger terms, auth expectations, and operator health concepts.",
+      "tags": [
+        "documentation"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "service:Dockerfile",
+      "type": "service",
+      "name": "Dockerfile",
+      "filePath": "Dockerfile",
+      "summary": "Container/service definition used by Morpheus development or target runtime setup.",
+      "tags": [
+        "source"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "document:README.md",
+      "type": "document",
+      "name": "README.md",
+      "filePath": "README.md",
+      "summary": "Operator-facing overview, quickstart, daemon usage, inspection commands, troubleshooting, and development scripts.",
+      "tags": [
+        "documentation"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "document:docs/adr/0001-use-typescript-monorepo-with-effect-runtime.md",
+      "type": "document",
+      "name": "0001-use-typescript-monorepo-with-effect-runtime.md",
+      "filePath": "docs/adr/0001-use-typescript-monorepo-with-effect-runtime.md",
+      "summary": "Accepted architecture decision: ADR 0001: Use TypeScript Monorepo With Effect Runtime.",
+      "tags": [
+        "adr",
+        "architecture-decision",
+        "documentation"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "document:docs/adr/0002-use-beads-as-issue-state-and-gitlab-mrs-as-review-artifacts.md",
+      "type": "document",
+      "name": "0002-use-beads-as-issue-state-and-gitlab-mrs-as-review-artifacts.md",
+      "filePath": "docs/adr/0002-use-beads-as-issue-state-and-gitlab-mrs-as-review-artifacts.md",
+      "summary": "Accepted architecture decision: ADR 0002: Use Beads As Issue State And GitLab MRs As Review Artifacts.",
+      "tags": [
+        "adr",
+        "architecture-decision",
+        "documentation"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "document:docs/adr/0003-use-hybrid-run-ledger.md",
+      "type": "document",
+      "name": "0003-use-hybrid-run-ledger.md",
+      "filePath": "docs/adr/0003-use-hybrid-run-ledger.md",
+      "summary": "Accepted architecture decision: ADR 0003: Use Hybrid Run Ledger.",
+      "tags": [
+        "adr",
+        "architecture-decision",
+        "documentation"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "document:docs/adr/0004-use-polling-daemon-with-independent-lanes.md",
+      "type": "document",
+      "name": "0004-use-polling-daemon-with-independent-lanes.md",
+      "filePath": "docs/adr/0004-use-polling-daemon-with-independent-lanes.md",
+      "summary": "Accepted architecture decision: ADR 0004: Use Polling Daemon With Independent Lanes.",
+      "tags": [
+        "adr",
+        "architecture-decision",
+        "documentation"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "document:docs/adr/0005-defer-effect-v4-migration.md",
+      "type": "document",
+      "name": "0005-defer-effect-v4-migration.md",
+      "filePath": "docs/adr/0005-defer-effect-v4-migration.md",
+      "summary": "Accepted architecture decision: ADR 0005: Defer Effect v4 Migration.",
+      "tags": [
+        "adr",
+        "architecture-decision",
+        "documentation"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "document:docs/adr/0006-defer-effect-v4-after-reevaluation.md",
+      "type": "document",
+      "name": "0006-defer-effect-v4-after-reevaluation.md",
+      "filePath": "docs/adr/0006-defer-effect-v4-after-reevaluation.md",
+      "summary": "Accepted architecture decision: ADR 0006: Defer Effect v4 After Re-evaluation.",
+      "tags": [
+        "adr",
+        "architecture-decision",
+        "documentation"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "document:docs/agents/domain.md",
+      "type": "document",
+      "name": "domain.md",
+      "filePath": "docs/agents/domain.md",
+      "summary": "Agent workflow guidance: Domain Docs.",
+      "tags": [
+        "agent-guidance",
+        "documentation"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "document:docs/agents/issue-tracker.md",
+      "type": "document",
+      "name": "issue-tracker.md",
+      "filePath": "docs/agents/issue-tracker.md",
+      "summary": "Agent workflow guidance: Issue Tracker: Beads.",
+      "tags": [
+        "agent-guidance",
+        "documentation"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "document:docs/agents/triage-labels.md",
+      "type": "document",
+      "name": "triage-labels.md",
+      "filePath": "docs/agents/triage-labels.md",
+      "summary": "Agent workflow guidance: Triage Labels.",
+      "tags": [
+        "agent-guidance",
+        "documentation"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "document:docs/planning/morph-4z4-setup-command-design.md",
+      "type": "document",
+      "name": "morph-4z4-setup-command-design.md",
+      "filePath": "docs/planning/morph-4z4-setup-command-design.md",
+      "summary": "Source file in docs/planning.",
+      "tags": [
+        "documentation"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "document:docs/planning/morph-bbp-prototype-handoff.md",
+      "type": "document",
+      "name": "morph-bbp-prototype-handoff.md",
+      "filePath": "docs/planning/morph-bbp-prototype-handoff.md",
+      "summary": "Source file in docs/planning.",
+      "tags": [
+        "documentation"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "document:docs/planning/morph-nqk-prototype-handoff.md",
+      "type": "document",
+      "name": "morph-nqk-prototype-handoff.md",
+      "filePath": "docs/planning/morph-nqk-prototype-handoff.md",
+      "summary": "Source file in docs/planning.",
+      "tags": [
+        "documentation"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "document:docs/planning/morph-thi-prototype-handoff.md",
+      "type": "document",
+      "name": "morph-thi-prototype-handoff.md",
+      "filePath": "docs/planning/morph-thi-prototype-handoff.md",
+      "summary": "Source file in docs/planning.",
+      "tags": [
+        "documentation"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "document:docs/product/ALPHA.md",
+      "type": "document",
+      "name": "ALPHA.md",
+      "filePath": "docs/product/ALPHA.md",
+      "summary": "Source file in docs/product.",
+      "tags": [
+        "product-doc",
+        "documentation"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "document:docs/product/PRD.md",
+      "type": "document",
+      "name": "PRD.md",
+      "filePath": "docs/product/PRD.md",
+      "summary": "Canonical product requirements for explainable repo-local agent orchestration, lifecycle state, review artifacts, and tracer bullet slices.",
+      "tags": [
+        "product-doc",
+        "documentation"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "document:docs/product/alpha-fixture-smoke.md",
+      "type": "document",
+      "name": "alpha-fixture-smoke.md",
+      "filePath": "docs/product/alpha-fixture-smoke.md",
+      "summary": "Source file in docs/product.",
+      "tags": [
+        "product-doc",
+        "documentation"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "document:fixtures/alpha-target-repo/README.md",
+      "type": "document",
+      "name": "README.md",
+      "filePath": "fixtures/alpha-target-repo/README.md",
+      "summary": "Anonymized fixture target repository file used for public smoke tests and alpha validation.",
+      "tags": [
+        "fixture",
+        "documentation"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "config:fixtures/alpha-target-repo/morpheus.config.json",
+      "type": "config",
+      "name": "morpheus.config.json",
+      "filePath": "fixtures/alpha-target-repo/morpheus.config.json",
+      "summary": "Anonymized fixture target repository file used for public smoke tests and alpha validation.",
+      "tags": [
+        "fixture",
+        "configuration"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "file:fixtures/alpha-target-repo/scripts/verify.js",
+      "type": "file",
+      "name": "verify.js",
+      "filePath": "fixtures/alpha-target-repo/scripts/verify.js",
+      "summary": "Anonymized fixture target repository file used for public smoke tests and alpha validation.",
+      "tags": [
+        "fixture"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "config:package.json",
+      "type": "config",
+      "name": "package.json",
+      "filePath": "package.json",
+      "summary": "Project or package configuration used by builds, tests, TypeScript, Vitest, or workspace tooling.",
+      "tags": [
+        "configuration"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "config:packages/adapters/package.json",
+      "type": "config",
+      "name": "package.json",
+      "filePath": "packages/adapters/package.json",
+      "summary": "Concrete adapter package for Beads, GitLab, SQLite ledger, process, workspace, and container-backed agent execution.",
+      "tags": [
+        "adapters",
+        "side-effects",
+        "configuration"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "file:packages/adapters/src/index.ts",
+      "type": "file",
+      "name": "index.ts",
+      "filePath": "packages/adapters/src/index.ts",
+      "summary": "Concrete adapter package for Beads, GitLab, SQLite ledger, process, workspace, and container-backed agent execution.",
+      "tags": [
+        "adapters",
+        "side-effects"
+      ],
+      "complexity": "complex"
+    },
+    {
+      "id": "file:packages/adapters/src/sqlite-ledger/index.ts",
+      "type": "file",
+      "name": "index.ts",
+      "filePath": "packages/adapters/src/sqlite-ledger/index.ts",
+      "summary": "Concrete adapter package for Beads, GitLab, SQLite ledger, process, workspace, and container-backed agent execution.",
+      "tags": [
+        "adapters",
+        "side-effects"
+      ],
+      "complexity": "complex"
+    },
+    {
+      "id": "file:packages/adapters/tests/beads-issue-tracker.test.ts",
+      "type": "file",
+      "name": "beads-issue-tracker.test.ts",
+      "filePath": "packages/adapters/tests/beads-issue-tracker.test.ts",
+      "summary": "Concrete adapter package for Beads, GitLab, SQLite ledger, process, workspace, and container-backed agent execution.",
+      "tags": [
+        "adapters",
+        "side-effects",
+        "test"
+      ],
+      "complexity": "complex"
+    },
+    {
+      "id": "file:packages/adapters/tests/glab-issue-source.test.ts",
+      "type": "file",
+      "name": "glab-issue-source.test.ts",
+      "filePath": "packages/adapters/tests/glab-issue-source.test.ts",
+      "summary": "Concrete adapter package for Beads, GitLab, SQLite ledger, process, workspace, and container-backed agent execution.",
+      "tags": [
+        "adapters",
+        "side-effects",
+        "test"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "file:packages/adapters/tests/glab-merge-request-client.test.ts",
+      "type": "file",
+      "name": "glab-merge-request-client.test.ts",
+      "filePath": "packages/adapters/tests/glab-merge-request-client.test.ts",
+      "summary": "Concrete adapter package for Beads, GitLab, SQLite ledger, process, workspace, and container-backed agent execution.",
+      "tags": [
+        "adapters",
+        "side-effects",
+        "test"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "file:packages/adapters/tests/operator-health.test.ts",
+      "type": "file",
+      "name": "operator-health.test.ts",
+      "filePath": "packages/adapters/tests/operator-health.test.ts",
+      "summary": "Concrete adapter package for Beads, GitLab, SQLite ledger, process, workspace, and container-backed agent execution.",
+      "tags": [
+        "adapters",
+        "side-effects",
+        "test"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "file:packages/adapters/tests/sandcastle-agent-runner.test.ts",
+      "type": "file",
+      "name": "sandcastle-agent-runner.test.ts",
+      "filePath": "packages/adapters/tests/sandcastle-agent-runner.test.ts",
+      "summary": "Concrete adapter package for Beads, GitLab, SQLite ledger, process, workspace, and container-backed agent execution.",
+      "tags": [
+        "adapters",
+        "side-effects",
+        "test"
+      ],
+      "complexity": "complex"
+    },
+    {
+      "id": "file:packages/adapters/tests/setup-planning.test.ts",
+      "type": "file",
+      "name": "setup-planning.test.ts",
+      "filePath": "packages/adapters/tests/setup-planning.test.ts",
+      "summary": "Concrete adapter package for Beads, GitLab, SQLite ledger, process, workspace, and container-backed agent execution.",
+      "tags": [
+        "adapters",
+        "side-effects",
+        "test"
+      ],
+      "complexity": "complex"
+    },
+    {
+      "id": "file:packages/adapters/tests/sqlite-run-ledger.test.ts",
+      "type": "file",
+      "name": "sqlite-run-ledger.test.ts",
+      "filePath": "packages/adapters/tests/sqlite-run-ledger.test.ts",
+      "summary": "Concrete adapter package for Beads, GitLab, SQLite ledger, process, workspace, and container-backed agent execution.",
+      "tags": [
+        "adapters",
+        "side-effects",
+        "test"
+      ],
+      "complexity": "complex"
+    },
+    {
+      "id": "config:packages/adapters/tsconfig.json",
+      "type": "config",
+      "name": "tsconfig.json",
+      "filePath": "packages/adapters/tsconfig.json",
+      "summary": "Concrete adapter package for Beads, GitLab, SQLite ledger, process, workspace, and container-backed agent execution.",
+      "tags": [
+        "adapters",
+        "side-effects",
+        "configuration"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "config:packages/cli/package.json",
+      "type": "config",
+      "name": "package.json",
+      "filePath": "packages/cli/package.json",
+      "summary": "Thin operator CLI package that renders config/status/setup UX and runs runtime programs at the edge.",
+      "tags": [
+        "cli",
+        "operator-ui",
+        "configuration"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "file:packages/cli/src/config-summary.ts",
+      "type": "file",
+      "name": "config-summary.ts",
+      "filePath": "packages/cli/src/config-summary.ts",
+      "summary": "Thin operator CLI package that renders config/status/setup UX and runs runtime programs at the edge.",
+      "tags": [
+        "cli",
+        "operator-ui"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "file:packages/cli/src/index.ts",
+      "type": "file",
+      "name": "index.ts",
+      "filePath": "packages/cli/src/index.ts",
+      "summary": "Thin operator CLI package that renders config/status/setup UX and runs runtime programs at the edge.",
+      "tags": [
+        "cli",
+        "operator-ui"
+      ],
+      "complexity": "complex"
+    },
+    {
+      "id": "file:packages/cli/src/setup-prompts.ts",
+      "type": "file",
+      "name": "setup-prompts.ts",
+      "filePath": "packages/cli/src/setup-prompts.ts",
+      "summary": "Thin operator CLI package that renders config/status/setup UX and runs runtime programs at the edge.",
+      "tags": [
+        "cli",
+        "operator-ui"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "file:packages/cli/tests/config-summary.test.ts",
+      "type": "file",
+      "name": "config-summary.test.ts",
+      "filePath": "packages/cli/tests/config-summary.test.ts",
+      "summary": "Thin operator CLI package that renders config/status/setup UX and runs runtime programs at the edge.",
+      "tags": [
+        "cli",
+        "operator-ui",
+        "test"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "file:packages/cli/tests/setup-prompts.test.ts",
+      "type": "file",
+      "name": "setup-prompts.test.ts",
+      "filePath": "packages/cli/tests/setup-prompts.test.ts",
+      "summary": "Thin operator CLI package that renders config/status/setup UX and runs runtime programs at the edge.",
+      "tags": [
+        "cli",
+        "operator-ui",
+        "test"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "config:packages/cli/tsconfig.json",
+      "type": "config",
+      "name": "tsconfig.json",
+      "filePath": "packages/cli/tsconfig.json",
+      "summary": "Thin operator CLI package that renders config/status/setup UX and runs runtime programs at the edge.",
+      "tags": [
+        "cli",
+        "operator-ui",
+        "configuration"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "config:packages/core/package.json",
+      "type": "config",
+      "name": "package.json",
+      "filePath": "packages/core/package.json",
+      "summary": "Pure TypeScript domain package for state machine, scheduler, contracts, and review artifact models.",
+      "tags": [
+        "core",
+        "pure-domain",
+        "configuration"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "file:packages/core/src/index.ts",
+      "type": "file",
+      "name": "index.ts",
+      "filePath": "packages/core/src/index.ts",
+      "summary": "Pure TypeScript domain package for state machine, scheduler, contracts, and review artifact models.",
+      "tags": [
+        "core",
+        "pure-domain"
+      ],
+      "complexity": "complex"
+    },
+    {
+      "id": "file:packages/core/tests/issue-state-machine.test.ts",
+      "type": "file",
+      "name": "issue-state-machine.test.ts",
+      "filePath": "packages/core/tests/issue-state-machine.test.ts",
+      "summary": "Pure TypeScript domain package for state machine, scheduler, contracts, and review artifact models.",
+      "tags": [
+        "core",
+        "pure-domain",
+        "test"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "file:packages/core/tests/lane-scheduler.test.ts",
+      "type": "file",
+      "name": "lane-scheduler.test.ts",
+      "filePath": "packages/core/tests/lane-scheduler.test.ts",
+      "summary": "Pure TypeScript domain package for state machine, scheduler, contracts, and review artifact models.",
+      "tags": [
+        "core",
+        "pure-domain",
+        "test"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "file:packages/core/tests/review-artifact.test.ts",
+      "type": "file",
+      "name": "review-artifact.test.ts",
+      "filePath": "packages/core/tests/review-artifact.test.ts",
+      "summary": "Pure TypeScript domain package for state machine, scheduler, contracts, and review artifact models.",
+      "tags": [
+        "core",
+        "pure-domain",
+        "test"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "config:packages/core/tsconfig.json",
+      "type": "config",
+      "name": "tsconfig.json",
+      "filePath": "packages/core/tsconfig.json",
+      "summary": "Pure TypeScript domain package for state machine, scheduler, contracts, and review artifact models.",
+      "tags": [
+        "core",
+        "pure-domain",
+        "configuration"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "document:packages/runtime/bundled-skills/matt-pocock-caveman/SKILL.md",
+      "type": "document",
+      "name": "SKILL.md",
+      "filePath": "packages/runtime/bundled-skills/matt-pocock-caveman/SKILL.md",
+      "summary": "Effect-based orchestration package for use cases, ports, daemon workflow, config, and runtime errors.",
+      "tags": [
+        "runtime",
+        "effect",
+        "documentation"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "document:packages/runtime/bundled-skills/matt-pocock-diagnose/SKILL.md",
+      "type": "document",
+      "name": "SKILL.md",
+      "filePath": "packages/runtime/bundled-skills/matt-pocock-diagnose/SKILL.md",
+      "summary": "Effect-based orchestration package for use cases, ports, daemon workflow, config, and runtime errors.",
+      "tags": [
+        "runtime",
+        "effect",
+        "documentation"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "document:packages/runtime/bundled-skills/matt-pocock-grill-me/SKILL.md",
+      "type": "document",
+      "name": "SKILL.md",
+      "filePath": "packages/runtime/bundled-skills/matt-pocock-grill-me/SKILL.md",
+      "summary": "Effect-based orchestration package for use cases, ports, daemon workflow, config, and runtime errors.",
+      "tags": [
+        "runtime",
+        "effect",
+        "documentation"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "document:packages/runtime/bundled-skills/matt-pocock-grill-with-docs/SKILL.md",
+      "type": "document",
+      "name": "SKILL.md",
+      "filePath": "packages/runtime/bundled-skills/matt-pocock-grill-with-docs/SKILL.md",
+      "summary": "Effect-based orchestration package for use cases, ports, daemon workflow, config, and runtime errors.",
+      "tags": [
+        "runtime",
+        "effect",
+        "documentation"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "document:packages/runtime/bundled-skills/matt-pocock-tdd/SKILL.md",
+      "type": "document",
+      "name": "SKILL.md",
+      "filePath": "packages/runtime/bundled-skills/matt-pocock-tdd/SKILL.md",
+      "summary": "Effect-based orchestration package for use cases, ports, daemon workflow, config, and runtime errors.",
+      "tags": [
+        "runtime",
+        "effect",
+        "documentation"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "document:packages/runtime/bundled-skills/matt-pocock-to-issues/SKILL.md",
+      "type": "document",
+      "name": "SKILL.md",
+      "filePath": "packages/runtime/bundled-skills/matt-pocock-to-issues/SKILL.md",
+      "summary": "Effect-based orchestration package for use cases, ports, daemon workflow, config, and runtime errors.",
+      "tags": [
+        "runtime",
+        "effect",
+        "documentation"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "document:packages/runtime/bundled-skills/matt-pocock-to-prd/SKILL.md",
+      "type": "document",
+      "name": "SKILL.md",
+      "filePath": "packages/runtime/bundled-skills/matt-pocock-to-prd/SKILL.md",
+      "summary": "Effect-based orchestration package for use cases, ports, daemon workflow, config, and runtime errors.",
+      "tags": [
+        "runtime",
+        "effect",
+        "documentation"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "config:packages/runtime/package.json",
+      "type": "config",
+      "name": "package.json",
+      "filePath": "packages/runtime/package.json",
+      "summary": "Effect-based orchestration package for use cases, ports, daemon workflow, config, and runtime errors.",
+      "tags": [
+        "runtime",
+        "effect",
+        "configuration"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "file:packages/runtime/src/index.ts",
+      "type": "file",
+      "name": "index.ts",
+      "filePath": "packages/runtime/src/index.ts",
+      "summary": "Effect-based orchestration package for use cases, ports, daemon workflow, config, and runtime errors.",
+      "tags": [
+        "runtime",
+        "effect"
+      ],
+      "complexity": "complex"
+    },
+    {
+      "id": "file:packages/runtime/tests/agent-ready-contract.test.ts",
+      "type": "file",
+      "name": "agent-ready-contract.test.ts",
+      "filePath": "packages/runtime/tests/agent-ready-contract.test.ts",
+      "summary": "Effect-based orchestration package for use cases, ports, daemon workflow, config, and runtime errors.",
+      "tags": [
+        "runtime",
+        "effect",
+        "test"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "file:packages/runtime/tests/config.test.ts",
+      "type": "file",
+      "name": "config.test.ts",
+      "filePath": "packages/runtime/tests/config.test.ts",
+      "summary": "Effect-based orchestration package for use cases, ports, daemon workflow, config, and runtime errors.",
+      "tags": [
+        "runtime",
+        "effect",
+        "test"
+      ],
+      "complexity": "complex"
+    },
+    {
+      "id": "file:packages/runtime/tests/daemon.test.ts",
+      "type": "file",
+      "name": "daemon.test.ts",
+      "filePath": "packages/runtime/tests/daemon.test.ts",
+      "summary": "Effect-based orchestration package for use cases, ports, daemon workflow, config, and runtime errors.",
+      "tags": [
+        "runtime",
+        "effect",
+        "test"
+      ],
+      "complexity": "complex"
+    },
+    {
+      "id": "file:packages/runtime/tests/lane-scheduler.test.ts",
+      "type": "file",
+      "name": "lane-scheduler.test.ts",
+      "filePath": "packages/runtime/tests/lane-scheduler.test.ts",
+      "summary": "Effect-based orchestration package for use cases, ports, daemon workflow, config, and runtime errors.",
+      "tags": [
+        "runtime",
+        "effect",
+        "test"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "file:packages/runtime/tests/operator-cli.test.ts",
+      "type": "file",
+      "name": "operator-cli.test.ts",
+      "filePath": "packages/runtime/tests/operator-cli.test.ts",
+      "summary": "Effect-based orchestration package for use cases, ports, daemon workflow, config, and runtime errors.",
+      "tags": [
+        "runtime",
+        "effect",
+        "test"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "file:packages/runtime/tests/prepare-issue.test.ts",
+      "type": "file",
+      "name": "prepare-issue.test.ts",
+      "filePath": "packages/runtime/tests/prepare-issue.test.ts",
+      "summary": "Effect-based orchestration package for use cases, ports, daemon workflow, config, and runtime errors.",
+      "tags": [
+        "runtime",
+        "effect",
+        "test"
+      ],
+      "complexity": "complex"
+    },
+    {
+      "id": "file:packages/runtime/tests/review-issue.test.ts",
+      "type": "file",
+      "name": "review-issue.test.ts",
+      "filePath": "packages/runtime/tests/review-issue.test.ts",
+      "summary": "Effect-based orchestration package for use cases, ports, daemon workflow, config, and runtime errors.",
+      "tags": [
+        "runtime",
+        "effect",
+        "test"
+      ],
+      "complexity": "complex"
+    },
+    {
+      "id": "file:packages/runtime/tests/run-ledger-cli.test.ts",
+      "type": "file",
+      "name": "run-ledger-cli.test.ts",
+      "filePath": "packages/runtime/tests/run-ledger-cli.test.ts",
+      "summary": "Effect-based orchestration package for use cases, ports, daemon workflow, config, and runtime errors.",
+      "tags": [
+        "runtime",
+        "effect",
+        "test"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "file:packages/runtime/tests/start-implementation.test.ts",
+      "type": "file",
+      "name": "start-implementation.test.ts",
+      "filePath": "packages/runtime/tests/start-implementation.test.ts",
+      "summary": "Effect-based orchestration package for use cases, ports, daemon workflow, config, and runtime errors.",
+      "tags": [
+        "runtime",
+        "effect",
+        "test"
+      ],
+      "complexity": "complex"
+    },
+    {
+      "id": "file:packages/runtime/tests/sync-gitlab-issues.test.ts",
+      "type": "file",
+      "name": "sync-gitlab-issues.test.ts",
+      "filePath": "packages/runtime/tests/sync-gitlab-issues.test.ts",
+      "summary": "Effect-based orchestration package for use cases, ports, daemon workflow, config, and runtime errors.",
+      "tags": [
+        "runtime",
+        "effect",
+        "test"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "config:packages/runtime/tsconfig.json",
+      "type": "config",
+      "name": "tsconfig.json",
+      "filePath": "packages/runtime/tsconfig.json",
+      "summary": "Effect-based orchestration package for use cases, ports, daemon workflow, config, and runtime errors.",
+      "tags": [
+        "runtime",
+        "effect",
+        "configuration"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "config:pnpm-lock.yaml",
+      "type": "config",
+      "name": "pnpm-lock.yaml",
+      "filePath": "pnpm-lock.yaml",
+      "summary": "Project or package configuration used by builds, tests, TypeScript, Vitest, or workspace tooling.",
+      "tags": [
+        "configuration"
+      ],
+      "complexity": "complex"
+    },
+    {
+      "id": "config:pnpm-workspace.yaml",
+      "type": "config",
+      "name": "pnpm-workspace.yaml",
+      "filePath": "pnpm-workspace.yaml",
+      "summary": "Project or package configuration used by builds, tests, TypeScript, Vitest, or workspace tooling.",
+      "tags": [
+        "configuration"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "file:scripts/install.sh",
+      "type": "file",
+      "name": "install.sh",
+      "filePath": "scripts/install.sh",
+      "summary": "Source file in scripts.",
+      "tags": [
+        "source"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "file:scripts/validate-commit-msg.sh",
+      "type": "file",
+      "name": "validate-commit-msg.sh",
+      "filePath": "scripts/validate-commit-msg.sh",
+      "summary": "Source file in scripts.",
+      "tags": [
+        "source"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "file:tests/commit-msg-hook.test.ts",
+      "type": "file",
+      "name": "commit-msg-hook.test.ts",
+      "filePath": "tests/commit-msg-hook.test.ts",
+      "summary": "Test coverage for public behavior and adapter/runtime contracts.",
+      "tags": [
+        "test"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "file:tests/install-script.test.ts",
+      "type": "file",
+      "name": "install-script.test.ts",
+      "filePath": "tests/install-script.test.ts",
+      "summary": "Test coverage for public behavior and adapter/runtime contracts.",
+      "tags": [
+        "test"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "file:tests/workspace-cli-smoke.test.ts",
+      "type": "file",
+      "name": "workspace-cli-smoke.test.ts",
+      "filePath": "tests/workspace-cli-smoke.test.ts",
+      "summary": "Test coverage for public behavior and adapter/runtime contracts.",
+      "tags": [
+        "test"
+      ],
+      "complexity": "complex"
+    },
+    {
+      "id": "file:tests/workspace.test.ts",
+      "type": "file",
+      "name": "workspace.test.ts",
+      "filePath": "tests/workspace.test.ts",
+      "summary": "Test coverage for public behavior and adapter/runtime contracts.",
+      "tags": [
+        "test"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "config:tsconfig.base.json",
+      "type": "config",
+      "name": "tsconfig.base.json",
+      "filePath": "tsconfig.base.json",
+      "summary": "Project or package configuration used by builds, tests, TypeScript, Vitest, or workspace tooling.",
+      "tags": [
+        "configuration"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "file:vitest.config.ts",
+      "type": "file",
+      "name": "vitest.config.ts",
+      "filePath": "vitest.config.ts",
+      "summary": "Source file in ..",
+      "tags": [
+        "source"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "concept:agent-ready-contract",
+      "type": "concept",
+      "name": "Agent-Ready Contract",
+      "summary": "Structured prep output that must explain current behavior, desired behavior, interfaces, acceptance criteria, verification, risk, blockers, and HITL decisions before implementation runs.",
+      "tags": [
+        "contract",
+        "workflow",
+        "quality-gate"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "concept:run-ledger",
+      "type": "concept",
+      "name": "Run Ledger",
+      "summary": "SQLite-backed audit model with mutable run summaries and immutable ordered run events for operator inspection.",
+      "tags": [
+        "observability",
+        "sqlite",
+        "audit"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "concept:lane-scheduler",
+      "type": "concept",
+      "name": "Lane Scheduler",
+      "summary": "Pure scheduling boundary that derives runnable preparation, implementation, and review lane work from Beads issue state and configured concurrency.",
+      "tags": [
+        "scheduler",
+        "lanes",
+        "core"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "concept:adapter-boundary",
+      "type": "concept",
+      "name": "Adapter Boundary",
+      "summary": "Effect runtime ports isolate shell, GitLab, Beads, SQLite, workspace, and container effects from pure core logic and use cases.",
+      "tags": [
+        "architecture",
+        "effect",
+        "ports"
+      ],
+      "complexity": "moderate"
+    }
+  ],
+  "edges": [
+    {
+      "source": "document:AGENTS.md",
+      "target": "document:.agents/skills/beads/SKILL.md",
+      "type": "documents",
+      "direction": "forward",
+      "weight": 0.35,
+      "description": "Repository guidance points agents toward project context before work."
+    },
+    {
+      "source": "document:AGENTS.md",
+      "target": "config:.agents/skills/beads/agents/openai.yaml",
+      "type": "related",
+      "direction": "forward",
+      "weight": 0.35,
+      "description": "Repository guidance points agents toward project context before work."
+    },
+    {
+      "source": "document:AGENTS.md",
+      "target": "document:ARCHITECTURE.md",
+      "type": "documents",
+      "direction": "forward",
+      "weight": 0.35,
+      "description": "Repository guidance points agents toward project context before work."
+    },
+    {
+      "source": "document:AGENTS.md",
+      "target": "document:CONTEXT.md",
+      "type": "documents",
+      "direction": "forward",
+      "weight": 0.35,
+      "description": "Repository guidance points agents toward project context before work."
+    },
+    {
+      "source": "document:AGENTS.md",
+      "target": "service:Dockerfile",
+      "type": "related",
+      "direction": "forward",
+      "weight": 0.35,
+      "description": "Repository guidance points agents toward project context before work."
+    },
+    {
+      "source": "document:AGENTS.md",
+      "target": "document:README.md",
+      "type": "documents",
+      "direction": "forward",
+      "weight": 0.35,
+      "description": "Repository guidance points agents toward project context before work."
+    },
+    {
+      "source": "document:docs/product/PRD.md",
+      "target": "document:README.md",
+      "type": "documents",
+      "direction": "forward",
+      "weight": 0.5
+    },
+    {
+      "source": "document:AGENTS.md",
+      "target": "document:docs/adr/0001-use-typescript-monorepo-with-effect-runtime.md",
+      "type": "documents",
+      "direction": "forward",
+      "weight": 0.35,
+      "description": "Repository guidance points agents toward project context before work."
+    },
+    {
+      "source": "document:docs/adr/0001-use-typescript-monorepo-with-effect-runtime.md",
+      "target": "document:ARCHITECTURE.md",
+      "type": "related",
+      "direction": "forward",
+      "weight": 0.45
+    },
+    {
+      "source": "document:AGENTS.md",
+      "target": "document:docs/adr/0002-use-beads-as-issue-state-and-gitlab-mrs-as-review-artifacts.md",
+      "type": "documents",
+      "direction": "forward",
+      "weight": 0.35,
+      "description": "Repository guidance points agents toward project context before work."
+    },
+    {
+      "source": "document:docs/adr/0002-use-beads-as-issue-state-and-gitlab-mrs-as-review-artifacts.md",
+      "target": "document:ARCHITECTURE.md",
+      "type": "related",
+      "direction": "forward",
+      "weight": 0.45
+    },
+    {
+      "source": "document:AGENTS.md",
+      "target": "document:docs/adr/0003-use-hybrid-run-ledger.md",
+      "type": "documents",
+      "direction": "forward",
+      "weight": 0.35,
+      "description": "Repository guidance points agents toward project context before work."
+    },
+    {
+      "source": "document:docs/adr/0003-use-hybrid-run-ledger.md",
+      "target": "document:ARCHITECTURE.md",
+      "type": "related",
+      "direction": "forward",
+      "weight": 0.45
+    },
+    {
+      "source": "document:AGENTS.md",
+      "target": "document:docs/adr/0004-use-polling-daemon-with-independent-lanes.md",
+      "type": "documents",
+      "direction": "forward",
+      "weight": 0.35,
+      "description": "Repository guidance points agents toward project context before work."
+    },
+    {
+      "source": "document:docs/adr/0004-use-polling-daemon-with-independent-lanes.md",
+      "target": "document:ARCHITECTURE.md",
+      "type": "related",
+      "direction": "forward",
+      "weight": 0.45
+    },
+    {
+      "source": "document:AGENTS.md",
+      "target": "document:docs/adr/0005-defer-effect-v4-migration.md",
+      "type": "documents",
+      "direction": "forward",
+      "weight": 0.35,
+      "description": "Repository guidance points agents toward project context before work."
+    },
+    {
+      "source": "document:docs/adr/0005-defer-effect-v4-migration.md",
+      "target": "document:ARCHITECTURE.md",
+      "type": "related",
+      "direction": "forward",
+      "weight": 0.45
+    },
+    {
+      "source": "document:AGENTS.md",
+      "target": "document:docs/adr/0006-defer-effect-v4-after-reevaluation.md",
+      "type": "documents",
+      "direction": "forward",
+      "weight": 0.35,
+      "description": "Repository guidance points agents toward project context before work."
+    },
+    {
+      "source": "document:docs/adr/0006-defer-effect-v4-after-reevaluation.md",
+      "target": "document:ARCHITECTURE.md",
+      "type": "related",
+      "direction": "forward",
+      "weight": 0.45
+    },
+    {
+      "source": "document:AGENTS.md",
+      "target": "document:docs/agents/domain.md",
+      "type": "documents",
+      "direction": "forward",
+      "weight": 0.35,
+      "description": "Repository guidance points agents toward project context before work."
+    },
+    {
+      "source": "document:AGENTS.md",
+      "target": "document:docs/agents/issue-tracker.md",
+      "type": "documents",
+      "direction": "forward",
+      "weight": 0.35,
+      "description": "Repository guidance points agents toward project context before work."
+    },
+    {
+      "source": "document:AGENTS.md",
+      "target": "document:docs/agents/triage-labels.md",
+      "type": "documents",
+      "direction": "forward",
+      "weight": 0.35,
+      "description": "Repository guidance points agents toward project context before work."
+    },
+    {
+      "source": "document:AGENTS.md",
+      "target": "document:docs/planning/morph-4z4-setup-command-design.md",
+      "type": "documents",
+      "direction": "forward",
+      "weight": 0.35,
+      "description": "Repository guidance points agents toward project context before work."
+    },
+    {
+      "source": "document:AGENTS.md",
+      "target": "document:docs/planning/morph-bbp-prototype-handoff.md",
+      "type": "documents",
+      "direction": "forward",
+      "weight": 0.35,
+      "description": "Repository guidance points agents toward project context before work."
+    },
+    {
+      "source": "document:AGENTS.md",
+      "target": "document:docs/planning/morph-nqk-prototype-handoff.md",
+      "type": "documents",
+      "direction": "forward",
+      "weight": 0.35,
+      "description": "Repository guidance points agents toward project context before work."
+    },
+    {
+      "source": "document:AGENTS.md",
+      "target": "document:docs/planning/morph-thi-prototype-handoff.md",
+      "type": "documents",
+      "direction": "forward",
+      "weight": 0.35,
+      "description": "Repository guidance points agents toward project context before work."
+    },
+    {
+      "source": "document:AGENTS.md",
+      "target": "document:docs/product/ALPHA.md",
+      "type": "documents",
+      "direction": "forward",
+      "weight": 0.35,
+      "description": "Repository guidance points agents toward project context before work."
+    },
+    {
+      "source": "document:docs/product/PRD.md",
+      "target": "document:docs/product/ALPHA.md",
+      "type": "documents",
+      "direction": "forward",
+      "weight": 0.5
+    },
+    {
+      "source": "document:AGENTS.md",
+      "target": "document:docs/product/PRD.md",
+      "type": "documents",
+      "direction": "forward",
+      "weight": 0.35,
+      "description": "Repository guidance points agents toward project context before work."
+    },
+    {
+      "source": "document:docs/product/PRD.md",
+      "target": "document:docs/product/PRD.md",
+      "type": "documents",
+      "direction": "forward",
+      "weight": 0.5
+    },
+    {
+      "source": "document:AGENTS.md",
+      "target": "document:docs/product/alpha-fixture-smoke.md",
+      "type": "documents",
+      "direction": "forward",
+      "weight": 0.35,
+      "description": "Repository guidance points agents toward project context before work."
+    },
+    {
+      "source": "document:docs/product/PRD.md",
+      "target": "document:docs/product/alpha-fixture-smoke.md",
+      "type": "documents",
+      "direction": "forward",
+      "weight": 0.5
+    },
+    {
+      "source": "document:AGENTS.md",
+      "target": "document:fixtures/alpha-target-repo/README.md",
+      "type": "documents",
+      "direction": "forward",
+      "weight": 0.35,
+      "description": "Repository guidance points agents toward project context before work."
+    },
+    {
+      "source": "document:AGENTS.md",
+      "target": "config:fixtures/alpha-target-repo/morpheus.config.json",
+      "type": "related",
+      "direction": "forward",
+      "weight": 0.35,
+      "description": "Repository guidance points agents toward project context before work."
+    },
+    {
+      "source": "document:AGENTS.md",
+      "target": "file:fixtures/alpha-target-repo/scripts/verify.js",
+      "type": "related",
+      "direction": "forward",
+      "weight": 0.35,
+      "description": "Repository guidance points agents toward project context before work."
+    },
+    {
+      "source": "document:AGENTS.md",
+      "target": "config:package.json",
+      "type": "related",
+      "direction": "forward",
+      "weight": 0.35,
+      "description": "Repository guidance points agents toward project context before work."
+    },
+    {
+      "source": "document:AGENTS.md",
+      "target": "config:packages/adapters/package.json",
+      "type": "related",
+      "direction": "forward",
+      "weight": 0.35,
+      "description": "Repository guidance points agents toward project context before work."
+    },
+    {
+      "source": "document:ARCHITECTURE.md",
+      "target": "config:packages/adapters/package.json",
+      "type": "documents",
+      "direction": "forward",
+      "weight": 0.5
+    },
+    {
+      "source": "document:AGENTS.md",
+      "target": "file:packages/adapters/src/index.ts",
+      "type": "related",
+      "direction": "forward",
+      "weight": 0.35,
+      "description": "Repository guidance points agents toward project context before work."
+    },
+    {
+      "source": "document:ARCHITECTURE.md",
+      "target": "file:packages/adapters/src/index.ts",
+      "type": "documents",
+      "direction": "forward",
+      "weight": 0.5
+    },
+    {
+      "source": "document:AGENTS.md",
+      "target": "file:packages/adapters/src/sqlite-ledger/index.ts",
+      "type": "related",
+      "direction": "forward",
+      "weight": 0.35,
+      "description": "Repository guidance points agents toward project context before work."
+    },
+    {
+      "source": "document:ARCHITECTURE.md",
+      "target": "file:packages/adapters/src/sqlite-ledger/index.ts",
+      "type": "documents",
+      "direction": "forward",
+      "weight": 0.5
+    },
+    {
+      "source": "document:AGENTS.md",
+      "target": "file:packages/adapters/tests/beads-issue-tracker.test.ts",
+      "type": "related",
+      "direction": "forward",
+      "weight": 0.35,
+      "description": "Repository guidance points agents toward project context before work."
+    },
+    {
+      "source": "document:ARCHITECTURE.md",
+      "target": "file:packages/adapters/tests/beads-issue-tracker.test.ts",
+      "type": "documents",
+      "direction": "forward",
+      "weight": 0.5
+    },
+    {
+      "source": "document:AGENTS.md",
+      "target": "file:packages/adapters/tests/glab-issue-source.test.ts",
+      "type": "related",
+      "direction": "forward",
+      "weight": 0.35,
+      "description": "Repository guidance points agents toward project context before work."
+    },
+    {
+      "source": "document:ARCHITECTURE.md",
+      "target": "file:packages/adapters/tests/glab-issue-source.test.ts",
+      "type": "documents",
+      "direction": "forward",
+      "weight": 0.5
+    },
+    {
+      "source": "document:AGENTS.md",
+      "target": "file:packages/adapters/tests/glab-merge-request-client.test.ts",
+      "type": "related",
+      "direction": "forward",
+      "weight": 0.35,
+      "description": "Repository guidance points agents toward project context before work."
+    },
+    {
+      "source": "document:ARCHITECTURE.md",
+      "target": "file:packages/adapters/tests/glab-merge-request-client.test.ts",
+      "type": "documents",
+      "direction": "forward",
+      "weight": 0.5
+    },
+    {
+      "source": "document:AGENTS.md",
+      "target": "file:packages/adapters/tests/operator-health.test.ts",
+      "type": "related",
+      "direction": "forward",
+      "weight": 0.35,
+      "description": "Repository guidance points agents toward project context before work."
+    },
+    {
+      "source": "document:ARCHITECTURE.md",
+      "target": "file:packages/adapters/tests/operator-health.test.ts",
+      "type": "documents",
+      "direction": "forward",
+      "weight": 0.5
+    },
+    {
+      "source": "document:AGENTS.md",
+      "target": "file:packages/adapters/tests/sandcastle-agent-runner.test.ts",
+      "type": "related",
+      "direction": "forward",
+      "weight": 0.35,
+      "description": "Repository guidance points agents toward project context before work."
+    },
+    {
+      "source": "document:ARCHITECTURE.md",
+      "target": "file:packages/adapters/tests/sandcastle-agent-runner.test.ts",
+      "type": "documents",
+      "direction": "forward",
+      "weight": 0.5
+    },
+    {
+      "source": "document:AGENTS.md",
+      "target": "file:packages/adapters/tests/setup-planning.test.ts",
+      "type": "related",
+      "direction": "forward",
+      "weight": 0.35,
+      "description": "Repository guidance points agents toward project context before work."
+    },
+    {
+      "source": "document:ARCHITECTURE.md",
+      "target": "file:packages/adapters/tests/setup-planning.test.ts",
+      "type": "documents",
+      "direction": "forward",
+      "weight": 0.5
+    },
+    {
+      "source": "document:AGENTS.md",
+      "target": "file:packages/adapters/tests/sqlite-run-ledger.test.ts",
+      "type": "related",
+      "direction": "forward",
+      "weight": 0.35,
+      "description": "Repository guidance points agents toward project context before work."
+    },
+    {
+      "source": "document:ARCHITECTURE.md",
+      "target": "file:packages/adapters/tests/sqlite-run-ledger.test.ts",
+      "type": "documents",
+      "direction": "forward",
+      "weight": 0.5
+    },
+    {
+      "source": "document:AGENTS.md",
+      "target": "config:packages/adapters/tsconfig.json",
+      "type": "related",
+      "direction": "forward",
+      "weight": 0.35,
+      "description": "Repository guidance points agents toward project context before work."
+    },
+    {
+      "source": "document:ARCHITECTURE.md",
+      "target": "config:packages/adapters/tsconfig.json",
+      "type": "documents",
+      "direction": "forward",
+      "weight": 0.5
+    },
+    {
+      "source": "document:AGENTS.md",
+      "target": "config:packages/cli/package.json",
+      "type": "related",
+      "direction": "forward",
+      "weight": 0.35,
+      "description": "Repository guidance points agents toward project context before work."
+    },
+    {
+      "source": "document:ARCHITECTURE.md",
+      "target": "config:packages/cli/package.json",
+      "type": "documents",
+      "direction": "forward",
+      "weight": 0.5
+    },
+    {
+      "source": "document:AGENTS.md",
+      "target": "file:packages/cli/src/config-summary.ts",
+      "type": "related",
+      "direction": "forward",
+      "weight": 0.35,
+      "description": "Repository guidance points agents toward project context before work."
+    },
+    {
+      "source": "document:ARCHITECTURE.md",
+      "target": "file:packages/cli/src/config-summary.ts",
+      "type": "documents",
+      "direction": "forward",
+      "weight": 0.5
+    },
+    {
+      "source": "document:AGENTS.md",
+      "target": "file:packages/cli/src/index.ts",
+      "type": "related",
+      "direction": "forward",
+      "weight": 0.35,
+      "description": "Repository guidance points agents toward project context before work."
+    },
+    {
+      "source": "document:ARCHITECTURE.md",
+      "target": "file:packages/cli/src/index.ts",
+      "type": "documents",
+      "direction": "forward",
+      "weight": 0.5
+    },
+    {
+      "source": "document:AGENTS.md",
+      "target": "file:packages/cli/src/setup-prompts.ts",
+      "type": "related",
+      "direction": "forward",
+      "weight": 0.35,
+      "description": "Repository guidance points agents toward project context before work."
+    },
+    {
+      "source": "document:ARCHITECTURE.md",
+      "target": "file:packages/cli/src/setup-prompts.ts",
+      "type": "documents",
+      "direction": "forward",
+      "weight": 0.5
+    },
+    {
+      "source": "document:AGENTS.md",
+      "target": "file:packages/cli/tests/config-summary.test.ts",
+      "type": "related",
+      "direction": "forward",
+      "weight": 0.35,
+      "description": "Repository guidance points agents toward project context before work."
+    },
+    {
+      "source": "document:ARCHITECTURE.md",
+      "target": "file:packages/cli/tests/config-summary.test.ts",
+      "type": "documents",
+      "direction": "forward",
+      "weight": 0.5
+    },
+    {
+      "source": "document:AGENTS.md",
+      "target": "file:packages/cli/tests/setup-prompts.test.ts",
+      "type": "related",
+      "direction": "forward",
+      "weight": 0.35,
+      "description": "Repository guidance points agents toward project context before work."
+    },
+    {
+      "source": "document:ARCHITECTURE.md",
+      "target": "file:packages/cli/tests/setup-prompts.test.ts",
+      "type": "documents",
+      "direction": "forward",
+      "weight": 0.5
+    },
+    {
+      "source": "document:AGENTS.md",
+      "target": "config:packages/cli/tsconfig.json",
+      "type": "related",
+      "direction": "forward",
+      "weight": 0.35,
+      "description": "Repository guidance points agents toward project context before work."
+    },
+    {
+      "source": "document:ARCHITECTURE.md",
+      "target": "config:packages/cli/tsconfig.json",
+      "type": "documents",
+      "direction": "forward",
+      "weight": 0.5
+    },
+    {
+      "source": "document:AGENTS.md",
+      "target": "config:packages/core/package.json",
+      "type": "related",
+      "direction": "forward",
+      "weight": 0.35,
+      "description": "Repository guidance points agents toward project context before work."
+    },
+    {
+      "source": "document:ARCHITECTURE.md",
+      "target": "config:packages/core/package.json",
+      "type": "documents",
+      "direction": "forward",
+      "weight": 0.5
+    },
+    {
+      "source": "document:AGENTS.md",
+      "target": "file:packages/core/src/index.ts",
+      "type": "related",
+      "direction": "forward",
+      "weight": 0.35,
+      "description": "Repository guidance points agents toward project context before work."
+    },
+    {
+      "source": "document:ARCHITECTURE.md",
+      "target": "file:packages/core/src/index.ts",
+      "type": "documents",
+      "direction": "forward",
+      "weight": 0.5
+    },
+    {
+      "source": "document:AGENTS.md",
+      "target": "file:packages/core/tests/issue-state-machine.test.ts",
+      "type": "related",
+      "direction": "forward",
+      "weight": 0.35,
+      "description": "Repository guidance points agents toward project context before work."
+    },
+    {
+      "source": "document:ARCHITECTURE.md",
+      "target": "file:packages/core/tests/issue-state-machine.test.ts",
+      "type": "documents",
+      "direction": "forward",
+      "weight": 0.5
+    },
+    {
+      "source": "document:AGENTS.md",
+      "target": "file:packages/core/tests/lane-scheduler.test.ts",
+      "type": "related",
+      "direction": "forward",
+      "weight": 0.35,
+      "description": "Repository guidance points agents toward project context before work."
+    },
+    {
+      "source": "document:ARCHITECTURE.md",
+      "target": "file:packages/core/tests/lane-scheduler.test.ts",
+      "type": "documents",
+      "direction": "forward",
+      "weight": 0.5
+    },
+    {
+      "source": "document:AGENTS.md",
+      "target": "file:packages/core/tests/review-artifact.test.ts",
+      "type": "related",
+      "direction": "forward",
+      "weight": 0.35,
+      "description": "Repository guidance points agents toward project context before work."
+    },
+    {
+      "source": "document:ARCHITECTURE.md",
+      "target": "file:packages/core/tests/review-artifact.test.ts",
+      "type": "documents",
+      "direction": "forward",
+      "weight": 0.5
+    },
+    {
+      "source": "document:AGENTS.md",
+      "target": "config:packages/core/tsconfig.json",
+      "type": "related",
+      "direction": "forward",
+      "weight": 0.35,
+      "description": "Repository guidance points agents toward project context before work."
+    },
+    {
+      "source": "document:ARCHITECTURE.md",
+      "target": "config:packages/core/tsconfig.json",
+      "type": "documents",
+      "direction": "forward",
+      "weight": 0.5
+    },
+    {
+      "source": "document:AGENTS.md",
+      "target": "document:packages/runtime/bundled-skills/matt-pocock-caveman/SKILL.md",
+      "type": "documents",
+      "direction": "forward",
+      "weight": 0.35,
+      "description": "Repository guidance points agents toward project context before work."
+    },
+    {
+      "source": "document:ARCHITECTURE.md",
+      "target": "document:packages/runtime/bundled-skills/matt-pocock-caveman/SKILL.md",
+      "type": "documents",
+      "direction": "forward",
+      "weight": 0.5
+    },
+    {
+      "source": "document:AGENTS.md",
+      "target": "document:packages/runtime/bundled-skills/matt-pocock-diagnose/SKILL.md",
+      "type": "documents",
+      "direction": "forward",
+      "weight": 0.35,
+      "description": "Repository guidance points agents toward project context before work."
+    },
+    {
+      "source": "document:ARCHITECTURE.md",
+      "target": "document:packages/runtime/bundled-skills/matt-pocock-diagnose/SKILL.md",
+      "type": "documents",
+      "direction": "forward",
+      "weight": 0.5
+    },
+    {
+      "source": "document:AGENTS.md",
+      "target": "document:packages/runtime/bundled-skills/matt-pocock-grill-me/SKILL.md",
+      "type": "documents",
+      "direction": "forward",
+      "weight": 0.35,
+      "description": "Repository guidance points agents toward project context before work."
+    },
+    {
+      "source": "document:ARCHITECTURE.md",
+      "target": "document:packages/runtime/bundled-skills/matt-pocock-grill-me/SKILL.md",
+      "type": "documents",
+      "direction": "forward",
+      "weight": 0.5
+    },
+    {
+      "source": "document:AGENTS.md",
+      "target": "document:packages/runtime/bundled-skills/matt-pocock-grill-with-docs/SKILL.md",
+      "type": "documents",
+      "direction": "forward",
+      "weight": 0.35,
+      "description": "Repository guidance points agents toward project context before work."
+    },
+    {
+      "source": "document:ARCHITECTURE.md",
+      "target": "document:packages/runtime/bundled-skills/matt-pocock-grill-with-docs/SKILL.md",
+      "type": "documents",
+      "direction": "forward",
+      "weight": 0.5
+    },
+    {
+      "source": "document:AGENTS.md",
+      "target": "document:packages/runtime/bundled-skills/matt-pocock-tdd/SKILL.md",
+      "type": "documents",
+      "direction": "forward",
+      "weight": 0.35,
+      "description": "Repository guidance points agents toward project context before work."
+    },
+    {
+      "source": "document:ARCHITECTURE.md",
+      "target": "document:packages/runtime/bundled-skills/matt-pocock-tdd/SKILL.md",
+      "type": "documents",
+      "direction": "forward",
+      "weight": 0.5
+    },
+    {
+      "source": "document:AGENTS.md",
+      "target": "document:packages/runtime/bundled-skills/matt-pocock-to-issues/SKILL.md",
+      "type": "documents",
+      "direction": "forward",
+      "weight": 0.35,
+      "description": "Repository guidance points agents toward project context before work."
+    },
+    {
+      "source": "document:ARCHITECTURE.md",
+      "target": "document:packages/runtime/bundled-skills/matt-pocock-to-issues/SKILL.md",
+      "type": "documents",
+      "direction": "forward",
+      "weight": 0.5
+    },
+    {
+      "source": "document:AGENTS.md",
+      "target": "document:packages/runtime/bundled-skills/matt-pocock-to-prd/SKILL.md",
+      "type": "documents",
+      "direction": "forward",
+      "weight": 0.35,
+      "description": "Repository guidance points agents toward project context before work."
+    },
+    {
+      "source": "document:ARCHITECTURE.md",
+      "target": "document:packages/runtime/bundled-skills/matt-pocock-to-prd/SKILL.md",
+      "type": "documents",
+      "direction": "forward",
+      "weight": 0.5
+    },
+    {
+      "source": "document:AGENTS.md",
+      "target": "config:packages/runtime/package.json",
+      "type": "related",
+      "direction": "forward",
+      "weight": 0.35,
+      "description": "Repository guidance points agents toward project context before work."
+    },
+    {
+      "source": "document:ARCHITECTURE.md",
+      "target": "config:packages/runtime/package.json",
+      "type": "documents",
+      "direction": "forward",
+      "weight": 0.5
+    },
+    {
+      "source": "document:AGENTS.md",
+      "target": "file:packages/runtime/src/index.ts",
+      "type": "related",
+      "direction": "forward",
+      "weight": 0.35,
+      "description": "Repository guidance points agents toward project context before work."
+    },
+    {
+      "source": "document:ARCHITECTURE.md",
+      "target": "file:packages/runtime/src/index.ts",
+      "type": "documents",
+      "direction": "forward",
+      "weight": 0.5
+    },
+    {
+      "source": "document:AGENTS.md",
+      "target": "file:packages/runtime/tests/agent-ready-contract.test.ts",
+      "type": "related",
+      "direction": "forward",
+      "weight": 0.35,
+      "description": "Repository guidance points agents toward project context before work."
+    },
+    {
+      "source": "document:ARCHITECTURE.md",
+      "target": "file:packages/runtime/tests/agent-ready-contract.test.ts",
+      "type": "documents",
+      "direction": "forward",
+      "weight": 0.5
+    },
+    {
+      "source": "document:AGENTS.md",
+      "target": "file:packages/runtime/tests/config.test.ts",
+      "type": "related",
+      "direction": "forward",
+      "weight": 0.35,
+      "description": "Repository guidance points agents toward project context before work."
+    },
+    {
+      "source": "document:ARCHITECTURE.md",
+      "target": "file:packages/runtime/tests/config.test.ts",
+      "type": "documents",
+      "direction": "forward",
+      "weight": 0.5
+    },
+    {
+      "source": "document:AGENTS.md",
+      "target": "file:packages/runtime/tests/daemon.test.ts",
+      "type": "related",
+      "direction": "forward",
+      "weight": 0.35,
+      "description": "Repository guidance points agents toward project context before work."
+    },
+    {
+      "source": "document:ARCHITECTURE.md",
+      "target": "file:packages/runtime/tests/daemon.test.ts",
+      "type": "documents",
+      "direction": "forward",
+      "weight": 0.5
+    },
+    {
+      "source": "document:AGENTS.md",
+      "target": "file:packages/runtime/tests/lane-scheduler.test.ts",
+      "type": "related",
+      "direction": "forward",
+      "weight": 0.35,
+      "description": "Repository guidance points agents toward project context before work."
+    },
+    {
+      "source": "document:ARCHITECTURE.md",
+      "target": "file:packages/runtime/tests/lane-scheduler.test.ts",
+      "type": "documents",
+      "direction": "forward",
+      "weight": 0.5
+    },
+    {
+      "source": "document:AGENTS.md",
+      "target": "file:packages/runtime/tests/operator-cli.test.ts",
+      "type": "related",
+      "direction": "forward",
+      "weight": 0.35,
+      "description": "Repository guidance points agents toward project context before work."
+    },
+    {
+      "source": "document:ARCHITECTURE.md",
+      "target": "file:packages/runtime/tests/operator-cli.test.ts",
+      "type": "documents",
+      "direction": "forward",
+      "weight": 0.5
+    },
+    {
+      "source": "document:AGENTS.md",
+      "target": "file:packages/runtime/tests/prepare-issue.test.ts",
+      "type": "related",
+      "direction": "forward",
+      "weight": 0.35,
+      "description": "Repository guidance points agents toward project context before work."
+    },
+    {
+      "source": "document:ARCHITECTURE.md",
+      "target": "file:packages/runtime/tests/prepare-issue.test.ts",
+      "type": "documents",
+      "direction": "forward",
+      "weight": 0.5
+    },
+    {
+      "source": "document:AGENTS.md",
+      "target": "file:packages/runtime/tests/review-issue.test.ts",
+      "type": "related",
+      "direction": "forward",
+      "weight": 0.35,
+      "description": "Repository guidance points agents toward project context before work."
+    },
+    {
+      "source": "document:ARCHITECTURE.md",
+      "target": "file:packages/runtime/tests/review-issue.test.ts",
+      "type": "documents",
+      "direction": "forward",
+      "weight": 0.5
+    },
+    {
+      "source": "document:AGENTS.md",
+      "target": "file:packages/runtime/tests/run-ledger-cli.test.ts",
+      "type": "related",
+      "direction": "forward",
+      "weight": 0.35,
+      "description": "Repository guidance points agents toward project context before work."
+    },
+    {
+      "source": "document:ARCHITECTURE.md",
+      "target": "file:packages/runtime/tests/run-ledger-cli.test.ts",
+      "type": "documents",
+      "direction": "forward",
+      "weight": 0.5
+    },
+    {
+      "source": "document:AGENTS.md",
+      "target": "file:packages/runtime/tests/start-implementation.test.ts",
+      "type": "related",
+      "direction": "forward",
+      "weight": 0.35,
+      "description": "Repository guidance points agents toward project context before work."
+    },
+    {
+      "source": "document:ARCHITECTURE.md",
+      "target": "file:packages/runtime/tests/start-implementation.test.ts",
+      "type": "documents",
+      "direction": "forward",
+      "weight": 0.5
+    },
+    {
+      "source": "document:AGENTS.md",
+      "target": "file:packages/runtime/tests/sync-gitlab-issues.test.ts",
+      "type": "related",
+      "direction": "forward",
+      "weight": 0.35,
+      "description": "Repository guidance points agents toward project context before work."
+    },
+    {
+      "source": "document:ARCHITECTURE.md",
+      "target": "file:packages/runtime/tests/sync-gitlab-issues.test.ts",
+      "type": "documents",
+      "direction": "forward",
+      "weight": 0.5
+    },
+    {
+      "source": "document:AGENTS.md",
+      "target": "config:packages/runtime/tsconfig.json",
+      "type": "related",
+      "direction": "forward",
+      "weight": 0.35,
+      "description": "Repository guidance points agents toward project context before work."
+    },
+    {
+      "source": "document:ARCHITECTURE.md",
+      "target": "config:packages/runtime/tsconfig.json",
+      "type": "documents",
+      "direction": "forward",
+      "weight": 0.5
+    },
+    {
+      "source": "document:AGENTS.md",
+      "target": "config:pnpm-lock.yaml",
+      "type": "related",
+      "direction": "forward",
+      "weight": 0.35,
+      "description": "Repository guidance points agents toward project context before work."
+    },
+    {
+      "source": "document:AGENTS.md",
+      "target": "config:pnpm-workspace.yaml",
+      "type": "related",
+      "direction": "forward",
+      "weight": 0.35,
+      "description": "Repository guidance points agents toward project context before work."
+    },
+    {
+      "source": "document:AGENTS.md",
+      "target": "file:scripts/install.sh",
+      "type": "related",
+      "direction": "forward",
+      "weight": 0.35,
+      "description": "Repository guidance points agents toward project context before work."
+    },
+    {
+      "source": "document:AGENTS.md",
+      "target": "file:scripts/validate-commit-msg.sh",
+      "type": "related",
+      "direction": "forward",
+      "weight": 0.35,
+      "description": "Repository guidance points agents toward project context before work."
+    },
+    {
+      "source": "document:AGENTS.md",
+      "target": "file:tests/commit-msg-hook.test.ts",
+      "type": "related",
+      "direction": "forward",
+      "weight": 0.35,
+      "description": "Repository guidance points agents toward project context before work."
+    },
+    {
+      "source": "document:AGENTS.md",
+      "target": "file:tests/install-script.test.ts",
+      "type": "related",
+      "direction": "forward",
+      "weight": 0.35,
+      "description": "Repository guidance points agents toward project context before work."
+    },
+    {
+      "source": "document:AGENTS.md",
+      "target": "file:tests/workspace-cli-smoke.test.ts",
+      "type": "related",
+      "direction": "forward",
+      "weight": 0.35,
+      "description": "Repository guidance points agents toward project context before work."
+    },
+    {
+      "source": "document:AGENTS.md",
+      "target": "file:tests/workspace.test.ts",
+      "type": "related",
+      "direction": "forward",
+      "weight": 0.35,
+      "description": "Repository guidance points agents toward project context before work."
+    },
+    {
+      "source": "document:AGENTS.md",
+      "target": "config:tsconfig.base.json",
+      "type": "related",
+      "direction": "forward",
+      "weight": 0.35,
+      "description": "Repository guidance points agents toward project context before work."
+    },
+    {
+      "source": "document:AGENTS.md",
+      "target": "file:vitest.config.ts",
+      "type": "related",
+      "direction": "forward",
+      "weight": 0.35,
+      "description": "Repository guidance points agents toward project context before work."
+    },
+    {
+      "source": "file:packages/adapters/src/index.ts",
+      "target": "file:packages/core/src/index.ts",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:packages/adapters/src/index.ts",
+      "target": "file:packages/runtime/src/index.ts",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:packages/adapters/src/sqlite-ledger/index.ts",
+      "target": "file:packages/core/src/index.ts",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:packages/adapters/src/sqlite-ledger/index.ts",
+      "target": "file:packages/runtime/src/index.ts",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:packages/adapters/tests/beads-issue-tracker.test.ts",
+      "target": "file:packages/core/src/index.ts",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:packages/adapters/tests/beads-issue-tracker.test.ts",
+      "target": "file:packages/runtime/src/index.ts",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:packages/adapters/tests/glab-issue-source.test.ts",
+      "target": "file:packages/runtime/src/index.ts",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:packages/adapters/tests/glab-merge-request-client.test.ts",
+      "target": "file:packages/runtime/src/index.ts",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:packages/adapters/tests/operator-health.test.ts",
+      "target": "file:packages/runtime/src/index.ts",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:packages/adapters/tests/sandcastle-agent-runner.test.ts",
+      "target": "file:packages/core/src/index.ts",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:packages/adapters/tests/sandcastle-agent-runner.test.ts",
+      "target": "file:packages/runtime/src/index.ts",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:packages/adapters/tests/setup-planning.test.ts",
+      "target": "file:packages/runtime/src/index.ts",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:packages/adapters/tests/sqlite-run-ledger.test.ts",
+      "target": "file:packages/runtime/src/index.ts",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:packages/cli/src/config-summary.ts",
+      "target": "file:packages/runtime/src/index.ts",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:packages/cli/src/index.ts",
+      "target": "file:packages/adapters/src/index.ts",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:packages/cli/src/index.ts",
+      "target": "file:packages/runtime/src/index.ts",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:packages/cli/src/index.ts",
+      "target": "config:packages/cli/package.json",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:packages/runtime/src/index.ts",
+      "target": "file:packages/core/src/index.ts",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:packages/runtime/tests/daemon.test.ts",
+      "target": "file:packages/core/src/index.ts",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:packages/runtime/tests/lane-scheduler.test.ts",
+      "target": "file:packages/core/src/index.ts",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:packages/runtime/tests/operator-cli.test.ts",
+      "target": "file:packages/core/src/index.ts",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:packages/runtime/tests/prepare-issue.test.ts",
+      "target": "file:packages/core/src/index.ts",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:packages/runtime/tests/review-issue.test.ts",
+      "target": "file:packages/core/src/index.ts",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:packages/runtime/tests/start-implementation.test.ts",
+      "target": "file:packages/core/src/index.ts",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:tests/workspace-cli-smoke.test.ts",
+      "target": "file:packages/adapters/src/index.ts",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:tests/workspace-cli-smoke.test.ts",
+      "target": "file:packages/runtime/src/index.ts",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "document:docs/adr/0003-use-hybrid-run-ledger.md",
+      "target": "concept:run-ledger",
+      "type": "related",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "document:docs/adr/0004-use-polling-daemon-with-independent-lanes.md",
+      "target": "concept:lane-scheduler",
+      "type": "related",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "config:packages/adapters/package.json",
+      "target": "concept:adapter-boundary",
+      "type": "related",
+      "direction": "forward",
+      "weight": 0.55
+    },
+    {
+      "source": "file:packages/adapters/src/index.ts",
+      "target": "concept:adapter-boundary",
+      "type": "related",
+      "direction": "forward",
+      "weight": 0.55
+    },
+    {
+      "source": "file:packages/adapters/src/sqlite-ledger/index.ts",
+      "target": "concept:run-ledger",
+      "type": "related",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:packages/adapters/src/sqlite-ledger/index.ts",
+      "target": "concept:adapter-boundary",
+      "type": "related",
+      "direction": "forward",
+      "weight": 0.55
+    },
+    {
+      "source": "file:packages/adapters/tests/beads-issue-tracker.test.ts",
+      "target": "concept:adapter-boundary",
+      "type": "related",
+      "direction": "forward",
+      "weight": 0.55
+    },
+    {
+      "source": "file:packages/adapters/tests/glab-issue-source.test.ts",
+      "target": "concept:adapter-boundary",
+      "type": "related",
+      "direction": "forward",
+      "weight": 0.55
+    },
+    {
+      "source": "file:packages/adapters/tests/glab-merge-request-client.test.ts",
+      "target": "concept:adapter-boundary",
+      "type": "related",
+      "direction": "forward",
+      "weight": 0.55
+    },
+    {
+      "source": "file:packages/adapters/tests/operator-health.test.ts",
+      "target": "concept:adapter-boundary",
+      "type": "related",
+      "direction": "forward",
+      "weight": 0.55
+    },
+    {
+      "source": "file:packages/adapters/tests/sandcastle-agent-runner.test.ts",
+      "target": "concept:adapter-boundary",
+      "type": "related",
+      "direction": "forward",
+      "weight": 0.55
+    },
+    {
+      "source": "file:packages/adapters/tests/setup-planning.test.ts",
+      "target": "concept:adapter-boundary",
+      "type": "related",
+      "direction": "forward",
+      "weight": 0.55
+    },
+    {
+      "source": "file:packages/adapters/tests/sqlite-run-ledger.test.ts",
+      "target": "concept:run-ledger",
+      "type": "related",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:packages/adapters/tests/sqlite-run-ledger.test.ts",
+      "target": "concept:adapter-boundary",
+      "type": "related",
+      "direction": "forward",
+      "weight": 0.55
+    },
+    {
+      "source": "config:packages/adapters/tsconfig.json",
+      "target": "concept:adapter-boundary",
+      "type": "related",
+      "direction": "forward",
+      "weight": 0.55
+    },
+    {
+      "source": "file:packages/cli/src/config-summary.ts",
+      "target": "file:packages/cli/tests/config-summary.test.ts",
+      "type": "tested_by",
+      "direction": "forward",
+      "weight": 0.5
+    },
+    {
+      "source": "file:packages/cli/src/setup-prompts.ts",
+      "target": "file:packages/cli/tests/setup-prompts.test.ts",
+      "type": "tested_by",
+      "direction": "forward",
+      "weight": 0.5
+    },
+    {
+      "source": "file:packages/core/tests/lane-scheduler.test.ts",
+      "target": "concept:lane-scheduler",
+      "type": "related",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:packages/runtime/src/index.ts",
+      "target": "concept:adapter-boundary",
+      "type": "related",
+      "direction": "forward",
+      "weight": 0.55
+    },
+    {
+      "source": "file:packages/runtime/tests/agent-ready-contract.test.ts",
+      "target": "concept:agent-ready-contract",
+      "type": "defines_schema",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:packages/runtime/tests/daemon.test.ts",
+      "target": "concept:lane-scheduler",
+      "type": "related",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:packages/runtime/tests/lane-scheduler.test.ts",
+      "target": "concept:lane-scheduler",
+      "type": "related",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:packages/runtime/tests/run-ledger-cli.test.ts",
+      "target": "concept:run-ledger",
+      "type": "related",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "document:README.md",
+      "target": "file:tests/commit-msg-hook.test.ts",
+      "type": "documents",
+      "direction": "forward",
+      "weight": 0.35
+    },
+    {
+      "source": "document:README.md",
+      "target": "file:tests/install-script.test.ts",
+      "type": "documents",
+      "direction": "forward",
+      "weight": 0.35
+    },
+    {
+      "source": "document:README.md",
+      "target": "file:tests/workspace-cli-smoke.test.ts",
+      "type": "documents",
+      "direction": "forward",
+      "weight": 0.35
+    },
+    {
+      "source": "document:README.md",
+      "target": "file:tests/workspace.test.ts",
+      "type": "documents",
+      "direction": "forward",
+      "weight": 0.35
+    }
+  ],
+  "layers": [
+    {
+      "id": "layer:product-and-domain-docs",
+      "name": "Product and Domain Docs",
+      "description": "Product intent, vocabulary, architecture, ADRs, and agent operating instructions.",
+      "nodeIds": [
+        "document:AGENTS.md",
+        "document:ARCHITECTURE.md",
+        "document:CONTEXT.md",
+        "document:README.md",
+        "document:docs/adr/0001-use-typescript-monorepo-with-effect-runtime.md",
+        "document:docs/adr/0002-use-beads-as-issue-state-and-gitlab-mrs-as-review-artifacts.md",
+        "document:docs/adr/0003-use-hybrid-run-ledger.md",
+        "document:docs/adr/0004-use-polling-daemon-with-independent-lanes.md",
+        "document:docs/adr/0005-defer-effect-v4-migration.md",
+        "document:docs/adr/0006-defer-effect-v4-after-reevaluation.md",
+        "document:docs/agents/domain.md",
+        "document:docs/agents/issue-tracker.md",
+        "document:docs/agents/triage-labels.md",
+        "document:docs/planning/morph-4z4-setup-command-design.md",
+        "document:docs/planning/morph-bbp-prototype-handoff.md",
+        "document:docs/planning/morph-nqk-prototype-handoff.md",
+        "document:docs/planning/morph-thi-prototype-handoff.md",
+        "document:docs/product/ALPHA.md",
+        "document:docs/product/PRD.md",
+        "document:docs/product/alpha-fixture-smoke.md"
+      ]
+    },
+    {
+      "id": "layer:core-domain",
+      "name": "Core Domain",
+      "description": "Pure TypeScript state machine, scheduler, contracts, and review artifact behavior.",
+      "nodeIds": [
+        "config:packages/core/package.json",
+        "file:packages/core/src/index.ts",
+        "config:packages/core/tsconfig.json"
+      ]
+    },
+    {
+      "id": "layer:runtime-orchestration",
+      "name": "Runtime Orchestration",
+      "description": "Effect use cases, service ports, config, daemon, preparation, implementation, review, and status flows.",
+      "nodeIds": [
+        "document:packages/runtime/bundled-skills/matt-pocock-caveman/SKILL.md",
+        "document:packages/runtime/bundled-skills/matt-pocock-diagnose/SKILL.md",
+        "document:packages/runtime/bundled-skills/matt-pocock-grill-me/SKILL.md",
+        "document:packages/runtime/bundled-skills/matt-pocock-grill-with-docs/SKILL.md",
+        "document:packages/runtime/bundled-skills/matt-pocock-tdd/SKILL.md",
+        "document:packages/runtime/bundled-skills/matt-pocock-to-issues/SKILL.md",
+        "document:packages/runtime/bundled-skills/matt-pocock-to-prd/SKILL.md",
+        "config:packages/runtime/package.json",
+        "file:packages/runtime/src/index.ts",
+        "config:packages/runtime/tsconfig.json"
+      ]
+    },
+    {
+      "id": "layer:adapters",
+      "name": "Adapters",
+      "description": "Concrete implementations for Beads, GitLab, SQLite, process, workspace, and container agent execution.",
+      "nodeIds": [
+        "config:packages/adapters/package.json",
+        "file:packages/adapters/src/index.ts",
+        "file:packages/adapters/src/sqlite-ledger/index.ts",
+        "config:packages/adapters/tsconfig.json"
+      ]
+    },
+    {
+      "id": "layer:operator-cli",
+      "name": "Operator CLI",
+      "description": "Command entrypoints and terminal rendering used by maintainers and target repositories.",
+      "nodeIds": [
+        "config:packages/cli/package.json",
+        "file:packages/cli/src/config-summary.ts",
+        "file:packages/cli/src/index.ts",
+        "file:packages/cli/src/setup-prompts.ts",
+        "config:packages/cli/tsconfig.json"
+      ]
+    },
+    {
+      "id": "layer:tests-and-fixtures",
+      "name": "Tests and Fixtures",
+      "description": "Vitest coverage plus anonymized fixture target repository used for public validation.",
+      "nodeIds": [
+        "document:fixtures/alpha-target-repo/README.md",
+        "config:fixtures/alpha-target-repo/morpheus.config.json",
+        "file:fixtures/alpha-target-repo/scripts/verify.js",
+        "file:packages/adapters/tests/beads-issue-tracker.test.ts",
+        "file:packages/adapters/tests/glab-issue-source.test.ts",
+        "file:packages/adapters/tests/glab-merge-request-client.test.ts",
+        "file:packages/adapters/tests/operator-health.test.ts",
+        "file:packages/adapters/tests/sandcastle-agent-runner.test.ts",
+        "file:packages/adapters/tests/setup-planning.test.ts",
+        "file:packages/adapters/tests/sqlite-run-ledger.test.ts",
+        "file:packages/cli/tests/config-summary.test.ts",
+        "file:packages/cli/tests/setup-prompts.test.ts",
+        "file:packages/core/tests/issue-state-machine.test.ts",
+        "file:packages/core/tests/lane-scheduler.test.ts",
+        "file:packages/core/tests/review-artifact.test.ts",
+        "file:packages/runtime/tests/agent-ready-contract.test.ts",
+        "file:packages/runtime/tests/config.test.ts",
+        "file:packages/runtime/tests/daemon.test.ts",
+        "file:packages/runtime/tests/lane-scheduler.test.ts",
+        "file:packages/runtime/tests/operator-cli.test.ts",
+        "file:packages/runtime/tests/prepare-issue.test.ts",
+        "file:packages/runtime/tests/review-issue.test.ts",
+        "file:packages/runtime/tests/run-ledger-cli.test.ts",
+        "file:packages/runtime/tests/start-implementation.test.ts",
+        "file:packages/runtime/tests/sync-gitlab-issues.test.ts",
+        "file:tests/commit-msg-hook.test.ts",
+        "file:tests/install-script.test.ts",
+        "file:tests/workspace-cli-smoke.test.ts",
+        "file:tests/workspace.test.ts"
+      ]
+    },
+    {
+      "id": "layer:tooling-and-config",
+      "name": "Tooling and Config",
+      "description": "Workspace, TypeScript, Vitest, Docker, package, and install configuration.",
+      "nodeIds": [
+        "document:.agents/skills/beads/SKILL.md",
+        "config:.agents/skills/beads/agents/openai.yaml",
+        "service:Dockerfile",
+        "config:package.json",
+        "config:pnpm-lock.yaml",
+        "config:pnpm-workspace.yaml",
+        "file:scripts/install.sh",
+        "file:scripts/validate-commit-msg.sh",
+        "config:tsconfig.base.json",
+        "file:vitest.config.ts"
+      ]
+    }
+  ],
+  "tour": [
+    {
+      "order": 1,
+      "title": "Product Contract",
+      "description": "Start with product intent, vocabulary, and the explainability principle. These docs define what Morpheus may call public behavior and which target-repo data must stay private.",
+      "nodeIds": [
+        "document:README.md",
+        "document:CONTEXT.md",
+        "document:docs/product/PRD.md",
+        "document:AGENTS.md"
+      ]
+    },
+    {
+      "order": 2,
+      "title": "Architecture Decisions",
+      "description": "Read the architecture brief and ADRs to understand package ownership, Effect v3, Beads lifecycle state, GitLab MR review artifacts, run ledger, and polling daemon lanes.",
+      "nodeIds": [
+        "document:ARCHITECTURE.md",
+        "document:docs/adr/0001-use-typescript-monorepo-with-effect-runtime.md",
+        "document:docs/adr/0002-use-beads-as-issue-state-and-gitlab-mrs-as-review-artifacts.md",
+        "document:docs/adr/0003-use-hybrid-run-ledger.md",
+        "document:docs/adr/0004-use-polling-daemon-with-independent-lanes.md"
+      ]
+    },
+    {
+      "order": 3,
+      "title": "Pure Core",
+      "description": "Inspect core before runtime changes. Core owns deterministic issue-state transitions, lane scheduling, contract types, and review artifact rendering without Effect dependencies.",
+      "nodeIds": [
+        "file:packages/core/src/index.ts",
+        "file:packages/core/tests/issue-state-machine.test.ts",
+        "file:packages/core/tests/lane-scheduler.test.ts",
+        "file:packages/core/tests/review-artifact.test.ts",
+        "concept:lane-scheduler",
+        "concept:agent-ready-contract"
+      ]
+    },
+    {
+      "order": 4,
+      "title": "Effect Runtime",
+      "description": "Runtime turns pure decisions into orchestrated workflows through Effect service ports. Use this layer for prepare, implementation, review, daemon, status, slice, config, and health behavior.",
+      "nodeIds": [
+        "file:packages/runtime/src/index.ts",
+        "file:packages/runtime/tests/prepare-issue.test.ts",
+        "file:packages/runtime/tests/start-implementation.test.ts",
+        "file:packages/runtime/tests/review-issue.test.ts",
+        "file:packages/runtime/tests/daemon.test.ts",
+        "concept:adapter-boundary"
+      ]
+    },
+    {
+      "order": 5,
+      "title": "Adapters and Ledger",
+      "description": "Adapters contain concrete side effects and should preserve runtime port boundaries. SQLite ledger, Beads, GitLab, process, workspace, and agent runner tests show expected observable behavior.",
+      "nodeIds": [
+        "file:packages/adapters/src/index.ts",
+        "file:packages/adapters/src/sqlite-ledger/index.ts",
+        "file:packages/adapters/tests/sqlite-run-ledger.test.ts",
+        "file:packages/adapters/tests/beads-issue-tracker.test.ts",
+        "file:packages/adapters/tests/glab-merge-request-client.test.ts",
+        "concept:run-ledger"
+      ]
+    },
+    {
+      "order": 6,
+      "title": "Operator Surface",
+      "description": "CLI package is the human-facing edge. Keep command rendering thin and push workflow behavior into runtime use cases.",
+      "nodeIds": [
+        "file:packages/cli/src/index.ts",
+        "file:packages/cli/src/config-summary.ts",
+        "file:packages/cli/src/setup-prompts.ts",
+        "file:packages/cli/tests/config-summary.test.ts",
+        "file:packages/cli/tests/setup-prompts.test.ts"
+      ]
+    },
+    {
+      "order": 7,
+      "title": "Public Validation",
+      "description": "Use anonymized fixtures and top-level smoke tests for public validation. Do not commit private target names, hostnames, URLs, tokens, auth paths, or signoff evidence.",
+      "nodeIds": [
+        "document:fixtures/alpha-target-repo/README.md",
+        "config:fixtures/alpha-target-repo/morpheus.config.json",
+        "file:fixtures/alpha-target-repo/scripts/verify.js",
+        "file:tests/workspace-cli-smoke.test.ts",
+        "document:docs/product/alpha-fixture-smoke.md"
+      ]
+    }
+  ]
+}

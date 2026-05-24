@@ -383,7 +383,7 @@ describe("morpheus cli", () => {
     }
   });
 
-  it("smokes the Alpha fixture target repo through doctor and daemon once", () => {
+  it("smokes the ALPHA fixture target repo through doctor and daemon once", () => {
     const dir = mkdtempSync(join(tmpdir(), "morpheus-alpha-fixture-"));
     try {
       const fixtureRoot = join(process.cwd(), "fixtures", "alpha-target-repo");
@@ -423,7 +423,7 @@ describe("morpheus cli", () => {
       expect(daemonOutput).toContain("work: None");
 
       const readme = readFileSync(join(dir, "README.md"), "utf8");
-      expect(readme).toContain("Alpha E2E smoke fixture");
+      expect(readme).toContain("ALPHA E2E smoke fixture");
       expect(readme).toContain("morpheus doctor");
       expect(readme).toContain("morpheus daemon --once");
     } finally {
