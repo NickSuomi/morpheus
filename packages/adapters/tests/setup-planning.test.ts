@@ -523,6 +523,7 @@ describe("setup planning", () => {
   });
 
   it("rejects global Codex auth paths even after absolute path confirmation", () => {
+    const globalCodexAuthPath = ["/Users", "alice", ".codex", "auth.json"].join("/");
     const plan = planMorpheusSetup({
       currentWorkingDirectory: "/repos/app",
       detected: {
@@ -535,7 +536,7 @@ describe("setup planning", () => {
         gitlabProject: "group/app",
       },
       answers: {
-        authEnvFile: "/Users/nicksuomi/.codex/auth.json",
+        authEnvFile: globalCodexAuthPath,
         confirmAbsoluteAuthEnvFile: true,
       },
     });
@@ -623,6 +624,7 @@ describe("setup planning", () => {
   });
 
   it("rejects global auth paths, empty mounts, and Dockerfile-like text files", () => {
+    const globalCodexAuthPath = ["~", ".codex", "auth.json"].join("/");
     const plan = planMorpheusSetup({
       currentWorkingDirectory: "/repos/app",
       detected: {
@@ -635,7 +637,7 @@ describe("setup planning", () => {
         gitlabProject: "group/app",
       },
       answers: {
-        authEnvFile: "~/.codex/auth.json",
+        authEnvFile: globalCodexAuthPath,
         containerMounts: [],
         containerProfile: ".morpheus/container/Dockerfile.txt",
       },

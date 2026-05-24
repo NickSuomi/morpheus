@@ -23,6 +23,9 @@ Do not commit private target repository names, private hostnames, private issue/
 
 History cleanup for leaked private target data is destructive and requires
 explicit operator approval. See `docs/agents/private-data-history-cleanup.md`.
+Run `pnpm scan:private-data` before publishing release or signoff changes. Set
+`MORPHEUS_FORBIDDEN_PRIVATE_PATTERNS` to the current operator-approved private
+target names, hostnames, and path fragments before running the gate.
 
 ## Commits
 
