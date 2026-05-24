@@ -65,7 +65,12 @@ export type AgentReadyContract = {
 
 export type DraftReviewArtifactInput = {
   readonly issueId: string
+  readonly sourceIssue?: SourceIssueReference
   readonly contract: AgentReadyContract
+}
+
+export type SourceIssueReference = {
+  readonly iid: number
 }
 
 export type ReviewFinding = {
@@ -75,6 +80,7 @@ export type ReviewFinding = {
 
 export type ReviewArtifactInput = {
   readonly issueId: string
+  readonly sourceIssue?: SourceIssueReference
   readonly contract: AgentReadyContract
   readonly implementationEvidence: readonly string[]
   readonly verificationEvidence: readonly string[]
@@ -93,6 +99,7 @@ const findingList = (findings: readonly ReviewFinding[]): readonly string[] =>
 
 export const renderReviewArtifact = ({
   issueId,
+  sourceIssue,
   contract,
   implementationEvidence,
   verificationEvidence,
@@ -104,6 +111,7 @@ export const renderReviewArtifact = ({
     "# Morpheus Draft Implementation MR",
     "",
     `Issue: ${issueId}`,
+    ...(sourceIssue === undefined ? [] : ["", `Source issue: #${sourceIssue.iid}`]),
     "",
     "## Agent-Ready Contract",
     "",
@@ -146,10 +154,12 @@ export const renderReviewArtifact = ({
 
 export const renderDraftReviewArtifact = ({
   issueId,
+  sourceIssue,
   contract
 }: DraftReviewArtifactInput): string =>
   renderReviewArtifact({
     issueId,
+    sourceIssue,
     contract,
     implementationEvidence: [],
     verificationEvidence: [],

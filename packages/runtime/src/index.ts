@@ -21,6 +21,7 @@ import type {
   LaneSchedule,
   ReviewFinding,
   RunnableLane,
+  SourceIssueReference,
 } from "@morpheus/core";
 
 export type { AgentReadyContract } from "@morpheus/core";
@@ -1159,6 +1160,14 @@ const syncFailureFromError = (
   message: errorMessage(error),
 });
 
+const sourceIssueReferenceFor = (
+  importedIssues: readonly ImportedGitLabIssue[],
+  issueId: string,
+): SourceIssueReference | undefined => {
+  const importedIssue = importedIssues.find((issue) => issue.id === issueId);
+  return importedIssue === undefined ? undefined : { iid: importedIssue.metadata.iid };
+};
+
 export const syncGitLabIssues = ({
   project,
   readyLabel,
@@ -2110,13 +2119,25 @@ export const startImplementation = (
       );
     }
     const contract = contractResult.right.contract;
+    const importedIssuesResult = yield* Effect.either(tracker.listImportedGitLabIssues());
+    if (Either.isLeft(importedIssuesResult)) {
+      return yield* failImplementationStart(
+        tracker,
+        ledger,
+        issueId,
+        run.id,
+        "runtime_error",
+        `Imported GitLab issue metadata read failed: ${errorMessage(importedIssuesResult.left)}`,
+      );
+    }
+    const sourceIssue = sourceIssueReferenceFor(importedIssuesResult.right, issue.id);
     const mergeRequestResult = yield* Effect.either(
       mergeRequests.createDraftMergeRequest({
         issueId,
         title: `Draft: ${issue.title}`,
         sourceBranch: workspace.branch,
         targetBranch: workspace.targetBranch,
-        description: renderDraftReviewArtifact({ issueId: issue.id, contract }),
+        description: renderDraftReviewArtifact({ issueId: issue.id, sourceIssue, contract }),
       }),
     );
     if (Either.isLeft(mergeRequestResult)) {
@@ -2242,6 +2263,7 @@ export const startImplementation = (
         reference: mergeRequest.reference,
         description: renderReviewArtifact({
           issueId: issue.id,
+          sourceIssue,
           contract,
           implementationEvidence: implementationEvidenceLines(
             implementationResult.implementationEvidence,
@@ -2291,10 +2313,16 @@ export const startImplementation = (
       );
     }
 
+    const terminalRun = yield* ledger.finishRun(run.id, {
+      status: "succeeded",
+      terminalEvent: "ImplementationReadyForReview",
+      message: "Implementation evidence ready for review.",
+    });
+
     return {
       status: "started",
       issueId,
-      run: artifactRunResult.right,
+      run: terminalRun,
       workspace,
       mergeRequest,
     };

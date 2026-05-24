@@ -14,7 +14,7 @@ Morpheus connects GitLab issue intake, Beads lifecycle state, container-backed a
 - [Problem](#problem)
 - [How Morpheus Works](#how-morpheus-works)
 - [Current Status](#current-status)
-- [Alpha Golden Path](#alpha-golden-path)
+- [ALPHA Golden Path](#alpha-golden-path)
 - [Target Repository Quickstart](#target-repository-quickstart)
 - [Doctor Health Model](#doctor-health-model)
 - [Operating The Daemon](#operating-the-daemon)
@@ -63,20 +63,20 @@ Morpheus solves this by making every run explainable before it executes:
 
 ## Current Status
 
-Morpheus is in Alpha development. The canonical Alpha contract lives in:
+Morpheus is in ALPHA development. The canonical ALPHA contract lives in:
 
 - `docs/product/ALPHA.md`
 
-The Alpha setup completion gate is:
+The ALPHA setup completion gate is:
 
 - `morpheus doctor` has zero `FAIL` results;
 - `morpheus daemon --once` succeeds without crashing.
 
 `WARN` results are visible risk for task-specific verification, not automatic setup blockers.
 
-## Alpha Golden Path
+## ALPHA Golden Path
 
-The intended Alpha operator path is:
+The intended ALPHA operator path is:
 
 ```sh
 curl -fsSL <install-url> | sh
@@ -214,7 +214,7 @@ morpheus implement <issue-id>
 morpheus review <issue-id>
 ```
 
-Prefer `morpheus daemon --once` and `morpheus daemon` for normal Alpha operation.
+Prefer `morpheus daemon --once` and `morpheus daemon` for normal ALPHA operation.
 
 ## Troubleshooting
 
@@ -231,18 +231,18 @@ Prefer `morpheus daemon --once` and `morpheus daemon` for normal Alpha operation
 
 ### Guided Setup CLI
 
-Alpha includes `morpheus setup` as the guided target-repo onboarding path. The remaining planned work is UX hardening: richer selector prompts, clearer validation copy, and more operator-friendly recovery from invalid inputs. Setup must continue to avoid secret value collection.
+ALPHA includes `morpheus setup` as the guided target-repo onboarding path. The remaining planned work is UX hardening: richer selector prompts, clearer validation copy, and more operator-friendly recovery from invalid inputs. Setup must continue to avoid secret value collection.
 
 ### Production Distribution
 
-Planned beyond the current Alpha release process. The chosen Alpha direction is curl-installed release artifacts. Public hosting, checksums/signing policy, Homebrew, npm/binary packaging, and update flow are still distribution work.
+Planned beyond the current ALPHA release process. The chosen ALPHA direction is curl-installed release artifacts. Public hosting, checksums/signing policy, Homebrew, npm/binary packaging, and update flow are still distribution work.
 
-### Alpha E2E Signoff
+### ALPHA E2E Signoff
 
-Alpha signoff requires both:
+ALPHA signoff requires both:
 
 - a small fixture target repo smoke test;
-- a real `private-target-repo` GitLab issue path through Morpheus.
+- private target signoff through Morpheus, with evidence kept outside Morpheus git.
 
 ## Development
 
@@ -253,6 +253,12 @@ Project docs to read in order:
 3. `ARCHITECTURE.md`
 4. `docs/adr/`
 5. `docs/agents/`
+6. `.understand-anything/knowledge-graph.json`
+
+The knowledge graph is a committed architecture map for onboarding, broad
+refactors, and agent prompt design. Use its `tour` first, then `layers`, then
+targeted `nodes` and `edges`. Treat the PRD, context, architecture brief, and
+ADRs as authoritative when anything conflicts.
 
 Common commands:
 

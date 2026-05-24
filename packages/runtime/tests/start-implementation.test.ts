@@ -15,6 +15,7 @@ import {
   WorkspaceRuntime,
   type IssueTrackerService,
   type AgentRunnerService,
+  type ImportedGitLabIssue,
   type MergeRequestClientService,
   type RunLedgerService,
   type RunSummary,
@@ -51,6 +52,7 @@ const fakeIssueTracker = (
   initialLabels: readonly string[],
   options: {
     readonly failReadContract?: boolean;
+    readonly importedIssues?: readonly ImportedGitLabIssue[];
   } = {},
 ) => {
   let labels = [...initialLabels];
@@ -100,7 +102,7 @@ const fakeIssueTracker = (
         contract: validContract,
       });
     },
-    listImportedGitLabIssues: () => Effect.succeed([]),
+    listImportedGitLabIssues: () => Effect.succeed(options.importedIssues ?? []),
     upsertImportedGitLabIssue: () =>
       Effect.succeed({ status: "skipped", issueId: "morph-skip", reason: "unchanged" }),
   };
@@ -346,10 +348,12 @@ const fakeWorkspaceRuntime = (): {
 
 const fakeMergeRequestClient = (scenario: "success" | "operator_access") => {
   const calls: string[] = [];
+  const draftDescriptions: string[] = [];
   const descriptions: string[] = [];
   const service: MergeRequestClientService = {
     createDraftMergeRequest: (input) => {
       calls.push(input.sourceBranch);
+      draftDescriptions.push(input.description);
       if (scenario === "operator_access") {
         return Effect.fail(
           new MergeRequestClientError({
@@ -376,6 +380,7 @@ const fakeMergeRequestClient = (scenario: "success" | "operator_access") => {
 
   return {
     calls,
+    draftDescriptions,
     descriptions,
     layer: Layer.succeed(MergeRequestClient, service),
   };
@@ -457,7 +462,7 @@ describe("startImplementation", () => {
     });
   });
 
-  it("prepares workspace, creates Draft MR, records refs, then moves issue to running", async () => {
+  it("prepares workspace, creates Draft MR, records refs, then completes implementation evidence", async () => {
     const tracker = fakeIssueTracker(["agent:prepared", "ready-for-agent"]);
     const ledger = fakeRunLedger();
     const workspace = fakeWorkspaceRuntime();
@@ -479,11 +484,15 @@ describe("startImplementation", () => {
     );
 
     expect(result.status).toBe("started");
+    if (result.status !== "started") {
+      throw new Error(`Expected implementation to start, got ${result.status}`);
+    }
+    expect(result.run.status).toBe("succeeded");
     expect(tracker.labels).toEqual(["ready-for-agent", "agent:running"]);
     expect(ledger.run).toMatchObject({
       issueId: "morph-7ky",
       lane: "implementation",
-      status: "running",
+      status: "succeeded",
       workspacePath: "/repo",
       worktreePath: "/repo",
       branch: "morpheus/morph-7ky",
@@ -495,6 +504,7 @@ describe("startImplementation", () => {
       "ImplementationWorkspacePrepared",
       "DraftMergeRequestCreated",
       "RunArtifactsWritten",
+      "ImplementationReadyForReview",
     ]);
     expect(workspace.calls).toEqual(["prepare:morph-7ky:run_01KRGGDQ6JQN2GMD6KJQ5SFXR6"]);
     expect(mergeRequests.calls).toEqual(["morpheus/morph-7ky", "update:!42"]);
@@ -502,6 +512,50 @@ describe("startImplementation", () => {
     expect(mergeRequests.descriptions[0]).toContain("passed: pnpm check - passed");
     expect(mergeRequests.descriptions[0]).toContain("Review verdict: pending");
     expect(runner.calls).toEqual(["checkAccess", "implement:morph-7ky:!42"]);
+  });
+
+  it("links Draft MR artifacts to imported GitLab source issue IID", async () => {
+    const tracker = fakeIssueTracker(["agent:prepared"], {
+      importedIssues: [
+        {
+          id: "morph-7ky",
+          title: "Imported issue",
+          description: "Ready for Morpheus.",
+          labels: ["agent:prepared"],
+          metadata: {
+            project: "group/project",
+            iid: 1234,
+            webUrl: "https://gitlab.example.com/group/project/-/issues/1234",
+            labels: ["agent:ready"],
+            lastSyncedAt: "2026-05-14T00:00:00.000Z",
+            title: "Imported issue",
+            description: "Ready for Morpheus.",
+          },
+        },
+      ],
+    });
+    const ledger = fakeRunLedger();
+    const workspace = fakeWorkspaceRuntime();
+    const mergeRequests = fakeMergeRequestClient("success");
+    const runner = fakeAgentRunner();
+
+    const result = await Effect.runPromise(
+      startImplementation("morph-7ky").pipe(
+        Effect.provide(
+          testLayer(
+            tracker.layer,
+            ledger.layer,
+            workspace.layer,
+            mergeRequests.layer,
+            runner.layer,
+          ),
+        ),
+      ),
+    );
+
+    expect(result.status).toBe("started");
+    expect(mergeRequests.draftDescriptions[0]).toContain("Source issue: #1234");
+    expect(mergeRequests.descriptions[0]).toContain("Source issue: #1234");
   });
 
   it("fails Docker-compatible runtime preflight before Beads mutation or Draft MR creation", async () => {

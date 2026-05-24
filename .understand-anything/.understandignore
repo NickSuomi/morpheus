@@ -1,0 +1,25 @@
+# .understandignore - patterns for files/dirs to exclude from analysis
+# Syntax follows .gitignore-style patterns.
+
+node_modules/
+.git/
+.dolt/
+dist/
+coverage/
+packages/*/dist/
+.scratch/
+.map/
+.morpheus/
+.beads/
+.bv/
+.understand-anything/knowledge-graph.json
+.understand-anything/meta.json
+.understand-anything/intermediate/
+.understand-anything/tmp/
+
+*.lock
+pnpm-lock.yaml
+*.db
+*.log
+
+# Keep anonymized fixture target files included; they document public Morpheus flows.

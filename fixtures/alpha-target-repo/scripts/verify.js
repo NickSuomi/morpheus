@@ -1,1 +1,1 @@
-console.log("alpha fixture verification ok");
+console.log("ALPHA fixture verification ok");
