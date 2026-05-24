@@ -65,7 +65,9 @@ export const createSelectorPromptState = <Value extends string>(
     options: input.options,
     highlightedIndex,
     selectedValues:
-      input.kind === "single" ? [input.options[highlightedIndex]?.value ?? input.options[0].value] : defaultValues,
+      input.kind === "single"
+        ? [input.options[highlightedIndex]?.value ?? input.options[0].value]
+        : defaultValues,
   };
 };
 

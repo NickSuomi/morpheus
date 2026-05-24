@@ -1194,7 +1194,9 @@ const stageSkillInstructionsForPrompt = (
         throw new Error(`Stage skill mapping references unknown copied skill: ${phase}:${name}`);
       }
       if (path.length === 0) {
-        throw new Error(`Stage skill mapping references copied skill without path: ${phase}:${name}`);
+        throw new Error(
+          `Stage skill mapping references copied skill without path: ${phase}:${name}`,
+        );
       }
       return `- ${name}: ${path}`;
     })
@@ -1369,9 +1371,10 @@ const codexWithApiKeyLogin = (
   return {
     ...baseAgent,
     buildPrintCommand: (input) => {
-      const command = baseAgent.buildPrintCommand(input).command;
+      const printCommand = baseAgent.buildPrintCommand(input);
       return {
-        command: `sh -lc ${shellQuote(`mkdir -p "$CODEX_HOME" && printf '%s\n' "$OPENAI_API_KEY" | codex login --with-api-key >/dev/null && ${command}`)}`,
+        ...printCommand,
+        command: `sh -lc ${shellQuote(`mkdir -p "$CODEX_HOME" && printf '%s\n' "$OPENAI_API_KEY" | codex login --with-api-key >/dev/null && ${printCommand.command}`)}`,
       };
     },
   };
@@ -1418,7 +1421,7 @@ const runSandcastlePhase = (
       const runner = options.run ?? sandcastleRun;
       const agentConfig = options.agentConfig ?? {
         provider: "codex" as const,
-        model: "gpt-5.5",
+        model: "gpt-5.4-mini",
         effort: "xhigh" as const,
       };
       const authEnv = readAuthEnv(
@@ -1427,14 +1430,17 @@ const runSandcastlePhase = (
         options.authEnvFile,
       );
       if (agentConfig.provider === "codex" && authEnv.CODEX_HOME !== undefined) {
-        throw new Error("Codex agent auth env file must not set CODEX_HOME; use OPENAI_API_KEY only");
+        throw new Error(
+          "Codex agent auth env file must not set CODEX_HOME; use OPENAI_API_KEY only",
+        );
       }
       const containerConfig = options.containerConfig ?? {
         image: "morpheus-agent:local",
         mounts: [],
       };
       const result = await runner({
-        agent: options.agent ?? codexWithApiKeyLogin(agentConfig.model, { effort: agentConfig.effort }),
+        agent:
+          options.agent ?? codexWithApiKeyLogin(agentConfig.model, { effort: agentConfig.effort }),
         sandbox:
           options.sandbox ??
           (options.dockerFactory ?? docker)({
@@ -1498,7 +1504,7 @@ export const createSandcastleAgentRunner = (
         try: () => {
           const agentConfig = options.agentConfig ?? {
             provider: "codex" as const,
-            model: "gpt-5.5",
+            model: "gpt-5.4-mini",
             effort: "xhigh" as const,
           };
           readAuthEnv(
@@ -1707,7 +1713,13 @@ export const createOperatorHealth = ({
   check: () =>
     Effect.gen(function* () {
       const baseChecks = yield* Effect.all([
-        checkCommand(processRunner, "beads", "bd", ["list", "--limit", "1", "--json"], "bd readable"),
+        checkCommand(
+          processRunner,
+          "beads",
+          "bd",
+          ["list", "--limit", "1", "--json"],
+          "bd readable",
+        ),
         checkCommand(processRunner, "gitlab", "glab", ["auth", "status"], "glab authenticated"),
         checkCommand(
           processRunner,
@@ -1811,7 +1823,8 @@ export const detectMorpheusSetupInput = (
   const targetExists = existsSync(target);
   const targetDirectory = targetExists && statSync(target).isDirectory();
   const isGitWorktree =
-    targetDirectory && setupRunText(target, "git", ["rev-parse", "--is-inside-work-tree"]) === "true";
+    targetDirectory &&
+    setupRunText(target, "git", ["rev-parse", "--is-inside-work-tree"]) === "true";
   const configResult = loadMorpheusConfig({ configPath: join(target, "morpheus.config.json") });
   const config = configResult.status === "loaded" ? configResult.config : undefined;
   const authEnvFile = config?.agentRunner.auth.envFile ?? ".morpheus/secrets/agent.env";

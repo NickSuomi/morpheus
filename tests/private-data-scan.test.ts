@@ -46,8 +46,7 @@ describe("private data scanner", () => {
   it("accepts anonymized public fixture names", () => {
     withRepo(
       {
-        "README.md":
-          "Morpheus uses fixtures/alpha-target-repo and gitlab.example.com in docs.\n",
+        "README.md": "Morpheus uses fixtures/alpha-target-repo and gitlab.example.com in docs.\n",
       },
       (dir) => {
         expect(() => runScan(dir)).not.toThrow();
@@ -68,8 +67,7 @@ describe("private data scanner", () => {
   it("rejects token-like strings and local Codex auth paths", () => {
     withRepo(
       {
-        "README.md":
-          "Do not commit PRIVATE-TOKEN headers or /Users/alice/.codex/auth.json.\n",
+        "README.md": "Do not commit PRIVATE-TOKEN headers or /Users/alice/.codex/auth.json.\n",
       },
       (dir) => {
         const output = runScanFailure(dir);

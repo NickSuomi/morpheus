@@ -38,8 +38,8 @@ const existingConfig: MorpheusConfig = {
     kind: "container",
     agent: {
       provider: "codex",
-      model: "gpt-5.5",
-      effort: "xhigh",
+      model: "gpt-5.4-mini",
+      effort: "low",
     },
     auth: {
       envFile: ".morpheus/secrets/agent.env",

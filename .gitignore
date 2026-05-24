@@ -16,6 +16,7 @@
 
 # Dependencies and build outputs
 node_modules/
+.pnpm-store/
 dist/
 coverage/
 packages/*/dist/

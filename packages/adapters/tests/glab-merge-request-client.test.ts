@@ -53,7 +53,9 @@ const runWithMergeRequests = <A, E>(
   program: Effect.Effect<A, E, MergeRequestClient>,
 ) =>
   Effect.runPromise(
-    program.pipe(Effect.provide(glabMergeRequestClientLayer.pipe(Layer.provide(processRunnerLayer)))),
+    program.pipe(
+      Effect.provide(glabMergeRequestClientLayer.pipe(Layer.provide(processRunnerLayer))),
+    ),
   );
 
 const runWithWorkspace = <A, E>(
@@ -66,12 +68,7 @@ const runWithWorkspace = <A, E>(
 
 describe("GitWorkspaceRuntime", () => {
   it("prepares implementation branch state through ProcessRunner-owned git", async () => {
-    const processRunner = fakeProcessRunner([
-      ok("/repo\n"),
-      ok("main\n"),
-      ok(""),
-      ok(""),
-    ]);
+    const processRunner = fakeProcessRunner([ok("/repo\n"), ok("main\n"), ok(""), ok("")]);
 
     const result = await runWithWorkspace(
       processRunner.layer,
@@ -225,14 +222,7 @@ describe("GlabMergeRequestClient", () => {
     expect(processRunner.calls).toEqual([
       {
         command: "glab",
-        args: [
-          "mr",
-          "update",
-          "!42",
-          "--description",
-          "# Full curated ReviewArtifact",
-          "--yes",
-        ],
+        args: ["mr", "update", "!42", "--description", "# Full curated ReviewArtifact", "--yes"],
       },
     ]);
   });
