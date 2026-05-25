@@ -53,7 +53,11 @@ morpheus_default_artifact_url() {
     x86_64|amd64) arch="x64" ;;
     arm64|aarch64) arch="arm64" ;;
   esac
-  printf 'https://github.com/nicksuomi/morpheus/releases/download/v%s/morpheus-%s-%s-%s.tar.gz\n' "$MORPHEUS_VERSION" "$MORPHEUS_VERSION" "$os" "$arch"
+  if [ "$MORPHEUS_VERSION" = "latest" ]; then
+    printf 'https://github.com/NickSuomi/morpheus/releases/latest/download/morpheus-%s-%s.tar.gz\n' "$os" "$arch"
+  else
+    printf 'https://github.com/NickSuomi/morpheus/releases/download/v%s/morpheus-%s-%s-%s.tar.gz\n' "$MORPHEUS_VERSION" "$MORPHEUS_VERSION" "$os" "$arch"
+  fi
 }
 
 morpheus_default_checksum_url() {
@@ -68,7 +72,7 @@ morpheus_default_checksum_url() {
   esac
 }
 
-MORPHEUS_VERSION=${MORPHEUS_VERSION:-0.1.0}
+MORPHEUS_VERSION=${MORPHEUS_VERSION:-latest}
 MORPHEUS_INSTALL_DIR=${MORPHEUS_INSTALL_DIR:-${MORPHEUS_BIN_DIR:-${BIN_DIR:-$HOME/.local/bin}}}
 MORPHEUS_RELEASE_URL=${MORPHEUS_RELEASE_URL:-$(morpheus_default_artifact_url)}
 MORPHEUS_CHECKSUM_URL=${MORPHEUS_CHECKSUM_URL:-$(morpheus_default_checksum_url)}
