@@ -36,16 +36,16 @@ describe("curl release installer", () => {
       const artifactPath = join(dir, "morpheus-0.1.0-test.tar.gz");
       const checksumPath = join(dir, "checksums.txt");
       mkdirSync(join(artifactRoot, "bin"), { recursive: true });
-      mkdirSync(join(artifactRoot, "lib"), { recursive: true });
+      mkdirSync(join(artifactRoot, "app", "dist"), { recursive: true });
       mkdirSync(binDir, { recursive: true });
       writeFileSync(
-        join(artifactRoot, "lib", "index.mjs"),
+        join(artifactRoot, "app", "dist", "index.mjs"),
         'if (process.argv[2] === "--version") console.log("0.1.0-test"); else console.log("morpheus fixture help");\n',
       );
       const releasedBinary = join(artifactRoot, "bin", "morpheus");
       writeFileSync(
         releasedBinary,
-        '#!/bin/sh\nscript_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)\nif [ -f "$script_dir/.morpheus-lib/index.mjs" ]; then exec node "$script_dir/.morpheus-lib/index.mjs" "$@"; fi\nexec node "$script_dir/../lib/index.mjs" "$@"\n',
+        '#!/bin/sh\nscript_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)\nif [ -f "$script_dir/.morpheus-app/dist/index.mjs" ]; then exec node "$script_dir/.morpheus-app/dist/index.mjs" "$@"; fi\nexec node "$script_dir/../app/dist/index.mjs" "$@"\n',
       );
       chmodSync(releasedBinary, 0o755);
       sh(`tar -czf ${JSON.stringify(artifactPath)} -C ${JSON.stringify(artifactRoot)} .`, dir);
@@ -91,7 +91,7 @@ describe("curl release installer", () => {
       const version = execFileSync(installed, ["--version"], { encoding: "utf8" }).trim();
       expect(version).toBe("0.1.0-test");
       expect(execFileSync(installed, ["--help"], { encoding: "utf8" })).toContain("morpheus");
-      expect(statSync(join(binDir, ".morpheus-lib", "index.mjs")).isFile()).toBe(true);
+      expect(statSync(join(binDir, ".morpheus-app", "dist", "index.mjs")).isFile()).toBe(true);
     } finally {
       rmSync(dir, { force: true, recursive: true });
     }

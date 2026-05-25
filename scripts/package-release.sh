@@ -84,6 +84,12 @@ fi
 
 rm -rf "$out_dir_abs"
 mkdir -p "$out_dir_abs"
+
+deploy_dir="$out_dir_abs/app"
+rm -rf "$deploy_dir"
+need pnpm
+(cd "$repo_root" && pnpm --filter @morpheus/cli deploy --prod --legacy "$deploy_dir" >/dev/null)
+
 checksums="$out_dir_abs/SHA256SUMS"
 : >"$checksums"
 
@@ -91,19 +97,20 @@ for os in darwin linux; do
   for arch in arm64 x64; do
     name="morpheus-$version-$os-$arch"
     stage="$out_dir_abs/$name"
-    mkdir -p "$stage/bin" "$stage/lib"
-    cp "$repo_root/packages/cli/dist/index.mjs" "$stage/lib/index.mjs"
-    if [ -f "$repo_root/packages/cli/dist/index.mjs.map" ]; then
-      cp "$repo_root/packages/cli/dist/index.mjs.map" "$stage/lib/index.mjs.map"
-    fi
+    mkdir -p "$stage/bin" "$stage/app"
+    cp -R "$deploy_dir/." "$stage/app/"
     cat >"$stage/bin/morpheus" <<EOF
 #!/bin/sh
 set -eu
+script_dir=\$(CDPATH= cd -- "\$(dirname -- "\$0")" && pwd)
 if [ "\${1:-}" = "--version" ]; then
   printf '%s\n' "$version"
   exit 0
 fi
-exec node "\$(dirname "\$0")/../lib/index.mjs" "\$@"
+if [ -f "\$script_dir/.morpheus-app/dist/index.mjs" ]; then
+  exec node "\$script_dir/.morpheus-app/dist/index.mjs" "\$@"
+fi
+exec node "\$script_dir/../app/dist/index.mjs" "\$@"
 EOF
     chmod 0755 "$stage/bin/morpheus"
     artifact="$out_dir_abs/$name.tar.gz"

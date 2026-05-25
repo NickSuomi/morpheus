@@ -11,6 +11,7 @@ const sh = (command: string, cwd: string) =>
   execFileSync("sh", ["-c", command], {
     cwd,
     encoding: "utf8",
+    maxBuffer: 50 * 1024 * 1024,
     stdio: ["ignore", "pipe", "pipe"],
   });
 
@@ -40,7 +41,8 @@ describe("release packaging", () => {
             new RegExp(`[0-9a-f]{64}  morpheus-${os}-${arch}\\.tar\\.gz`),
           );
           expect(listing).toContain("bin/morpheus");
-          expect(listing).toContain("lib/index.mjs");
+          expect(listing).toContain("app/dist/index.mjs");
+          expect(listing).toContain("app/node_modules/");
 
           const extractDir = join(dir, `${os}-${arch}`);
           sh(`mkdir -p ${JSON.stringify(extractDir)}`, repoRoot);
@@ -50,10 +52,15 @@ describe("release packaging", () => {
               encoding: "utf8",
             }).trim(),
           ).toBe("0.1.0-test");
+          expect(
+            execFileSync(join(extractDir, "bin", "morpheus"), ["--help"], {
+              encoding: "utf8",
+            }),
+          ).toContain("Morpheus");
         }
       }
     } finally {
       rmSync(dir, { force: true, recursive: true });
     }
-  });
+  }, 120_000);
 });
