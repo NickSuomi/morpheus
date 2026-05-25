@@ -143,10 +143,10 @@ if tar -xzf "$artifact" -C "$extract_dir" >/dev/null 2>&1; then
     candidate=$(find "$extract_dir" -type f -name morpheus -perm -111 | head -n 1 || true)
   fi
   [ -n "$candidate" ] || morpheus_error "release artifact did not contain a runnable morpheus binary or shim"
-  if [ -d "$extract_dir/lib" ]; then
-    rm -rf "$MORPHEUS_INSTALL_DIR/.morpheus-lib"
-    mkdir -p "$MORPHEUS_INSTALL_DIR/.morpheus-lib"
-    cp -R "$extract_dir/lib/." "$MORPHEUS_INSTALL_DIR/.morpheus-lib/"
+  if [ -d "$extract_dir/app" ]; then
+    rm -rf "$MORPHEUS_INSTALL_DIR/.morpheus-app"
+    mkdir -p "$MORPHEUS_INSTALL_DIR/.morpheus-app"
+    cp -R "$extract_dir/app/." "$MORPHEUS_INSTALL_DIR/.morpheus-app/"
   fi
 else
   candidate=$artifact
