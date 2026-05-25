@@ -30,9 +30,14 @@ describe("release packaging", () => {
           const listing = sh(`tar -tzf ${JSON.stringify(artifact)}`, repoRoot);
 
           expect(existsSync(artifact)).toBe(true);
+          expect(existsSync(join(dir, `morpheus-${os}-${arch}.tar.gz`))).toBe(true);
           expect(output).toContain(`morpheus-0.1.0-test-${os}-${arch}.tar.gz`);
+          expect(output).toContain(`morpheus-${os}-${arch}.tar.gz`);
           expect(checksums).toMatch(
             new RegExp(`[0-9a-f]{64}  morpheus-0\\.1\\.0-test-${os}-${arch}\\.tar\\.gz`),
+          );
+          expect(checksums).toMatch(
+            new RegExp(`[0-9a-f]{64}  morpheus-${os}-${arch}\\.tar\\.gz`),
           );
           expect(listing).toContain("bin/morpheus");
           expect(listing).toContain("lib/index.mjs");
