@@ -3,7 +3,7 @@ set -eu
 
 usage() {
   cat <<'USAGE'
-Usage: scripts/package-release.sh --version <version> [--out-dir <dir>] [--skip-build]
+Usage: scripts/package-release.sh --version <version> [--out-dir <dir>] [--skip-build] [--only-os <os>] [--only-arch <arch>]
 
 Build Morpheus release tarballs:
   morpheus-<version>-darwin-arm64.tar.gz
@@ -16,6 +16,8 @@ USAGE
 version=""
 out_dir="dist/release"
 skip_build=0
+only_os=""
+only_arch=""
 
 while [ "$#" -gt 0 ]; do
   case "$1" in
@@ -31,6 +33,16 @@ while [ "$#" -gt 0 ]; do
       ;;
     --skip-build)
       skip_build=1
+      ;;
+    --only-os)
+      shift
+      [ "$#" -gt 0 ] || { usage >&2; exit 2; }
+      only_os=$1
+      ;;
+    --only-arch)
+      shift
+      [ "$#" -gt 0 ] || { usage >&2; exit 2; }
+      only_arch=$1
       ;;
     --help|-h)
       usage
@@ -94,7 +106,13 @@ checksums="$out_dir_abs/SHA256SUMS"
 : >"$checksums"
 
 for os in darwin linux; do
+  if [ -n "$only_os" ] && [ "$os" != "$only_os" ]; then
+    continue
+  fi
   for arch in arm64 x64; do
+    if [ -n "$only_arch" ] && [ "$arch" != "$only_arch" ]; then
+      continue
+    fi
     name="morpheus-$version-$os-$arch"
     stage="$out_dir_abs/$name"
     mkdir -p "$stage/bin" "$stage/app"
