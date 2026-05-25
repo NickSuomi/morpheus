@@ -27,14 +27,14 @@ ALPHA installation uses a curl installer that downloads a pinned runnable releas
 Minimum contract:
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/NickSuomi/morpheus/main/scripts/install.sh | sh
+curl -fsSL https://github.com/NickSuomi/morpheus/releases/latest/download/install.sh | sh
 morpheus --version
 ```
 
 Pinned installs use the same script with an explicit release version:
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/NickSuomi/morpheus/main/scripts/install.sh | MORPHEUS_VERSION=0.1.0 sh
+curl -fsSL https://github.com/NickSuomi/morpheus/releases/latest/download/install.sh | MORPHEUS_VERSION=0.1.1 sh
 ```
 
 The installer must:

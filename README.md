@@ -79,7 +79,7 @@ The ALPHA setup completion gate is:
 The intended ALPHA operator path is:
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/NickSuomi/morpheus/main/scripts/install.sh | sh
+curl -fsSL https://github.com/NickSuomi/morpheus/releases/latest/download/install.sh | sh
 morpheus --version
 cd /path/to/target-repo
 morpheus setup
@@ -94,7 +94,7 @@ Then mark a GitLab issue with the configured ready label, usually `agent:ready`,
 By default the installer downloads the latest GitHub Release artifact for the current OS/architecture and verifies `SHA256SUMS`. Pin a specific release with:
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/NickSuomi/morpheus/main/scripts/install.sh | MORPHEUS_VERSION=0.1.0 sh
+curl -fsSL https://github.com/NickSuomi/morpheus/releases/latest/download/install.sh | MORPHEUS_VERSION=0.1.1 sh
 ```
 
 Morpheus ALPHA does not use Homebrew or a public package registry.
