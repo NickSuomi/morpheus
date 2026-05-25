@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { execFileSync, spawnSync } from "node:child_process";
-import { chmodSync, mkdirSync, mkdtempSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, join, resolve } from "node:path";
 
@@ -15,6 +15,19 @@ const sh = (command: string, cwd: string) =>
   });
 
 describe("curl release installer", () => {
+  it("defaults to the public latest GitHub release artifact channel", () => {
+    const script = readFileSync(installScript, "utf8");
+
+    expect(script).toContain("MORPHEUS_VERSION=${MORPHEUS_VERSION:-latest}");
+    expect(script).toContain(
+      "https://github.com/NickSuomi/morpheus/releases/latest/download/morpheus-%s-%s.tar.gz",
+    );
+    expect(script).toContain("https://github.com/*/releases/latest/download/*)");
+    expect(script).toContain(
+      "https://github.com/NickSuomi/morpheus/releases/download/v%s/morpheus-%s-%s-%s.tar.gz",
+    );
+  });
+
   it("installs a pinned runnable Morpheus release artifact into a configurable bin dir", () => {
     const dir = mkdtempSync(join(tmpdir(), "morpheus-install-test-"));
     try {
