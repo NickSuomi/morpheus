@@ -27,8 +27,14 @@ ALPHA installation uses a curl installer that downloads a pinned runnable releas
 Minimum contract:
 
 ```sh
-curl -fsSL <install-url> | sh
+curl -fsSL https://raw.githubusercontent.com/NickSuomi/morpheus/main/scripts/install.sh | sh
 morpheus --version
+```
+
+Pinned installs use the same script with an explicit release version:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/NickSuomi/morpheus/main/scripts/install.sh | MORPHEUS_VERSION=0.1.0 sh
 ```
 
 The installer must:
@@ -37,6 +43,7 @@ The installer must:
 - verify checksum when release artifacts publish checksums;
 - make `morpheus --version` work;
 - print the next step: `cd target-repo && morpheus setup`.
+- support both latest-channel and pinned `vX.Y.Z` GitHub Release artifacts.
 
 ## Setup UX Contract
 

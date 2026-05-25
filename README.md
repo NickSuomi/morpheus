@@ -79,7 +79,7 @@ The ALPHA setup completion gate is:
 The intended ALPHA operator path is:
 
 ```sh
-curl -fsSL <install-url> | sh
+curl -fsSL https://raw.githubusercontent.com/NickSuomi/morpheus/main/scripts/install.sh | sh
 morpheus --version
 cd /path/to/target-repo
 morpheus setup
@@ -91,7 +91,13 @@ morpheus daemon
 
 Then mark a GitLab issue with the configured ready label, usually `agent:ready`, and inspect work with `morpheus status`, `morpheus slice`, `morpheus runs`, and `morpheus logs`.
 
-The curl installer exists as `scripts/install.sh` for release artifacts/shims. The public hosted install URL and production release channel are still release-process work; do not treat Homebrew or a public package registry as available today.
+By default the installer downloads the latest GitHub Release artifact for the current OS/architecture and verifies `SHA256SUMS`. Pin a specific release with:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/NickSuomi/morpheus/main/scripts/install.sh | MORPHEUS_VERSION=0.1.0 sh
+```
+
+Morpheus ALPHA does not use Homebrew or a public package registry.
 
 ## Target Repository Quickstart
 

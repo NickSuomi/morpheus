@@ -112,6 +112,13 @@ EOF
     digest=$($sha256_cmd "$artifact" | awk '{print $1}')
     printf '%s  %s\n' "$digest" "$(basename -- "$artifact")" >>"$checksums"
     printf '%s\n' "$artifact"
+
+    latest_artifact="$out_dir_abs/morpheus-$os-$arch.tar.gz"
+    cp "$artifact" "$latest_artifact"
+    # shellcheck disable=SC2086
+    latest_digest=$($sha256_cmd "$latest_artifact" | awk '{print $1}')
+    printf '%s  %s\n' "$latest_digest" "$(basename -- "$latest_artifact")" >>"$checksums"
+    printf '%s\n' "$latest_artifact"
   done
 done
 printf '%s\n' "$checksums"
