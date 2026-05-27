@@ -1489,7 +1489,7 @@ const runSandcastlePhase = (
         },
         name: `morpheus-${phase}-${issue.id}`,
         maxIterations: 1,
-        idleTimeoutSeconds: agentConfig.idleTimeoutSeconds,
+        idleTimeoutSeconds: agentConfig.idleTimeoutSeconds ?? 1800,
       });
       const output = extractTaggedJson(result.stdout);
 
