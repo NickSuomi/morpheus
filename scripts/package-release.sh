@@ -101,6 +101,17 @@ deploy_dir="$out_dir_abs/app"
 rm -rf "$deploy_dir"
 need pnpm
 (cd "$repo_root" && pnpm --filter @morpheus/cli deploy --prod --legacy "$deploy_dir" >/dev/null)
+for package_name in core runtime adapters; do
+  source_dist="$repo_root/packages/$package_name/dist"
+  target_dist="$deploy_dir/node_modules/@morpheus/$package_name/dist"
+  [ -d "$source_dist" ] || {
+    printf '%s\n' "package-release: missing packages/$package_name/dist; run package builds first or omit --skip-build" >&2
+    exit 1
+  }
+  rm -rf "$target_dist"
+  mkdir -p "$(dirname -- "$target_dist")"
+  cp -R "$source_dist" "$target_dist"
+done
 
 checksums="$out_dir_abs/SHA256SUMS"
 : >"$checksums"
