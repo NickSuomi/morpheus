@@ -1,203 +1,73 @@
 # Morpheus
 
-Morpheus is a local, repo-based agent orchestration system for explainable software work.
-
-Product principle:
+Morpheus is a repo-local agent orchestration system for explainable software work.
 
 > If it can't explain itself, it can't run.
 
-Morpheus connects GitLab issue intake, Beads lifecycle state, container-backed agents, run ledgers, and operator inspection commands into one auditable workflow.
+Morpheus gives an operator one place to install, configure, run, inspect, and review AI-agent work against real repositories. It connects GitLab intake, Beads lifecycle state, container-backed agents, SQLite run ledgers, and Draft MR review artifacts without hiding the evidence.
 
-## Table of Contents
+## Contents
 
-- [What Morpheus Is](#what-morpheus-is)
-- [Problem](#problem)
-- [How Morpheus Works](#how-morpheus-works)
-- [Current Status](#current-status)
-- [ALPHA Golden Path](#alpha-golden-path)
-- [Target Repository Quickstart](#target-repository-quickstart)
-- [Doctor Health Model](#doctor-health-model)
-- [Operating The Daemon](#operating-the-daemon)
-- [Inspecting Runs](#inspecting-runs)
-- [Manual Lane Commands](#manual-lane-commands)
+- [Why Morpheus Exists](#why-morpheus-exists)
+- [What Alpha Means](#what-alpha-means)
+- [Golden Path](#golden-path)
+- [Operator Map](#operator-map)
+- [Workflow](#workflow)
+- [Install](#install)
+- [Set Up A Target Repo](#set-up-a-target-repo)
+- [Run And Inspect Work](#run-and-inspect-work)
+- [Health Model](#health-model)
+- [What Setup Writes](#what-setup-writes)
 - [Troubleshooting](#troubleshooting)
-- [Roadmap](#roadmap)
 - [Development](#development)
+- [Docs](#docs)
 
-## What Morpheus Is
+## Why Morpheus Exists
 
-Morpheus is an operator-first CLI for running AI agents against real repositories without losing control of state, evidence, or review boundaries.
+Agent runs become risky when they:
 
-Today it can:
+- start from vague issue text;
+- mutate repos without a durable contract;
+- use implicit host credentials;
+- scatter state across comments, logs, and local shells;
+- leave reviewers guessing what happened.
 
-- initialize a target repository with Morpheus config, prompts, skills, secrets templates, and a container profile;
-- import ready GitLab issues into local Beads;
-- schedule prepare, implement, and review lanes;
-- run agents in a Docker-compatible container runtime;
-- record run evidence in a local ledger;
-- expose status, issue slices, run details, and logs for operator inspection.
+Morpheus makes that work inspectable. A run must have explicit config, explicit auth, explicit lifecycle state, a recorded transcript, and review evidence before humans decide whether to merge.
 
-## Problem
+## What Alpha Means
 
-Agent runs are hard to trust when they hide lifecycle state, use implicit credentials, mutate repos without a clear contract, or leave no audit trail.
+Morpheus ALPHA is the first end-to-end path where a maintainer can:
 
-Morpheus solves this by making every run explainable before it executes:
+- install Morpheus from a GitHub Release curl installer;
+- run guided target-repo setup;
+- pass `morpheus doctor` with zero `FAIL` results;
+- run `morpheus daemon --once`;
+- execute a real container-backed agent task;
+- inspect status, runs, slices, logs, transcripts, and MR evidence.
 
-- GitLab is the human intake UI.
-- Beads is the lifecycle source of truth after import.
-- `agent:*` labels describe workflow state.
-- Doctor checks separate blocking prerequisites from advisory target risk.
-- Agents run with explicit target config and explicit auth env files.
-- Operators can inspect every run through CLI commands and ledger data.
+Canonical contract: [docs/product/ALPHA.md](docs/product/ALPHA.md).
 
-## How Morpheus Works
-
-1. A target repo is configured with `morpheus.config.json`.
-2. GitLab issues with the configured ready label are imported into Beads.
-3. Morpheus derives runnable lanes from Beads `agent:*` state.
-4. `morpheus daemon` syncs, schedules, and executes work.
-5. Prepare creates an explainable contract.
-6. Implement creates an isolated workspace branch and draft merge request.
-7. Review checks evidence and contract fit.
-8. The operator inspects status, slices, runs, and logs.
-
-## Current Status
-
-Morpheus is in ALPHA development. The canonical ALPHA contract lives in:
-
-- `docs/product/ALPHA.md`
-
-The ALPHA setup completion gate is:
-
-- `morpheus doctor` has zero `FAIL` results;
-- `morpheus daemon --once` succeeds without crashing.
-
-`WARN` results are visible risk for task-specific verification, not automatic setup blockers.
-
-## ALPHA Golden Path
-
-The intended ALPHA operator path is:
+## Golden Path
 
 ```sh
 curl -fsSL https://github.com/NickSuomi/morpheus/releases/latest/download/install.sh | sh
 morpheus --version
+
 cd /path/to/target-repo
 morpheus setup
-morpheus doctor
+
+# You fill this file manually. Morpheus never asks for secret values.
+$EDITOR .morpheus/secrets/agent.env
+
 docker build -f .morpheus/container/Dockerfile -t morpheus-agent:local .
+morpheus doctor
 morpheus daemon --once
 morpheus daemon
 ```
 
-Then mark a GitLab issue with the configured ready label, usually `agent:ready`, and inspect work with `morpheus status`, `morpheus slice`, `morpheus runs`, and `morpheus logs`.
+Then mark a GitLab issue with the configured ready label, usually `agent:ready`.
 
-By default the installer downloads the latest GitHub Release artifact for the current OS/architecture and verifies `SHA256SUMS`. Pin a specific release with:
-
-```sh
-curl -fsSL https://github.com/NickSuomi/morpheus/releases/latest/download/install.sh | MORPHEUS_VERSION=0.1.1 sh
-```
-
-Morpheus ALPHA does not use Homebrew or a public package registry.
-
-## Target Repository Quickstart
-
-If you are evaluating from this source checkout, build and link the CLI first:
-
-```sh
-cd /path/to/morpheus
-pnpm install
-pnpm build
-pnpm link --global ./packages/cli
-morpheus --help
-```
-
-Then configure a target repository:
-
-```sh
-cd /path/to/target-repo
-morpheus setup
-morpheus config show
-```
-
-Setup writes or updates:
-
-- `morpheus.config.json`;
-- `.morpheus/prompts/*`;
-- `.morpheus/skills/*` mappings;
-- `.morpheus/container/Dockerfile`;
-- `.morpheus/container/README.md`;
-- `.morpheus/secrets/agent.env.example`;
-- `.gitignore` entries for local ledgers, logs, caches, and real secret env files.
-
-Before running agents, verify or edit:
-
-- `gitlab.project`;
-- `gitlab.readyLabel`;
-- `gitlab.targetBranch`;
-- `agentRunner.agent.model` and `agentRunner.agent.effort`;
-- `agentRunner.auth.envFile` and required keys;
-- `agentRunner.container.image` and profile path;
-- `verification.commands` and `verification.toolchainProbes`;
-- lane concurrency and daemon polling interval.
-
-Morpheus does not collect secret values. Put real credentials in the configured env file, for example `.morpheus/secrets/agent.env`, and keep that file ignored.
-
-Build the target agent image explicitly:
-
-```sh
-docker build -f .morpheus/container/Dockerfile -t morpheus-agent:local .
-```
-
-Run the health and scheduler gate:
-
-```sh
-morpheus doctor
-morpheus daemon --once
-```
-
-Import a real GitLab issue:
-
-```sh
-glab auth status
-morpheus sync
-bd ready
-```
-
-After sync, Beads owns lifecycle state. GitLab labels are intake signals; Beads `agent:*` labels drive Morpheus lanes.
-
-## Doctor Health Model
-
-`morpheus doctor` prints `OK`, `WARN`, and `FAIL` results.
-
-- `FAIL` blocks Morpheus setup or safe lane execution. Examples: invalid config, missing Beads, GitLab auth failure, Docker-compatible runtime unavailable, missing required agent auth keys, unreadable workspace, or missing configured container image.
-- `WARN` means visible task-specific risk. Examples: optional target toolchains like Java or Android SDK are not present in the container profile.
-- `OK` means the checked prerequisite is currently readable or available.
-
-The daemon does not auto-build the agent image in v1. If doctor reports a missing image, run:
-
-```sh
-docker build -f .morpheus/container/Dockerfile -t morpheus-agent:local .
-```
-
-## Operating The Daemon
-
-Run one tick first:
-
-```sh
-morpheus daemon --once
-```
-
-Then run polling mode when the one-shot gate is healthy:
-
-```sh
-morpheus daemon
-```
-
-The daemon syncs ready GitLab issues, schedules runnable Beads lanes, executes up to configured lane capacity, and records run evidence.
-
-## Inspecting Runs
-
-Use these commands while the daemon works:
+Inspect work:
 
 ```sh
 morpheus status
@@ -205,14 +75,139 @@ morpheus slice <issue-id>
 morpheus runs
 morpheus run <run-id>
 morpheus logs <run-id>
-morpheus prune --dry-run
 ```
 
-`slice` is the fastest way to inspect one issue across labels, derived state, dependencies, runs, and evidence.
+## Operator Map
 
-## Manual Lane Commands
+```mermaid
+flowchart LR
+  operator[Operator] --> setup[morpheus setup]
+  setup --> config[morpheus.config.json]
+  setup --> files[.morpheus prompts / skills / container / secrets example]
+  operator --> doctor[morpheus doctor]
+  doctor --> gate{zero FAIL?}
+  gate -- no --> fix[fix config/auth/docker/tooling]
+  fix --> doctor
+  gate -- yes --> daemon[morpheus daemon]
+  daemon --> beads[Beads agent:* state]
+  daemon --> gitlab[GitLab intake + Draft MR]
+  daemon --> runner[container agent runner]
+  runner --> ledger[SQLite ledger + transcripts]
+  ledger --> inspect[status / slice / runs / logs]
+  gitlab --> review[human review + merge]
+```
 
-Manual lane commands are debugging and escape hatches, not the primary happy path:
+## Workflow
+
+```mermaid
+sequenceDiagram
+  participant G as GitLab issue
+  participant B as Beads
+  participant M as Morpheus daemon
+  participant A as Agent container
+  participant L as Run ledger
+  participant R as Draft MR
+
+  G->>M: issue has ready label
+  M->>B: import or update local issue
+  M->>B: agent:ready -> agent:preparing
+  M->>A: prepare contract
+  A->>L: transcript + artifact
+  M->>B: agent:prepared
+  M->>R: create Draft MR
+  M->>A: implement scoped change
+  A->>L: evidence + transcript
+  M->>R: update implementation evidence
+  M->>A: review read-only
+  A->>L: findings + transcript
+  M->>R: update review verdict
+  M->>B: agent:review-candidate
+```
+
+## Install
+
+Latest release:
+
+```sh
+curl -fsSL https://github.com/NickSuomi/morpheus/releases/latest/download/install.sh | sh
+```
+
+Pinned release:
+
+```sh
+curl -fsSL https://github.com/NickSuomi/morpheus/releases/latest/download/install.sh | MORPHEUS_VERSION=0.1.6 sh
+```
+
+Custom install dir:
+
+```sh
+curl -fsSL https://github.com/NickSuomi/morpheus/releases/latest/download/install.sh | MORPHEUS_INSTALL_DIR="$HOME/bin" sh
+```
+
+Installer behavior:
+
+- downloads a runnable GitHub Release artifact for current OS/architecture;
+- verifies `SHA256SUMS` when present;
+- installs `morpheus`;
+- verifies `morpheus --version`;
+- prints next step: `cd target-repo && morpheus setup`.
+
+No Homebrew or public npm install path is required for ALPHA.
+
+## Set Up A Target Repo
+
+```sh
+cd /path/to/target-repo
+morpheus setup
+morpheus config show
+```
+
+Setup uses selector prompts for choices and readline-style prompts for text/path values. It does not collect secret values.
+
+Fill the agent auth file manually:
+
+```sh
+mkdir -p .morpheus/secrets
+cp .morpheus/secrets/agent.env.example .morpheus/secrets/agent.env
+$EDITOR .morpheus/secrets/agent.env
+```
+
+Build the target agent image:
+
+```sh
+docker build -f .morpheus/container/Dockerfile -t morpheus-agent:local .
+```
+
+Gate setup:
+
+```sh
+morpheus doctor
+morpheus daemon --once
+```
+
+## Run And Inspect Work
+
+Normal ALPHA operation:
+
+```sh
+glab auth status
+morpheus sync
+bd ready
+morpheus daemon --once
+morpheus daemon
+```
+
+Inspection commands:
+
+```sh
+morpheus status
+morpheus slice <issue-id>
+morpheus runs
+morpheus run <run-id>
+morpheus logs <run-id>
+```
+
+Manual lane commands exist for debugging:
 
 ```sh
 morpheus prepare <issue-id>
@@ -220,53 +215,65 @@ morpheus implement <issue-id>
 morpheus review <issue-id>
 ```
 
-Prefer `morpheus daemon --once` and `morpheus daemon` for normal ALPHA operation.
+Prefer daemon mode for normal operation. Manual commands are escape hatches.
+
+## Health Model
+
+`morpheus doctor` reports:
+
+- `OK`: prerequisite is present.
+- `WARN`: visible risk, usually target-specific tooling.
+- `FAIL`: blocker for safe setup or lane execution.
+
+Blocking examples:
+
+- invalid `morpheus.config.json`;
+- missing Beads;
+- `glab auth status` failure;
+- Docker-compatible runtime unavailable;
+- missing configured container image;
+- missing required agent auth keys;
+- unreadable workspace;
+- unreadable ledger.
+
+`WARN` is not hidden. It tells the operator what a later task may need.
+
+## What Setup Writes
+
+```txt
+target-repo/
+  morpheus.config.json
+  .morpheus/
+    prompts/
+      prepare.md
+      implement.md
+      review.md
+    skills/
+      ...
+    container/
+      Dockerfile
+      README.md
+    secrets/
+      agent.env.example
+```
+
+Setup also updates `.gitignore` for local ledgers, runs, logs, caches, and real secret env files.
+
+Morpheus must not create `.sandcastle` target artifacts, private host auth paths, or real secret files containing tokens.
 
 ## Troubleshooting
 
-- Missing `morpheus`: install from the release artifact/script, or for development run `pnpm build && pnpm link --global ./packages/cli`.
-- Missing config: run `morpheus setup` in the target repo, or pass `--config /path/to/morpheus.config.json`.
-- GitLab auth failure: run `glab auth status` and verify access to `gitlab.project`.
-- Docker failure: start Docker Desktop, OrbStack, Colima, or a remote Docker context and verify `docker info`.
-- Missing agent image: run `docker build -f .morpheus/container/Dockerfile -t morpheus-agent:local .` from the target repo.
-- Missing auth keys: create the configured env file and add required keys; do not paste secrets into setup.
-- Toolchain warnings: edit `.morpheus/container/Dockerfile`, rebuild the image, and rerun doctor.
-- Failed agent run: inspect `morpheus runs`, `morpheus run <run-id>`, `morpheus logs <run-id>`, and `.morpheus/agent-logs/`.
-
-## Roadmap
-
-### Guided Setup CLI
-
-ALPHA includes `morpheus setup` as the guided target-repo onboarding path. The remaining planned work is UX hardening: richer selector prompts, clearer validation copy, and more operator-friendly recovery from invalid inputs. Setup must continue to avoid secret value collection.
-
-### Production Distribution
-
-Planned through GitHub Release artifacts plus `scripts/install.sh`; see `docs/planning/distribution-channel-spike.md`. Homebrew and npm/binary packaging are intentionally deferred until the release artifact path is stable.
-
-### ALPHA E2E Signoff
-
-ALPHA signoff requires both:
-
-- a small fixture target repo smoke test;
-- private target signoff through Morpheus, with evidence kept outside Morpheus git.
+| Symptom             | Check                                       | Fix                                                                 |
+| ------------------- | ------------------------------------------- | ------------------------------------------------------------------- |
+| `morpheus` missing  | `which morpheus`                            | Re-run installer or add install dir to `PATH`.                      |
+| Config missing      | `morpheus config show`                      | Run `morpheus setup` in target repo.                                |
+| GitLab auth fails   | `glab auth status`                          | Re-authenticate `glab` and verify project access.                   |
+| Docker fails        | `docker info`                               | Start Docker Desktop, OrbStack, Colima, or remote Docker context.   |
+| Agent image missing | `docker image inspect morpheus-agent:local` | Build image from `.morpheus/container/Dockerfile`.                  |
+| Auth keys missing   | `morpheus doctor`                           | Fill `.morpheus/secrets/agent.env`; never paste secrets into setup. |
+| Run failed          | `morpheus slice <issue-id>`                 | Inspect run events, logs, transcript, and MR evidence.              |
 
 ## Development
-
-Project docs to read in order:
-
-1. `docs/product/PRD.md`
-2. `CONTEXT.md`
-3. `ARCHITECTURE.md`
-4. `docs/adr/`
-5. `docs/agents/`
-6. `.understand-anything/knowledge-graph.json`
-
-The knowledge graph is a committed architecture map for onboarding, broad
-refactors, and agent prompt design. Use its `tour` first, then `layers`, then
-targeted `nodes` and `edges`. Treat the PRD, context, architecture brief, and
-ADRs as authoritative when anything conflicts.
-
-Common commands:
 
 ```sh
 pnpm install
@@ -275,7 +282,27 @@ pnpm check
 pnpm typecheck:fast
 ```
 
-Issue tracking uses Beads with prefix `morph`:
+Run local CLI from source:
+
+```sh
+pnpm --filter @morpheus/cli morpheus --help
+```
+
+Build release artifacts:
+
+```sh
+scripts/package-release.sh --version 0.1.6 --only-os darwin --only-arch arm64
+```
+
+Install from local artifact by overriding URL/checksum:
+
+```sh
+MORPHEUS_RELEASE_URL="file:///path/to/morpheus-0.1.6-darwin-arm64.tar.gz" \
+MORPHEUS_CHECKSUM_URL="" \
+scripts/install.sh
+```
+
+Issue tracking uses Beads:
 
 ```sh
 bd ready
@@ -288,3 +315,17 @@ Commit hooks:
 ```sh
 git config core.hooksPath .githooks
 ```
+
+## Docs
+
+Read in this order:
+
+1. [Product PRD](docs/product/PRD.md)
+2. [Context glossary](CONTEXT.md)
+3. [Architecture](ARCHITECTURE.md)
+4. [Architecture decisions](docs/adr/)
+5. [Agent instructions](docs/agents/)
+6. [ALPHA contract](docs/product/ALPHA.md)
+7. [Fixture smoke target](docs/product/alpha-fixture-smoke.md)
+
+The repo-owned architecture map lives at `.understand-anything/knowledge-graph.json`. Use its tour first, then layers, then targeted nodes and edges.
