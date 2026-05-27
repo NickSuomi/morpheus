@@ -320,6 +320,7 @@ describe("SandcastleAgentRunner", () => {
         provider: "codex",
         model: "gpt-5.4-mini",
         effort: "xhigh",
+        idleTimeoutSeconds: 1800,
       },
       dockerFactory: (options) => {
         dockerOptions.push(options);
@@ -723,6 +724,7 @@ describe("SandcastleAgentRunner", () => {
         provider: "codex",
         model: "gpt-5.4-mini",
         effort: "xhigh",
+        idleTimeoutSeconds: 1800,
       },
       dockerFactory: (options) => {
         dockerOptions.push(options);
@@ -739,6 +741,7 @@ describe("SandcastleAgentRunner", () => {
         });
         commands.push(printCommand.command);
         stdins.push(printCommand.stdin);
+        expect(options.idleTimeoutSeconds).toBe(1800);
         return {
           iterations: [],
           stdout: `<morpheus_result>{"status":"blocked","reason":"x","transcript":"","artifact":{}}</morpheus_result>`,

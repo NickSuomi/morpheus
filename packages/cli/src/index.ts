@@ -210,6 +210,7 @@ const agentRunnerOptionsFromConfig = (config: LoadedCliConfig) => ({
   skills: config.agentRunner.skills,
   logDirectory: agentLogDirectory(config.configDirectory),
   agentConfig: config.agentRunner.agent,
+  idleTimeoutSeconds: config.agentRunner.agent.idleTimeoutSeconds,
   authEnvFile: config.agentRunner.auth.envFile,
   authRequiredKeys: config.agentRunner.auth.requiredKeys,
   containerConfig: {

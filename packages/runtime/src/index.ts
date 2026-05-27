@@ -3370,6 +3370,7 @@ export const MorpheusConfigSchema = Schema.Struct({
       provider: Schema.Literal("codex"),
       model: Schema.String,
       effort: Schema.Literal("low", "medium", "high", "xhigh"),
+      idleTimeoutSeconds: Schema.optional(PositiveIntegerSchema),
     }),
     auth: Schema.Struct({
       envFile: Schema.String,
@@ -3621,6 +3622,7 @@ const makeInitialConfig = (
       provider: "codex",
       model: "gpt-5.4-mini",
       effort: "xhigh",
+      idleTimeoutSeconds: 1800,
     },
     auth: {
       envFile: ".morpheus/secrets/agent.env",
