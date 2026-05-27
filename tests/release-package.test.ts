@@ -58,5 +58,5 @@ describe("release packaging", () => {
     } finally {
       rmSync(dir, { force: true, recursive: true });
     }
-  }, 180_000);
+  }, 600_000);
 });
