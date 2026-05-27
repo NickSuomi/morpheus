@@ -392,11 +392,9 @@ describe("BeadsIssueTracker", () => {
         args: [
           "update",
           "morph-fe0",
-          "--set-labels",
-          "bug",
-          "--set-labels",
-          "ready-for-agent",
-          "--set-labels",
+          "--remove-label",
+          "agent:ready",
+          "--add-label",
           "agent:preparing",
         ],
       },
@@ -412,7 +410,7 @@ describe("BeadsIssueTracker", () => {
           labels: ["agent:ready"],
         },
       ]),
-      failed("set labels failed"),
+      failed("transition labels failed"),
     ]);
     const plan = planAgentStateTransition(["agent:ready"], "StartPreparation");
 
@@ -428,8 +426,15 @@ describe("BeadsIssueTracker", () => {
     if (Either.isLeft(result)) {
       expect(result.left).toMatchObject({
         _tag: "IssueTrackerCommandError",
-        args: ["update", "morph-fe0", "--set-labels", "agent:preparing"],
-        stderr: "set labels failed",
+        args: [
+          "update",
+          "morph-fe0",
+          "--remove-label",
+          "agent:ready",
+          "--add-label",
+          "agent:preparing",
+        ],
+        stderr: "transition labels failed",
       });
     }
     expect(processRunner.calls).toEqual([
@@ -439,11 +444,16 @@ describe("BeadsIssueTracker", () => {
       },
       {
         command: "bd",
-        args: ["update", "morph-fe0", "--set-labels", "agent:preparing"],
+        args: [
+          "update",
+          "morph-fe0",
+          "--remove-label",
+          "agent:ready",
+          "--add-label",
+          "agent:preparing",
+        ],
       },
     ]);
-    expect(processRunner.calls.flatMap((call) => call.args)).not.toContain("--remove-label");
-    expect(processRunner.calls.flatMap((call) => call.args)).not.toContain("--add-label");
   });
 
   it("does not apply non-planned transition results", async () => {
@@ -467,7 +477,7 @@ describe("BeadsIssueTracker", () => {
     expect(processRunner.calls).toEqual([]);
   });
 
-  it("replans state transitions from current labels before setting labels", async () => {
+  it("replans state transitions from current labels before applying labels", async () => {
     const processRunner = fakeProcessRunner([
       ok([
         {
@@ -499,9 +509,9 @@ describe("BeadsIssueTracker", () => {
       args: [
         "update",
         "morph-fe0",
-        "--set-labels",
-        "human-added",
-        "--set-labels",
+        "--remove-label",
+        "agent:preparing",
+        "--add-label",
         "agent:prepared",
       ],
     });
@@ -907,9 +917,7 @@ describe("BeadsIssueTracker", () => {
             },
           },
         }),
-        "--set-labels",
-        "triaged",
-        "--set-labels",
+        "--add-label",
         "agent:ready",
       ],
     });
@@ -984,10 +992,6 @@ describe("BeadsIssueTracker", () => {
       "New body",
       "--metadata",
       expect.any(String),
-      "--set-labels",
-      "agent:running",
-      "--set-labels",
-      "triaged",
     ]);
   });
 

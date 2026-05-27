@@ -768,8 +768,11 @@ const rejectPlan = (
   plan,
 });
 
-const setLabelArgs = (labels: readonly string[]): string[] =>
-  labels.flatMap((label) => ["--set-labels", label]);
+const addLabelArgs = (labels: readonly string[]): string[] =>
+  labels.flatMap((label) => ["--add-label", label]);
+
+const removeLabelArgs = (labels: readonly string[]): string[] =>
+  labels.flatMap((label) => ["--remove-label", label]);
 
 const activeAgentLabels = new Set<string>(agentStates);
 
@@ -2021,7 +2024,8 @@ export const createBeadsIssueTracker = ({
       yield* runBdEffect(processRunner, [
         "update",
         issueId,
-        ...setLabelArgs(currentPlan.finalLabels),
+        ...removeLabelArgs(currentPlan.removeLabels),
+        ...addLabelArgs(currentPlan.addLabels),
       ]);
 
       return {
@@ -2178,7 +2182,6 @@ export const createBeadsIssueTracker = ({
       const currentMetadata = yield* readMetadata(existing.id, currentIssueJson);
       const currentLabels = labelsFromIssue(currentIssueJson.labels);
       const shouldAddReady = !hasAgentLifecycleLabel(currentLabels);
-      const nextLabels = shouldAddReady ? [...currentLabels, "agent:ready"] : currentLabels;
       const nextMetadata = metadataWithGitLabImport(currentMetadata, source, syncedAt);
       const contentChanged = importedIssueChanged(existing, source);
 
@@ -2206,7 +2209,7 @@ export const createBeadsIssueTracker = ({
         source.description,
         "--metadata",
         JSON.stringify(nextMetadata),
-        ...setLabelArgs(nextLabels),
+        ...(shouldAddReady ? addLabelArgs(["agent:ready"]) : []),
       ]);
 
       return {
