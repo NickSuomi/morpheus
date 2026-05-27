@@ -1440,6 +1440,23 @@ const runSandcastlePhase = (
         image: "morpheus-agent:local",
         mounts: [],
       };
+      const configuredMounts = containerConfig.mounts.map((mount) => ({
+        hostPath: resolve(options.cwd, mount.hostPath),
+        sandboxPath: mount.containerPath,
+        readonly: mount.readOnly,
+      }));
+      const worktreeMount =
+        (phase === "implement" || phase === "review") &&
+        input.workspace.worktreePath !== undefined &&
+        resolve(input.workspace.worktreePath) !== resolve(options.cwd)
+          ? [
+              {
+                hostPath: resolve(input.workspace.worktreePath),
+                sandboxPath: resolve(input.workspace.worktreePath),
+                readonly: false,
+              },
+            ]
+          : [];
       const result = await runner({
         agent:
           options.agent ?? codexWithApiKeyLogin(agentConfig.model, { effort: agentConfig.effort }),
@@ -1452,11 +1469,7 @@ const runSandcastlePhase = (
             ...(containerConfig.profile === undefined
               ? {}
               : { dockerfilePath: resolve(options.cwd, containerConfig.profile) }),
-            mounts: containerConfig.mounts.map((mount) => ({
-              hostPath: resolve(options.cwd, mount.hostPath),
-              sandboxPath: mount.containerPath,
-              readonly: mount.readOnly,
-            })),
+            mounts: [...configuredMounts, ...worktreeMount],
             env: {
               ...authEnv,
               HOME: "/tmp/morpheus-home",
