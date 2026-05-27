@@ -885,6 +885,7 @@ export type ContainerAgentConfig = {
   readonly provider: "codex";
   readonly model: string;
   readonly effort: "low" | "medium" | "high" | "xhigh";
+  readonly idleTimeoutSeconds?: number;
 };
 
 export type ContainerMountConfig = {
@@ -1488,6 +1489,7 @@ const runSandcastlePhase = (
         },
         name: `morpheus-${phase}-${issue.id}`,
         maxIterations: 1,
+        idleTimeoutSeconds: agentConfig.idleTimeoutSeconds,
       });
       const output = extractTaggedJson(result.stdout);
 

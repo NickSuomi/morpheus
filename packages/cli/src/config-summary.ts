@@ -16,7 +16,7 @@ export const formatConfigSummaryText = (input: {
     `daemon: pollIntervalSeconds=${config.daemon.pollIntervalSeconds}`,
     `mergeRequests: ${config.mergeRequests.kind}`,
     `agentRunner: ${config.agentRunner.kind}`,
-    `agent: provider=${config.agentRunner.agent.provider} model=${config.agentRunner.agent.model} effort=${config.agentRunner.agent.effort}`,
+    `agent: provider=${config.agentRunner.agent.provider} model=${config.agentRunner.agent.model} effort=${config.agentRunner.agent.effort} idleTimeoutSeconds=${config.agentRunner.agent.idleTimeoutSeconds ?? "default"}`,
     `auth: envFile=${config.agentRunner.auth.envFile} requiredKeys=${config.agentRunner.auth.requiredKeys.join(",")}`,
     `container: image=${config.agentRunner.container.image} profile=${config.agentRunner.container.profile} mounts=${config.agentRunner.container.mounts.length} setupHooks=${config.agentRunner.container.setupHooks.length}`,
     `skills: directory=${config.agentRunner.skills.directory} mappings=${config.agentRunner.skills.mappings.length} names=${config.agentRunner.skills.mappings.map((skill) => skill.name).join(",")}`,

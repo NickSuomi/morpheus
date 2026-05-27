@@ -21,6 +21,7 @@ describe("config summary", () => {
             provider: "codex",
             model: "gpt-5.4-mini",
             effort: "xhigh",
+            idleTimeoutSeconds: 1800,
           },
           auth: {
             envFile: ".morpheus/secrets/agent.env",
@@ -84,7 +85,9 @@ describe("config summary", () => {
     });
 
     expect(output).toContain("agentRunner: container");
-    expect(output).toContain("agent: provider=codex model=gpt-5.4-mini effort=xhigh");
+    expect(output).toContain(
+      "agent: provider=codex model=gpt-5.4-mini effort=xhigh idleTimeoutSeconds=1800",
+    );
     expect(output).toContain(
       "auth: envFile=.morpheus/secrets/agent.env requiredKeys=OPENAI_API_KEY",
     );

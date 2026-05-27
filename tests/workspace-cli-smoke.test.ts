@@ -199,7 +199,7 @@ describe("morpheus cli", () => {
   it("prints version", () => {
     const output = runPnpm(["--filter", "@morpheus/cli", "morpheus", "--version"]);
 
-    expect(output.trim().split("\n").at(-1)).toBe("0.1.9");
+    expect(output.trim().split("\n").at(-1)).toBe("0.1.10");
   });
 
   it("shows a validated config summary", () => {

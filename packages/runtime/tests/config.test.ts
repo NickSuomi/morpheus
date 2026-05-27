@@ -65,6 +65,7 @@ const validConfig = {
       provider: "codex",
       model: "gpt-5.4-mini",
       effort: "xhigh",
+      idleTimeoutSeconds: 1800,
     },
     auth: {
       envFile: ".morpheus/secrets/agent.env",
@@ -275,6 +276,7 @@ describe("Morpheus config", () => {
             provider: "codex",
             model: "gpt-5.4-mini",
             effort: "xhigh",
+            idleTimeoutSeconds: 2400,
           },
           auth: {
             envFile: ".morpheus/secrets/custom-agent.env",
@@ -370,6 +372,13 @@ describe("Morpheus config", () => {
       {
         ...validConfig.agentRunner,
         agent: { ...validConfig.agentRunner.agent, effort: "extreme" },
+      },
+    ],
+    [
+      "agent idle timeout",
+      {
+        ...validConfig.agentRunner,
+        agent: { ...validConfig.agentRunner.agent, idleTimeoutSeconds: 0 },
       },
     ],
     [
