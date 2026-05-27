@@ -352,7 +352,7 @@ describe("BeadsIssueTracker", () => {
     }
   });
 
-  it("applies planned state transitions through one atomic bd label set", async () => {
+  it("applies planned state transitions with separate bd label updates", async () => {
     const processRunner = fakeProcessRunner([
       ok([
         {
@@ -361,6 +361,7 @@ describe("BeadsIssueTracker", () => {
           labels: ["bug", "ready-for-agent", "agent:ready"],
         },
       ]),
+      ok([]),
       ok([]),
     ]);
     const plan = planAgentStateTransition(
@@ -389,14 +390,11 @@ describe("BeadsIssueTracker", () => {
       },
       {
         command: "bd",
-        args: [
-          "update",
-          "morph-fe0",
-          "--remove-label",
-          "agent:ready",
-          "--add-label",
-          "agent:preparing",
-        ],
+        args: ["update", "morph-fe0", "--remove-label", "agent:ready"],
+      },
+      {
+        command: "bd",
+        args: ["update", "morph-fe0", "--add-label", "agent:preparing"],
       },
     ]);
   });
@@ -426,14 +424,7 @@ describe("BeadsIssueTracker", () => {
     if (Either.isLeft(result)) {
       expect(result.left).toMatchObject({
         _tag: "IssueTrackerCommandError",
-        args: [
-          "update",
-          "morph-fe0",
-          "--remove-label",
-          "agent:ready",
-          "--add-label",
-          "agent:preparing",
-        ],
+        args: ["update", "morph-fe0", "--remove-label", "agent:ready"],
         stderr: "transition labels failed",
       });
     }
@@ -444,14 +435,7 @@ describe("BeadsIssueTracker", () => {
       },
       {
         command: "bd",
-        args: [
-          "update",
-          "morph-fe0",
-          "--remove-label",
-          "agent:ready",
-          "--add-label",
-          "agent:preparing",
-        ],
+        args: ["update", "morph-fe0", "--remove-label", "agent:ready"],
       },
     ]);
   });
@@ -487,6 +471,7 @@ describe("BeadsIssueTracker", () => {
         },
       ]),
       ok([]),
+      ok([]),
     ]);
     const stalePlan = planAgentStateTransition(["agent:preparing"], "PreparationReady");
 
@@ -504,17 +489,16 @@ describe("BeadsIssueTracker", () => {
       addLabels: ["agent:prepared"],
       removeLabels: ["agent:preparing"],
     });
-    expect(processRunner.calls.at(-1)).toEqual({
-      command: "bd",
-      args: [
-        "update",
-        "morph-fe0",
-        "--remove-label",
-        "agent:preparing",
-        "--add-label",
-        "agent:prepared",
-      ],
-    });
+    expect(processRunner.calls.slice(-2)).toEqual([
+      {
+        command: "bd",
+        args: ["update", "morph-fe0", "--remove-label", "agent:preparing"],
+      },
+      {
+        command: "bd",
+        args: ["update", "morph-fe0", "--add-label", "agent:prepared"],
+      },
+    ]);
   });
 
   it("writes contract metadata without replacing existing metadata keys", async () => {

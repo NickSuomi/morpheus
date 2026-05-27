@@ -2023,12 +2023,8 @@ export const createBeadsIssueTracker = ({
         return rejectPlan(issueId, currentPlan);
       }
 
-      yield* runBdEffect(processRunner, [
-        "update",
-        issueId,
-        ...removeLabelArgs(currentPlan.removeLabels),
-        ...addLabelArgs(currentPlan.addLabels),
-      ]);
+      yield* runBdEffect(processRunner, ["update", issueId, ...removeLabelArgs(currentPlan.removeLabels)]);
+      yield* runBdEffect(processRunner, ["update", issueId, ...addLabelArgs(currentPlan.addLabels)]);
 
       return {
         status: "applied",
