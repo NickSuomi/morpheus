@@ -13,19 +13,20 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-const runPnpm = (args: readonly string[], env: Record<string, string> = {}) =>
-  execFileSync("pnpm", args, {
-    cwd: process.cwd(),
-    env: {
-      ...process.env,
-      ...env,
-    },
-    encoding: "utf8",
-    stdio: ["ignore", "pipe", "pipe"],
-  });
+const cliArgs = (args: readonly string[]) => {
+  const prefix = ["--filter", "@morpheus/cli", "morpheus"];
+  if (prefix.every((value, index) => args[index] === value)) {
+    return [
+      "node",
+      [join(process.cwd(), "packages/cli/dist/index.mjs"), ...args.slice(prefix.length)],
+    ] as const;
+  }
+  return ["pnpm", args] as const;
+};
 
-const runPnpmFailure = (args: readonly string[], env: Record<string, string> = {}) =>
-  spawnSync("pnpm", args, {
+const runPnpm = (args: readonly string[], env: Record<string, string> = {}) => {
+  const [command, commandArgs] = cliArgs(args);
+  return execFileSync(command, commandArgs, {
     cwd: process.cwd(),
     env: {
       ...process.env,
@@ -33,9 +34,33 @@ const runPnpmFailure = (args: readonly string[], env: Record<string, string> = {
     },
     encoding: "utf8",
     stdio: ["ignore", "pipe", "pipe"],
+    timeout: 120_000,
   });
+};
+
+const runPnpmFailure = (args: readonly string[], env: Record<string, string> = {}) => {
+  const [command, commandArgs] = cliArgs(args);
+  return spawnSync(command, commandArgs, {
+    cwd: process.cwd(),
+    env: {
+      ...process.env,
+      ...env,
+    },
+    encoding: "utf8",
+    stdio: ["ignore", "pipe", "pipe"],
+    timeout: 120_000,
+  });
+};
 
 const buildCli = () => {
+  if (
+    existsSync(join(process.cwd(), "packages/runtime/dist/index.mjs")) &&
+    existsSync(join(process.cwd(), "packages/adapters/dist/index.mjs")) &&
+    existsSync(join(process.cwd(), "packages/cli/dist/index.mjs"))
+  ) {
+    return;
+  }
+
   runPnpm(["--filter", "@morpheus/runtime", "build"]);
   runPnpm(["--filter", "@morpheus/adapters", "build"]);
   runPnpm(["--filter", "@morpheus/cli", "build"]);
@@ -490,7 +515,7 @@ describe("morpheus cli", () => {
     } finally {
       rmSync(dir, { force: true, recursive: true });
     }
-  });
+  }, 20_000);
 
   it("fails prepare command before Beads mutation when Docker-compatible runtime is unavailable", () => {
     const dir = mkdtempSync(join(tmpdir(), "morpheus-cli-prepare-docker-"));

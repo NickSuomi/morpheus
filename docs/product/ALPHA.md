@@ -55,7 +55,8 @@ The installer must:
 - secret values are never requested, printed, logged, copied, or summarized;
 - setup creates or points to an explicit env file and tells the operator which required keys to fill.
 
-The current readline setup is an implementation step toward this ALPHA UX; selector UI is an ALPHA blocker.
+Richer prompt copy, validation, and recovery may continue as UX hardening, but
+selector/readline coverage above is part of the ALPHA contract.
 
 ## Setup Completion Gate
 
@@ -97,17 +98,19 @@ Setup must not create `.sandcastle` artifacts, private host auth paths, or a rea
 
 ALPHA milestone prose uses uppercase `ALPHA`. Lowercase `alpha` remains only in stable path, config, test, and fixture identifiers, including `fixtures/alpha-target-repo`, `docs/product/alpha-fixture-smoke.md`, `morpheus-alpha-fixture` temporary names, `local/alpha-fixture`, and `alpha-smoke` fixture skill/auth identifiers.
 
-## ALPHA Blockers
+## ALPHA Capability Checklist
 
-ALPHA is not complete until these blockers are closed in Beads:
+ALPHA is not complete until these capabilities are implemented, verified, and
+the related Beads blockers are closed:
 
-- finish readline `morpheus setup` implementation;
-- upgrade setup prompts to hybrid selector UI;
-- implement curl release installer;
-- enforce strict setup completion gate;
-- add fixture/demo E2E smoke target;
-- run private target E2E signoff without committing private target names, URLs, paths, tokens, or evidence;
-- update README to point operators to the ALPHA golden path.
+- guided `morpheus setup` implementation;
+- hybrid selector/readline setup prompts;
+- curl release installer;
+- strict setup completion gate;
+- fixture/demo E2E smoke target;
+- private target E2E signoff without committing private target names, URLs,
+  paths, tokens, or evidence;
+- README operator path for the ALPHA golden path.
 
 ## Non-Goals For ALPHA
 

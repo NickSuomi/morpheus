@@ -100,7 +100,7 @@ mkdir -p "$out_dir_abs"
 deploy_dir="$out_dir_abs/app"
 rm -rf "$deploy_dir"
 need pnpm
-(cd "$repo_root" && pnpm --filter @morpheus/cli deploy --prod --legacy "$deploy_dir" >/dev/null)
+(cd "$repo_root" && pnpm --config.confirm-modules-purge=false --filter @morpheus/cli deploy --prod --legacy "$deploy_dir" >/dev/null)
 for package_name in core runtime adapters; do
   source_dist="$repo_root/packages/$package_name/dist"
   target_dist="$deploy_dir/node_modules/@morpheus/$package_name/dist"
