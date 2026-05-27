@@ -6,6 +6,8 @@ allowBuilds:
   better-sqlite3: true
   msgpackr-extract: true
 
+confirmModulesPurge: false
+
 onlyBuiltDependencies:
   - "@parcel/watcher"
   - better-sqlite3

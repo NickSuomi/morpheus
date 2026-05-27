@@ -303,6 +303,78 @@ describe("SandcastleAgentRunner", () => {
     expect(calls).toEqual([{ cwd: worktreePath }]);
   });
 
+  it("mounts the prepared worktree for Docker-backed implementation runs", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "morpheus-sandcastle-"));
+    writeFileSync(join(dir, "agent.env"), "OPENAI_API_KEY=test-token\n");
+    const worktreePath = join(dir, "../.morpheus-worktree-run_123");
+    const dockerOptions: unknown[] = [];
+    const runner = createSandcastleAgentRunner({
+      cwd: dir,
+      logDirectory: join(dir, ".morpheus", "sandcastle-logs"),
+      authEnvFile: "agent.env",
+      containerConfig: {
+        image: "morpheus-agent:test",
+        mounts: [{ hostPath: ".", containerPath: "/workspace" }],
+      },
+      agentConfig: {
+        provider: "codex",
+        model: "gpt-5.4-mini",
+        effort: "xhigh",
+      },
+      dockerFactory: (options) => {
+        dockerOptions.push(options);
+        return {
+          kind: "none",
+          exec: async () => ({ stdout: "", stderr: "", exitCode: 0 }),
+          close: async () => ({}),
+        } as never;
+      },
+      run: async () => ({
+        iterations: [],
+        stdout: `<morpheus_result>{"status":"implemented","implementationEvidence":[],"verificationEvidence":[],"transcript":"","artifact":{}}</morpheus_result>`,
+        commits: [],
+        branch: "morpheus/morph-bbp-run_123",
+      }),
+    });
+
+    const effect = runner.implementIssue?.({
+      issue: trackedIssue(),
+      contract: {
+        category: "task",
+        summary: "Prepared",
+        currentBehavior: "Before",
+        desiredBehavior: "After",
+        keyInterfaces: ["AgentRunner"],
+        acceptanceCriteria: ["Runs"],
+        outOfScope: ["None"],
+        verificationPlan: ["pnpm check"],
+        blockedBy: "None",
+        hitlDecisions: "None",
+        riskLevel: "medium",
+      },
+      workspace: {
+        workspacePath: dir,
+        worktreePath,
+        branch: "morpheus/morph-bbp-run_123",
+        targetBranch: "dev",
+        remote: "origin",
+      },
+      mergeRequest: {
+        reference: "!42",
+        url: "https://example.invalid/group/project/mr/42",
+      },
+    });
+    await Effect.runPromise(effect ?? Effect.die("missing implementIssue"));
+
+    expect(dockerOptions).toHaveLength(1);
+    expect(dockerOptions[0]).toMatchObject({
+      mounts: [
+        { hostPath: dir, sandboxPath: "/workspace" },
+        { hostPath: worktreePath, sandboxPath: worktreePath, readonly: false },
+      ],
+    });
+  });
+
   it("uses prompt override files relative to the target repo", async () => {
     const dir = mkdtempSync(join(tmpdir(), "morpheus-sandcastle-"));
     writeFileSync(join(dir, "prepare.md"), "custom prompt that cannot remove required gates");
