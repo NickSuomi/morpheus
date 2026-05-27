@@ -4109,6 +4109,7 @@ export const planMorpheusSetup = (input: SetupPlanningInput = {}): SetupPlan => 
   const readyLabel = answers.readyLabel ?? existingConfig?.gitlab.readyLabel ?? "agent:ready";
   const agentModel = answers.agentModel ?? existingConfig?.agentRunner.agent.model ?? "gpt-5.4-mini";
   const agentEffort = answers.agentEffort ?? existingConfig?.agentRunner.agent.effort ?? "xhigh";
+  const agentIdleTimeoutSeconds = existingConfig?.agentRunner.agent.idleTimeoutSeconds ?? 1800;
   const authEnvFile =
     answers.authEnvFile ??
     existingConfig?.agentRunner.auth.envFile ??
@@ -4176,6 +4177,7 @@ export const planMorpheusSetup = (input: SetupPlanningInput = {}): SetupPlan => 
         provider: "codex",
         model: agentModel,
         effort: agentEffort,
+        idleTimeoutSeconds: agentIdleTimeoutSeconds,
       },
       auth: {
         envFile: authEnvFile,
