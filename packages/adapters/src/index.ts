@@ -771,8 +771,8 @@ const rejectPlan = (
 const addLabelArgs = (labels: readonly string[]): string[] =>
   labels.flatMap((label) => ["--add-label", label]);
 
-const removeLabelArgs = (labels: readonly string[]): string[] =>
-  labels.flatMap((label) => ["--remove-label", label]);
+const setLabelArgs = (labels: readonly string[]): string[] =>
+  labels.flatMap((label) => ["--set-labels", label]);
 
 const activeAgentLabels = new Set<string>(agentStates);
 
@@ -1222,7 +1222,9 @@ const builtInPrompt = (input: SandcastlePhaseInput, skills: AgentSkillConfig): s
     `Description: ${issue.description ?? "None"}`,
     defaultAgentSkillInstructions,
     stageSkillInstructionsForPrompt(phase, skills),
-    "Do not commit. Do not close Beads issues.",
+    phase === "implement"
+      ? "Do not close Beads issues. Commit implementation changes on the implementation branch before returning implemented. Do not push; Morpheus or the host operator publishes the branch/MR outside the sandbox."
+      : "Do not commit. Do not close Beads issues.",
     `Return only JSON inside <${resultTag}>...</${resultTag}>.`,
   ];
 
@@ -1240,14 +1242,17 @@ const builtInPrompt = (input: SandcastlePhaseInput, skills: AgentSkillConfig): s
   if (phase === "implement") {
     return [
       ...base,
-      `Workspace: ${input.workspace.workspacePath}`,
-      `Worktree: ${input.workspace.worktreePath ?? "None"}`,
+      `Implementation root (edit and verify here ONLY): ${input.workspace.worktreePath ?? input.workspace.workspacePath}`,
+      `Host workspace (do not edit for implementation): ${input.workspace.workspacePath}`,
       `Branch: ${input.workspace.branch}`,
       `Target branch: ${input.workspace.targetBranch}`,
       `Remote: ${input.workspace.remote}`,
       `Merge request: ${input.mergeRequest.reference}`,
       `Merge request URL: ${input.mergeRequest.url ?? "None"}`,
       `Contract: ${JSON.stringify(input.contract)}`,
+      "All code changes, verification commands, git diff checks, and commits must happen inside the Implementation root. Do not edit or verify the host workspace path.",
+      "Before returning implemented, run git add for changed files and git commit on the Branch above. A successful implementation must leave at least one commit on that branch. Do not push from the sandbox.",
+      "Before returning implemented, verify `git diff --stat TARGET...HEAD` is non-empty and that your implementation commits are on the Branch above.",
       "Use caveman for concise communication, TDD for behavior-first implementation where practical, and diagnose before changing unclear code.",
       'JSON shape: {"status":"implemented","implementationEvidence":[{"summary":"...","files":[]}],"verificationEvidence":[{"command":"...","status":"passed"}],"transcript":"...","artifact":{}} or failed variant.',
     ].join("\n");
@@ -1412,6 +1417,48 @@ const checkDockerCompatibleRuntime = (
     }),
   );
 
+const commitIdFromUnknown = (commit: unknown): string | undefined => {
+  if (typeof commit === "string") {
+    return commit.length > 0 ? commit : undefined;
+  }
+
+  if (typeof commit !== "object" || commit === null) {
+    return undefined;
+  }
+
+  const record = commit as Record<string, unknown>;
+  for (const key of ["hash", "sha", "oid", "id", "commit"] as const) {
+    const value = record[key];
+    if (typeof value === "string" && value.length > 0) {
+      return value;
+    }
+  }
+
+  return undefined;
+};
+
+const normalizeCommitIds = (commits: readonly unknown[]): readonly string[] =>
+  commits.flatMap((commit) => {
+    const id = commitIdFromUnknown(commit);
+    return id === undefined ? [] : [id];
+  });
+
+const branchCommitsFromGit = (cwd: string, targetBranch: string): readonly string[] => {
+  try {
+    const stdout = execFileSync(
+      "git",
+      ["-C", cwd, "rev-list", "--reverse", `${targetBranch}..HEAD`],
+      { encoding: "utf8" },
+    );
+    return stdout
+      .split("\n")
+      .map((line) => line.trim())
+      .filter((line) => line.length > 0);
+  } catch {
+    return [];
+  }
+};
+
 const runSandcastlePhase = (
   options: SandcastleAgentRunnerOptions,
   input: SandcastlePhaseInput,
@@ -1492,6 +1539,11 @@ const runSandcastlePhase = (
         idleTimeoutSeconds: agentConfig.idleTimeoutSeconds ?? 1800,
       });
       const output = extractTaggedJson(result.stdout);
+      const reportedCommits = normalizeCommitIds(result.commits);
+      const commits =
+        phase === "implement" && reportedCommits.length === 0
+          ? branchCommitsFromGit(cwd, input.workspace.targetBranch)
+          : reportedCommits;
 
       return {
         ...(typeof output === "object" && output !== null ? output : {}),
@@ -1500,7 +1552,7 @@ const runSandcastlePhase = (
           output,
           logFilePath: result.logFilePath,
           branch: result.branch,
-          commits: result.commits,
+          commits,
           preservedWorktreePath: result.preservedWorktreePath,
         },
       };
@@ -2023,8 +2075,7 @@ export const createBeadsIssueTracker = ({
         return rejectPlan(issueId, currentPlan);
       }
 
-      yield* runBdEffect(processRunner, ["update", issueId, ...removeLabelArgs(currentPlan.removeLabels)]);
-      yield* runBdEffect(processRunner, ["update", issueId, ...addLabelArgs(currentPlan.addLabels)]);
+      yield* runBdEffect(processRunner, ["update", issueId, ...setLabelArgs(currentPlan.finalLabels)]);
 
       return {
         status: "applied",
