@@ -199,6 +199,7 @@ type BeadsIssueTrackerOptions = {
 type OperatorHealthOptions = {
   readonly processRunner: ProcessRunnerService;
   readonly cwd?: string;
+  readonly gitlabProject?: string;
   readonly authEnvFile?: string;
   readonly authRequiredKeys?: readonly string[];
   readonly toolchainProbes?: readonly ToolchainProbeConfig[];
@@ -1695,6 +1696,7 @@ const checkCommand = (
   args: readonly string[],
   okDetail: string,
   failureDetail?: (detail: string) => string,
+  failureStatus: Exclude<OperatorHealthCheck["status"], "ok"> = "fail",
 ): Effect.Effect<OperatorHealthCheck, never> =>
   processRunner.run(command, args).pipe(
     Effect.match({
@@ -1702,7 +1704,7 @@ const checkCommand = (
         const detail = failureDetail?.(error.message) ?? error.message;
         return {
           name,
-          status: "warn" as const,
+          status: failureStatus,
           detail,
         };
       },
@@ -1717,7 +1719,7 @@ const checkCommand = (
               const rawDetail = result.stderr || `${command} exited ${result.exitCode}`;
               return {
                 name,
-                status: "warn" as const,
+                status: failureStatus,
                 detail: failureDetail?.(rawDetail) ?? rawDetail,
               };
             })(),
@@ -1848,6 +1850,7 @@ const containerImageMissingDetail = (
 export const createOperatorHealth = ({
   processRunner,
   cwd,
+  gitlabProject,
   authEnvFile,
   authRequiredKeys,
   toolchainProbes = [],
@@ -1864,7 +1867,15 @@ export const createOperatorHealth = ({
           ["list", "--limit", "1", "--json"],
           "bd readable",
         ),
-        checkCommand(processRunner, "gitlab", "glab", ["auth", "status"], "glab authenticated"),
+        checkCommand(
+          processRunner,
+          "gitlab",
+          "glab",
+          gitlabProject === undefined ? ["auth", "status"] : ["repo", "view", gitlabProject],
+          gitlabProject === undefined
+            ? "glab authenticated"
+            : `GitLab project accessible: ${gitlabProject}`,
+        ),
         checkCommand(
           processRunner,
           "docker",

@@ -165,6 +165,7 @@ const operatorLayerFromConfig = (
       beadsIssueTrackerLayer.pipe(Layer.provide(processRunnerLayer)),
       operatorHealthLayer({
         cwd: config.targetRepo,
+        gitlabProject: config.gitlab.project,
         authEnvFile: config.agentRunner.auth.envFile,
         authRequiredKeys: config.agentRunner.auth.requiredKeys,
         toolchainProbes: config.verification.toolchainProbes,

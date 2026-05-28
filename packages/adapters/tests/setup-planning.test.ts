@@ -1062,6 +1062,10 @@ describe("setup planning", () => {
         targetPath: dir,
         doctor: { beadsOk: true, gitlabOk: true, hasFail: false },
       });
+      const doctorFailed = detectMorpheusSetupInput({
+        targetPath: dir,
+        doctor: { beadsOk: true, gitlabOk: true, hasFail: true },
+      });
       rmSync(join(dir, ".morpheus/secrets/agent.env"));
       const afterRemoval = detectMorpheusSetupInput({
         targetPath: dir,
@@ -1072,6 +1076,8 @@ describe("setup planning", () => {
       expect(setupCanRunDaemonOnce(emptyAuth)).toBe(false);
       expect(setupCanRunSync(ready)).toBe(true);
       expect(setupCanRunDaemonOnce(ready)).toBe(true);
+      expect(setupCanRunSync(doctorFailed)).toBe(false);
+      expect(setupCanRunDaemonOnce(doctorFailed)).toBe(false);
       expect(setupCanRunSync(afterRemoval)).toBe(false);
       expect(setupCanRunDaemonOnce(afterRemoval)).toBe(false);
     });
