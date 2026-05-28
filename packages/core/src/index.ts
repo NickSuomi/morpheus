@@ -14,6 +14,7 @@ export const agentStates = [
 export type AgentState = (typeof agentStates)[number];
 
 export const agentEvents = [
+  "DuplicateImportDetected",
   "StartPreparation",
   "PreparationReady",
   "PreparationBlocked",
@@ -211,6 +212,7 @@ const agentStateSet = new Set<string>(agentStates);
 
 const transitionTargets: Readonly<Record<AgentState, Partial<Record<AgentEvent, AgentState>>>> = {
   "agent:ready": {
+    DuplicateImportDetected: "agent:failed",
     StartPreparation: "agent:preparing",
   },
   "agent:preparing": {
@@ -219,10 +221,12 @@ const transitionTargets: Readonly<Record<AgentState, Partial<Record<AgentEvent, 
     PreparationFailed: "agent:failed",
   },
   "agent:prepared": {
+    DuplicateImportDetected: "agent:failed",
     StartImplementation: "agent:running",
     ImplementationFailed: "agent:failed",
   },
   "agent:running": {
+    DuplicateImportDetected: "agent:failed",
     ImplementationReadyForReview: "agent:reviewing",
     ImplementationBlocked: "agent:blocked",
     ImplementationFailed: "agent:failed",

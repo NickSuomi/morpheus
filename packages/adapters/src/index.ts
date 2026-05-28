@@ -715,6 +715,78 @@ const importedGitLabIssueFromJson = (issue: BeadsIssueJson): ImportedGitLabIssue
   };
 };
 
+type SourceIdentityMatchedGitLabIssue = ImportedGitLabIssue & {
+  readonly matchKind: "metadata" | "legacy_prose";
+};
+
+const escapeRegExp = (value: string): string =>
+  value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
+const legacyGitLabSourcePatterns = (source: GitLabIssueInput): readonly RegExp[] =>
+  [source.webUrl, `${source.project}#${source.iid}`]
+    .filter((token) => token.length > 0)
+    .map((token) => new RegExp(`(?:^|\\n)Source:\\s*${escapeRegExp(token)}(?:\\s|$)`, "u"));
+
+const legacyGitLabSourceMatchesIssue = (
+  issue: BeadsIssueJson,
+  source: GitLabIssueInput,
+): boolean => {
+  const title = optionalString(issue.title) ?? "";
+  const description = optionalString(issue.description) ?? "";
+  const searchable = `${title}\n${description}`;
+
+  return legacyGitLabSourcePatterns(source).some((pattern) => pattern.test(searchable));
+};
+
+const sourceIdentityMatchedGitLabIssueFromJson = (
+  issue: BeadsIssueJson,
+  source: GitLabIssueInput,
+): SourceIdentityMatchedGitLabIssue | undefined => {
+  const imported = importedGitLabIssueFromJson(issue);
+  if (imported !== undefined) {
+    return imported.metadata.project === source.project && imported.metadata.iid === source.iid
+      ? { ...imported, matchKind: "metadata" }
+      : undefined;
+  }
+
+  if (!legacyGitLabSourceMatchesIssue(issue, source)) {
+    return undefined;
+  }
+
+  return {
+    id: requiredString(issue.id, "id"),
+    title: requiredString(issue.title, "title"),
+    description: optionalString(issue.description) ?? "",
+    labels: labelsFromIssue(issue.labels),
+    metadata: importedMetadataFromGitLabIssue(source, ""),
+    matchKind: "legacy_prose",
+  };
+};
+
+const sourceIdentityMatchedGitLabIssuesFromJson = (
+  stdout: string,
+  args: readonly string[],
+  source: GitLabIssueInput,
+): Effect.Effect<readonly SourceIdentityMatchedGitLabIssue[], IssueTrackerJsonParseError> =>
+  parseJsonArray(stdout, "bd", args).pipe(
+    Effect.flatMap((issues) =>
+      Effect.try({
+        try: () =>
+          issues.flatMap((issue) => {
+            const matched = sourceIdentityMatchedGitLabIssueFromJson(issueJsonFromUnknown(issue), source);
+            return matched === undefined ? [] : [matched];
+          }),
+        catch: (error) =>
+          new IssueTrackerJsonParseError({
+            operation: "parse_json",
+            command: "bd",
+            args: [...args],
+            message: errorMessage(error),
+          }),
+      }),
+    ),
+  );
+
 const importedGitLabIssuesFromJson = (
   stdout: string,
   args: readonly string[],
@@ -2180,20 +2252,47 @@ export const createBeadsIssueTracker = ({
     }),
   upsertImportedGitLabIssue: ({ source, syncedAt }) =>
     Effect.gen(function* () {
-      const importedIssues = yield* createBeadsIssueTracker({
-        processRunner,
-      }).listImportedGitLabIssues();
-      const matching = importedIssues.filter(
-        (issue) => issue.metadata.project === source.project && issue.metadata.iid === source.iid,
+      const listArgs = ["list", "--all", "--limit", "0", "--json"] as const;
+      const listResult = yield* runBdEffect(processRunner, listArgs);
+      const matching = yield* sourceIdentityMatchedGitLabIssuesFromJson(
+        listResult.stdout,
+        listArgs,
+        source,
       );
       const existing = matching[0];
 
-      if (matching.length > 1 && existing !== undefined) {
+      if (
+        existing !== undefined &&
+        (matching.length > 1 || existing.matchKind === "legacy_prose")
+      ) {
+        yield* Effect.forEach(
+          matching,
+          (issue) => {
+            const duplicateFailurePlan = planAgentStateTransition(
+              issue.labels,
+              "DuplicateImportDetected",
+            );
+
+            if (duplicateFailurePlan.status !== "planned") {
+              return Effect.void;
+            }
+
+            return runBdEffect(processRunner, [
+              "update",
+              issue.id,
+              ...setLabelArgs(duplicateFailurePlan.finalLabels),
+            ]);
+          },
+          { discard: true },
+        );
+
         return {
           status: "skipped",
           issueId: existing.id,
           reason: "duplicate_detected",
-          duplicateIssueIds: matching.slice(1).map((issue) => issue.id),
+          ...(matching.length > 1
+            ? { duplicateIssueIds: matching.slice(1).map((issue) => issue.id) }
+            : {}),
         };
       }
 

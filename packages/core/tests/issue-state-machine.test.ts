@@ -14,6 +14,11 @@ const validTransitions: ReadonlyArray<{
 }> = [
   {
     from: "agent:ready",
+    event: "DuplicateImportDetected",
+    to: "agent:failed",
+  },
+  {
+    from: "agent:ready",
     event: "StartPreparation",
     to: "agent:preparing",
   },
@@ -34,12 +39,22 @@ const validTransitions: ReadonlyArray<{
   },
   {
     from: "agent:prepared",
+    event: "DuplicateImportDetected",
+    to: "agent:failed",
+  },
+  {
+    from: "agent:prepared",
     event: "StartImplementation",
     to: "agent:running",
   },
   {
     from: "agent:prepared",
     event: "ImplementationFailed",
+    to: "agent:failed",
+  },
+  {
+    from: "agent:running",
+    event: "DuplicateImportDetected",
     to: "agent:failed",
   },
   {
