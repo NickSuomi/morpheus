@@ -87,6 +87,5 @@ export const buildNonInteractiveSetupAnswers = (input: NonInteractiveSetupInput)
     writeChanges,
     runDoctor: writeChanges,
     runSync: false,
-    ...(input.once === true ? { runDaemonOnce: true } : {}),
   };
 };

@@ -4224,6 +4224,7 @@ const templateFileMutation = (
 const setupNextSteps = (
   readyLabel: string,
   authEnvFile: string,
+  requiredAuthKeys: readonly string[],
   containerImage: string,
   containerProfile: string,
   syncReady: boolean,
@@ -4241,7 +4242,7 @@ const setupNextSteps = (
   },
   {
     id: "agentAuth",
-    command: authEnvFile,
+    command: setupAuthHandoffMessage(authEnvFile, requiredAuthKeys),
     gate: "manual",
   },
   {
@@ -4278,6 +4279,25 @@ const setupNextSteps = (
       ] satisfies readonly SetupNextStep[])
     : []),
 ];
+
+const setupAuthHandoffMessage = (
+  authEnvFile: string,
+  requiredAuthKeys: readonly string[],
+): string => `Fill ${authEnvFile} with non-empty required keys: ${requiredAuthKeys.join(", ")}.`;
+
+const setupAuthGateReason = (input: SetupPlanningInput): string | undefined => {
+  const config = input.existing?.config;
+  if (config === undefined) {
+    return "Morpheus config with agent auth settings is required.";
+  }
+
+  return setupAuthReady(input)
+    ? undefined
+    : setupAuthHandoffMessage(
+        config.agentRunner.auth.envFile,
+        config.agentRunner.auth.requiredKeys,
+      ).replace(/^Fill/, "fill");
+};
 
 const overwriteTemplatesValidation = (
   overwriteTemplates: boolean,
@@ -4463,7 +4483,11 @@ export const planMorpheusSetup = (input: SetupPlanningInput = {}): SetupPlan => 
     writeChanges && answers.runDaemonOnce === false
       ? invalid("Setup completion requires morpheus daemon --once after writing changes.")
       : answers.runDaemonOnce === true && !daemonOnceReady
-        ? invalid("Daemon tick requires doctor to have no FAIL results.")
+        ? invalid(
+            agentAuthReady
+              ? "Daemon tick requires doctor to have no FAIL results."
+              : setupAuthHandoffMessage(authEnvFile, requiredAuthKeys),
+          )
         : agentAuthReady
           ? valid()
           : warning("Daemon tick waits until doctor has no FAIL results."),
@@ -4776,11 +4800,13 @@ export const planMorpheusSetup = (input: SetupPlanningInput = {}): SetupPlan => 
       ...(authFileExists && !requiredAuthKeysPresent
         ? [`Required agent auth keys are missing from ${authEnvFile}.`]
         : []),
+      ...(!agentAuthReady ? [setupAuthHandoffMessage(authEnvFile, requiredAuthKeys)] : []),
     ].filter((message, index, messages) => messages.indexOf(message) === index),
     errors: errors.filter((message, index, messages) => messages.indexOf(message) === index),
     nextSteps: setupNextSteps(
       readyLabel,
       authEnvFile,
+      requiredAuthKeys,
       containerImage,
       containerProfile,
       syncReady && errors.length === 0,
@@ -4929,13 +4955,14 @@ export const planMorpheusSetupExecution = (input: SetupPlanningInput): SetupExec
     ? { canRun: true }
     : {
         canRun: false,
-        skipReason: "doctor-confirmed Beads and GitLab health is required.",
+        skipReason:
+          setupAuthGateReason(input) ?? "doctor-confirmed Beads and GitLab health is required.",
       },
   daemonOnce: setupCanRunDaemonOnce(input)
     ? { canRun: true }
     : {
         canRun: false,
-        skipReason: "doctor must have no FAIL results.",
+        skipReason: setupAuthGateReason(input) ?? "doctor must have no FAIL results.",
       },
 });
 

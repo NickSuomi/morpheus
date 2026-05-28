@@ -6,8 +6,12 @@ import { applyMorpheusSetupPlan, detectMorpheusSetupInput } from "../src/index.j
 import {
   interpretMorpheusSetupDoctorOutput,
   planMorpheusSetup,
+  planMorpheusSetupExecution,
+  setupAgentEnvExampleTemplate,
   setupCanRunDaemonOnce,
   setupCanRunSync,
+  setupSecretFileTemplate,
+  formatMorpheusSetupPreview,
   type MorpheusConfig,
 } from "@morpheus/runtime";
 
@@ -1081,6 +1085,73 @@ describe("setup planning", () => {
       expect(setupCanRunSync(afterRemoval)).toBe(false);
       expect(setupCanRunDaemonOnce(afterRemoval)).toBe(false);
     });
+  });
+
+  it("blocks setup completion with explicit auth handoff when auth file is missing or empty", () => {
+    withTempDir((dir) => {
+      writeConfig(dir, existingConfig);
+      const doctor = { beadsOk: true, gitlabOk: true, hasFail: false };
+      const missingAuthInput = detectMorpheusSetupInput({ targetPath: dir, doctor });
+      const missingAuthPlan = planMorpheusSetup({
+        ...missingAuthInput,
+        detected: {
+          ...missingAuthInput.detected,
+          targetPath: { exists: true, isDirectory: true, isReadable: true, isGitWorktree: true },
+        },
+      });
+      const missingAuthPreview = formatMorpheusSetupPreview(missingAuthPlan);
+
+      expect(planMorpheusSetupExecution(missingAuthInput).daemonOnce).toEqual({
+        canRun: false,
+        skipReason:
+          "fill .morpheus/secrets/agent.env with non-empty required keys: OPENAI_API_KEY.",
+      });
+      expect(missingAuthPreview).toContain(
+        "Fill .morpheus/secrets/agent.env with non-empty required keys: OPENAI_API_KEY.",
+      );
+      const requestedDaemonPlan = planMorpheusSetup({
+        ...missingAuthInput,
+        detected: {
+          ...missingAuthInput.detected,
+          targetPath: { exists: true, isDirectory: true, isReadable: true, isGitWorktree: true },
+        },
+        answers: { runDaemonOnce: true },
+      });
+      expect(requestedDaemonPlan.errors).toContain(
+        "Fill .morpheus/secrets/agent.env with non-empty required keys: OPENAI_API_KEY.",
+      );
+      expect(missingAuthPreview).not.toContain("morpheus sync (after-doctor)");
+      expect(missingAuthPreview).not.toContain("morpheus daemon --once (after-doctor)");
+
+      mkdirSync(join(dir, ".morpheus/secrets"), { recursive: true });
+      writeFileSync(join(dir, ".morpheus/secrets/agent.env"), "OPENAI_API_KEY=\n");
+      const emptyAuthInput = detectMorpheusSetupInput({ targetPath: dir, doctor });
+
+      expect(planMorpheusSetupExecution(emptyAuthInput).daemonOnce).toEqual({
+        canRun: false,
+        skipReason:
+          "fill .morpheus/secrets/agent.env with non-empty required keys: OPENAI_API_KEY.",
+      });
+    });
+  });
+
+  it("renders only placeholder auth templates", () => {
+    expect(setupSecretFileTemplate(["OPENAI_API_KEY", "ANTHROPIC_API_KEY"])).toBe(
+      [
+        "# Fill these values manually. Morpheus setup never asks for or prints secret values.",
+        "OPENAI_API_KEY=",
+        "ANTHROPIC_API_KEY=",
+        "",
+      ].join("\n"),
+    );
+    expect(setupAgentEnvExampleTemplate(["OPENAI_API_KEY"])).toBe(
+      [
+        "# Copy to .morpheus/secrets/agent.env and fill with real token values.",
+        "# Morpheus requires this explicit file for agent runs.",
+        "OPENAI_API_KEY=",
+        "",
+      ].join("\n"),
+    );
   });
 
   it("requires doctor and daemon-once when setup writes changes", () => {
