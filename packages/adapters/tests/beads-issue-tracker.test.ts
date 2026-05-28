@@ -819,6 +819,87 @@ describe("BeadsIssueTracker", () => {
     ]);
   });
 
+  it("creates only one Beads issue when the same GitLab source syncs repeatedly", async () => {
+    const imported = {
+      id: "morph-existing",
+      title: "Import me",
+      description: "Ready for Morpheus.",
+      labels: ["agent:ready"],
+      metadata: {
+        morpheus: {
+          gitlab: {
+            project: "group/project",
+            iid: 42,
+            webUrl: "https://gitlab.example.com/group/project/-/issues/42",
+            labels: ["agent:ready", "backend"],
+            lastSyncedAt: "2026-05-19T10:00:00.000Z",
+            title: "Import me",
+            description: "Ready for Morpheus.",
+          },
+        },
+      },
+    };
+    const processRunner = fakeProcessRunner([
+      ok([]),
+      ok({
+        id: "morph-existing",
+        title: "Import me",
+        labels: ["agent:ready"],
+      }),
+      ok([imported]),
+      ok([imported]),
+      ok([]),
+    ]);
+
+    const first = await runWithTracker(
+      processRunner.layer,
+      Effect.gen(function* () {
+        const tracker = yield* IssueTracker;
+        return yield* tracker.upsertImportedGitLabIssue({
+          syncedAt: "2026-05-19T10:00:00.000Z",
+          source: {
+            project: "group/project",
+            iid: 42,
+            title: "Import me",
+            description: "Ready for Morpheus.",
+            webUrl: "https://gitlab.example.com/group/project/-/issues/42",
+            labels: ["agent:ready", "backend"],
+          },
+        });
+      }),
+    );
+
+    const second = await runWithTracker(
+      processRunner.layer,
+      Effect.gen(function* () {
+        const tracker = yield* IssueTracker;
+        return yield* tracker.upsertImportedGitLabIssue({
+          syncedAt: "2026-05-19T10:01:00.000Z",
+          source: {
+            project: "group/project",
+            iid: 42,
+            title: "Import me",
+            description: "Ready for Morpheus.",
+            webUrl: "https://gitlab.example.com/group/project/-/issues/42",
+            labels: ["agent:ready", "backend"],
+          },
+        });
+      }),
+    );
+
+    expect(first).toEqual({
+      status: "created",
+      issueId: "morph-existing",
+      addedReadyLabel: true,
+    });
+    expect(second).toEqual({
+      status: "skipped",
+      issueId: "morph-existing",
+      reason: "unchanged",
+    });
+    expect(processRunner.calls.filter((call) => call.args[0] === "create")).toHaveLength(1);
+  });
+
   it("updates imported GitLab issue content and metadata", async () => {
     const processRunner = fakeProcessRunner([
       ok([
@@ -985,7 +1066,58 @@ describe("BeadsIssueTracker", () => {
     ]);
   });
 
-  it("detects duplicate imported GitLab issues without mutating either issue", async () => {
+  it.each(["agent:blocked", "agent:failed", "agent:review-candidate"] as const)(
+    "does not requeue imported GitLab issue in terminal state %s",
+    async (agentLabel) => {
+      const imported = {
+        id: "morph-terminal",
+        title: "Import me",
+        description: "Ready for Morpheus.",
+        labels: [agentLabel, "triaged"],
+        metadata: {
+          morpheus: {
+            gitlab: {
+              project: "group/project",
+              iid: 42,
+              webUrl: "https://gitlab.example.com/group/project/-/issues/42",
+              labels: ["agent:ready"],
+              lastSyncedAt: "2026-05-19T09:00:00.000Z",
+              title: "Import me",
+              description: "Ready for Morpheus.",
+            },
+          },
+        },
+      };
+      const processRunner = fakeProcessRunner([ok([imported]), ok([imported]), ok([])]);
+
+      const result = await runWithTracker(
+        processRunner.layer,
+        Effect.gen(function* () {
+          const tracker = yield* IssueTracker;
+          return yield* tracker.upsertImportedGitLabIssue({
+            syncedAt: "2026-05-19T10:00:00.000Z",
+            source: {
+              project: "group/project",
+              iid: 42,
+              title: "Import me",
+              description: "Ready for Morpheus.",
+              webUrl: "https://gitlab.example.com/group/project/-/issues/42",
+              labels: ["agent:ready", "backend"],
+            },
+          });
+        }),
+      );
+
+      expect(result).toEqual({
+        status: "updated",
+        issueId: "morph-terminal",
+        addedReadyLabel: false,
+      });
+      expect(processRunner.calls.at(-1)?.args).not.toContain("--add-label");
+    },
+  );
+
+  it("detects duplicate imported GitLab issues and makes both non-runnable", async () => {
     const imported = (id: string) => ({
       id,
       title: "Import me",
@@ -1007,6 +1139,8 @@ describe("BeadsIssueTracker", () => {
     });
     const processRunner = fakeProcessRunner([
       ok([imported("morph-primary"), imported("morph-dupe")]),
+      ok([]),
+      ok([]),
     ]);
 
     const result = await runWithTracker(
@@ -1035,7 +1169,97 @@ describe("BeadsIssueTracker", () => {
     });
     expect(processRunner.calls).toEqual([
       { command: "bd", args: ["list", "--all", "--limit", "0", "--json"] },
+      { command: "bd", args: ["update", "morph-primary", "--set-labels", "agent:failed"] },
+      { command: "bd", args: ["update", "morph-dupe", "--set-labels", "agent:failed"] },
     ]);
+  });
+
+  it("fails closed for legacy GitLab imports that only carry source identity in prose", async () => {
+    const processRunner = fakeProcessRunner([
+      ok([
+        {
+          id: "morph-legacy",
+          title: "Import me",
+          description:
+            "Legacy import without Morpheus metadata.\n\nSource: group/project#42\nhttps://gitlab.example.com/group/project/-/issues/42",
+          labels: ["agent:ready"],
+          metadata: {},
+        },
+      ]),
+      ok([]),
+    ]);
+
+    const result = await runWithTracker(
+      processRunner.layer,
+      Effect.gen(function* () {
+        const tracker = yield* IssueTracker;
+        return yield* tracker.upsertImportedGitLabIssue({
+          syncedAt: "2026-05-19T10:00:00.000Z",
+          source: {
+            project: "group/project",
+            iid: 42,
+            title: "Import me",
+            description: "Ready for Morpheus.",
+            webUrl: "https://gitlab.example.com/group/project/-/issues/42",
+            labels: ["agent:ready", "backend"],
+          },
+        });
+      }),
+    );
+
+    expect(result).toEqual({
+      status: "skipped",
+      issueId: "morph-legacy",
+      reason: "duplicate_detected",
+    });
+    expect(processRunner.calls).toEqual([
+      { command: "bd", args: ["list", "--all", "--limit", "0", "--json"] },
+      { command: "bd", args: ["update", "morph-legacy", "--set-labels", "agent:failed"] },
+    ]);
+  });
+
+  it("does not treat a different legacy source identity prefix as a duplicate", async () => {
+    const processRunner = fakeProcessRunner([
+      ok([
+        {
+          id: "morph-other",
+          title: "Other import",
+          description: "Legacy import without Morpheus metadata.\n\nSource: group/project#420",
+          labels: ["agent:ready"],
+          metadata: {},
+        },
+      ]),
+      ok({
+        id: "morph-new",
+        title: "Import me",
+        labels: ["agent:ready"],
+      }),
+    ]);
+
+    const result = await runWithTracker(
+      processRunner.layer,
+      Effect.gen(function* () {
+        const tracker = yield* IssueTracker;
+        return yield* tracker.upsertImportedGitLabIssue({
+          syncedAt: "2026-05-19T10:00:00.000Z",
+          source: {
+            project: "group/project",
+            iid: 42,
+            title: "Import me",
+            description: "Ready for Morpheus.",
+            webUrl: "https://gitlab.example.com/group/project/-/issues/42",
+            labels: ["agent:ready", "backend"],
+          },
+        });
+      }),
+    );
+
+    expect(result).toEqual({
+      status: "created",
+      issueId: "morph-new",
+      addedReadyLabel: true,
+    });
+    expect(processRunner.calls.some((call) => call.args.includes("morph-other"))).toBe(false);
   });
 
   it("skips unchanged imported GitLab issues", async () => {
