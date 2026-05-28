@@ -69,6 +69,17 @@ describe("non-interactive setup options", () => {
     ).toThrow("Non-interactive setup does not accept secret values.");
   });
 
+  it("does not request daemon-once before setup files are written", () => {
+    const result = buildNonInteractiveSetupAnswers({
+      yes: true,
+      dryRun: false,
+      once: true,
+      gitlabProject: "group/project",
+    });
+
+    expect(result.runDaemonOnce).toBeUndefined();
+  });
+
   it("loads declarative config input and keeps dry-run non-mutating", () => {
     withJsonFile(
       JSON.stringify({

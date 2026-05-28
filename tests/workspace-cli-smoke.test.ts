@@ -406,6 +406,58 @@ describe("morpheus cli", () => {
     }
   });
 
+  it("writes setup files before blocking completion on missing auth", () => {
+    const dir = mkdtempSync(join(tmpdir(), "morpheus-cli-setup-auth-"));
+    try {
+      execFileSync("git", ["init", "-b", "main"], { cwd: dir, stdio: "ignore" });
+      const binDir = join(dir, "bin");
+      mkdirSync(binDir);
+      const shims: Record<string, string> = {
+        bd: "#!/bin/sh\nprintf '[]\\n'\n",
+        glab: "#!/bin/sh\nexit 0\n",
+        docker: "#!/bin/sh\nexit 0\n",
+      };
+      for (const [command, script] of Object.entries(shims)) {
+        const path = join(binDir, command);
+        writeFileSync(path, script);
+        chmodSync(path, 0o755);
+      }
+
+      const result = runPnpmFailure(
+        [
+          "--filter",
+          "@morpheus/cli",
+          "morpheus",
+          "setup",
+          "--yes",
+          "--target",
+          dir,
+          "--gitlab-project",
+          "group/project",
+          "--no-build",
+        ],
+        { PATH: `${binDir}:${process.env.PATH ?? ""}` },
+      );
+
+      const output = `${result.stdout}\n${result.stderr}`;
+      expect(result.status).not.toBe(0);
+      expect(existsSync(join(dir, "morpheus.config.json"))).toBe(true);
+      expect(existsSync(join(dir, ".morpheus/secrets/agent.env.example"))).toBe(true);
+      expect(readFileSync(join(dir, ".morpheus/secrets/agent.env"), "utf8")).toBe(
+        [
+          "# Fill these values manually. Morpheus setup never asks for or prints secret values.",
+          "OPENAI_API_KEY=",
+          "",
+        ].join("\n"),
+      );
+      expect(output).toContain(
+        "Setup completion blocked: fill .morpheus/secrets/agent.env with non-empty required keys: OPENAI_API_KEY.",
+      );
+    } finally {
+      rmSync(dir, { force: true, recursive: true });
+    }
+  }, 20_000);
+
   it("smokes the ALPHA fixture target repo through doctor and daemon once", () => {
     const dir = mkdtempSync(join(tmpdir(), "morpheus-alpha-fixture-"));
     try {

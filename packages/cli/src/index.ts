@@ -790,18 +790,16 @@ const runNonInteractiveSetup = async (
     console.log(`Sync not ready: ${executionGates.sync.skipReason}`);
   }
 
-  if (answers.runDaemonOnce === true && !executionGates.daemonOnce.canRun) {
+  if (!executionGates.daemonOnce.canRun) {
     throw new Error(`Setup completion blocked: ${executionGates.daemonOnce.skipReason}`);
   }
 
-  if (answers.runDaemonOnce === true) {
-    const config = loadCliConfig(Option.some(join(initialTarget, "morpheus.config.json")));
-    console.log(
-      await Effect.runPromise(
-        daemonTickForConfig(config, Option.some(join(initialTarget, "morpheus.config.json"))),
-      ),
-    );
-  }
+  const config = loadCliConfig(Option.some(join(initialTarget, "morpheus.config.json")));
+  console.log(
+    await Effect.runPromise(
+      daemonTickForConfig(config, Option.some(join(initialTarget, "morpheus.config.json"))),
+    ),
+  );
 };
 
 const setup = Command.make(
