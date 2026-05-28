@@ -2001,6 +2001,20 @@ const verificationEvidenceLines = (items: readonly VerificationEvidence[]): read
     return `${item.status}: ${item.command}${suffix}`;
   });
 
+const implementationHasCommits = (result: ImplementationAgentResult): boolean => {
+  if (result.status !== "implemented") {
+    return true;
+  }
+
+  const artifact = result.artifact;
+  if (typeof artifact !== "object" || artifact === null || !("commits" in artifact)) {
+    return true;
+  }
+
+  const commits = (artifact as { readonly commits?: unknown }).commits;
+  return Array.isArray(commits) && commits.some((commit) => typeof commit === "string" && commit.length > 0);
+};
+
 const implementationArtifact = (
   result: ImplementationAgentResult,
   mergeRequest: MergeRequestReference,
@@ -2061,6 +2075,29 @@ export const startImplementation = (
       summary: issue.title,
     });
 
+    const contractResult = yield* Effect.either(tracker.readContract(issueId));
+    if (Either.isLeft(contractResult)) {
+      return yield* failImplementationStart(
+        tracker,
+        ledger,
+        issueId,
+        run.id,
+        "runtime_error",
+        `Agent-Ready Contract read failed: ${errorMessage(contractResult.left)}`,
+      );
+    }
+    if (contractResult.right.status === "missing") {
+      return yield* failImplementationStart(
+        tracker,
+        ledger,
+        issueId,
+        run.id,
+        "agent_contract_error",
+        "Agent-Ready Contract metadata missing.",
+      );
+    }
+    const contract = contractResult.right.contract;
+
     const workspaceResult = yield* Effect.either(
       workspaceRuntime.prepareImplementationWorkspace({
         issueId,
@@ -2097,28 +2134,25 @@ export const startImplementation = (
       );
     }
 
-    const contractResult = yield* Effect.either(tracker.readContract(issueId));
-    if (Either.isLeft(contractResult)) {
+    const currentIssue = yield* tracker.getIssue(issueId);
+    const currentStartPlan = planAgentStateTransition(currentIssue.labels, "StartImplementation");
+    const startResult = yield* Effect.either(tracker.applyAgentState(issueId, currentStartPlan));
+    if (Either.isLeft(startResult) || startResult.right.status === "rejected") {
+      const message = terminalFailureMessage(
+        startResult,
+        "Implementation start transition rejected.",
+        "Implementation start transition rejected.",
+      );
       return yield* failImplementationStart(
         tracker,
         ledger,
         issueId,
         run.id,
-        "runtime_error",
-        `Agent-Ready Contract read failed: ${errorMessage(contractResult.left)}`,
+        "state_conflict",
+        message,
       );
     }
-    if (contractResult.right.status === "missing") {
-      return yield* failImplementationStart(
-        tracker,
-        ledger,
-        issueId,
-        run.id,
-        "agent_contract_error",
-        "Agent-Ready Contract metadata missing.",
-      );
-    }
-    const contract = contractResult.right.contract;
+
     const importedIssuesResult = yield* Effect.either(tracker.listImportedGitLabIssues());
     if (Either.isLeft(importedIssuesResult)) {
       return yield* failImplementationStart(
@@ -2161,25 +2195,6 @@ export const startImplementation = (
         run.id,
         "runtime_error",
         `Draft MR ledger update failed: ${errorMessage(mrRunResult.left)}`,
-      );
-    }
-
-    const currentIssue = yield* tracker.getIssue(issueId);
-    const currentStartPlan = planAgentStateTransition(currentIssue.labels, "StartImplementation");
-    const startResult = yield* Effect.either(tracker.applyAgentState(issueId, currentStartPlan));
-    if (Either.isLeft(startResult) || startResult.right.status === "rejected") {
-      const message = terminalFailureMessage(
-        startResult,
-        "Implementation start transition rejected.",
-        "Implementation start transition rejected.",
-      );
-      return yield* failImplementationStart(
-        tracker,
-        ledger,
-        issueId,
-        run.id,
-        "state_conflict",
-        message,
       );
     }
 
@@ -2227,6 +2242,17 @@ export const startImplementation = (
     }
 
     const implementationResult = decodedResult.result;
+    if (!implementationHasCommits(implementationResult)) {
+      return yield* failImplementationStart(
+        tracker,
+        ledger,
+        issueId,
+        run.id,
+        "verification_error",
+        "Implementation agent reported success but produced no commits on the implementation branch.",
+      );
+    }
+
     const artifactResult = yield* Effect.either(
       artifactToString(implementationArtifact(implementationResult, mergeRequest)),
     );

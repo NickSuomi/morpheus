@@ -131,6 +131,23 @@ describe("IssueStateMachine", () => {
     });
   });
 
+  it("repairs stale duplicate lifecycle labels when exactly one active state can handle the event", () => {
+    const result = planAgentStateTransition(
+      ["agent:prepared", "agent:preparing", "bug"],
+      "StartImplementation",
+    );
+
+    expect(result).toEqual({
+      status: "planned",
+      event: "StartImplementation",
+      from: "agent:prepared",
+      to: "agent:running",
+      addLabels: ["agent:running"],
+      removeLabels: ["agent:prepared", "agent:preparing"],
+      finalLabels: ["bug", "agent:running"],
+    });
+  });
+
   it("rejects invalid transitions without guessing", () => {
     const result = planAgentStateTransition(["agent:ready"], "StartImplementation");
 

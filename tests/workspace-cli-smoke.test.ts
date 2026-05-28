@@ -135,18 +135,14 @@ const validAgentRunnerConfig = {
 
 const seedLedger = (ledgerPath: string, runsDirectory: string): string =>
   execFileSync(
-    "pnpm",
+    "node",
     [
-      "--filter",
-      "@morpheus/adapters",
-      "exec",
-      "node",
       "--input-type=module",
       "-e",
       `
         import { Effect } from "effect";
-        import { sqliteRunLedgerLayer } from "@morpheus/adapters";
-        import { RunLedger } from "@morpheus/runtime";
+        import { sqliteRunLedgerLayer } from "./dist/index.mjs";
+        import { RunLedger } from "../runtime/dist/index.mjs";
 
         const run = await Effect.runPromise(
           Effect.gen(function* () {
@@ -179,7 +175,7 @@ const seedLedger = (ledgerPath: string, runsDirectory: string): string =>
       `,
     ],
     {
-      cwd: process.cwd(),
+      cwd: join(process.cwd(), "packages/adapters"),
       encoding: "utf8",
       stdio: ["ignore", "pipe", "pipe"],
     },
