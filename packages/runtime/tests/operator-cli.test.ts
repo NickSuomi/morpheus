@@ -175,7 +175,7 @@ const healthLayer = Layer.succeed(OperatorHealth, {
   check: () =>
     Effect.succeed([
       { name: "beads", status: "ok", detail: "bd readable" },
-      { name: "gitlab", status: "warn", detail: "glab auth unavailable" },
+      { name: "gitlab", status: "fail", detail: "glab auth unavailable" },
       { name: "docker", status: "ok", detail: "docker reachable" },
       { name: "workspace", status: "ok", detail: "workspace readable" },
       { name: "labels", status: "ok", detail: "agent labels readable" },
@@ -183,6 +183,7 @@ const healthLayer = Layer.succeed(OperatorHealth, {
       { name: "containers", status: "ok", detail: "containers readable" },
       { name: "worktrees", status: "ok", detail: "worktrees readable" },
       { name: "config", status: "ok", detail: "config loaded" },
+      { name: "toolchain", status: "warn", detail: "java missing" },
     ]),
 });
 
@@ -223,7 +224,8 @@ describe("operator CLI rendering", () => {
     );
 
     expect(output).toContain("OK beads: bd readable");
-    expect(output).toContain("WARN gitlab: glab auth unavailable");
+    expect(output).toContain("FAIL gitlab: glab auth unavailable");
+    expect(output).toContain("WARN toolchain: java missing");
     expect(output).toContain("OK ledger: run ledger readable");
   });
 });

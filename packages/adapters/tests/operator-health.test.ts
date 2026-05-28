@@ -63,6 +63,20 @@ const runWithAuthHealth = <A, E>(
     ),
   );
 
+const runWithGitLabProjectHealth = <A, E>(
+  processRunnerLayer: Layer.Layer<ProcessRunner>,
+  program: Effect.Effect<A, E, OperatorHealth>,
+) =>
+  Effect.runPromise(
+    program.pipe(
+      Effect.provide(
+        operatorHealthLayer({ gitlabProject: "group/project" }).pipe(
+          Layer.provide(processRunnerLayer),
+        ),
+      ),
+    ),
+  );
+
 const runWithProbeHealth = <A, E>(
   processRunnerLayer: Layer.Layer<ProcessRunner>,
   program: Effect.Effect<A, E, OperatorHealth>,
@@ -125,7 +139,7 @@ describe("OperatorHealth", () => {
 
     expect(checks).toEqual([
       { name: "beads", status: "ok", detail: "bd readable" },
-      { name: "gitlab", status: "warn", detail: "not logged in" },
+      { name: "gitlab", status: "fail", detail: "not logged in" },
       {
         name: "docker",
         status: "ok",
@@ -151,13 +165,13 @@ describe("OperatorHealth", () => {
     ]);
   });
 
-  it("reports Docker failures with operator action", async () => {
+  it("reports blocking prerequisite failures with operator action", async () => {
     const processRunner = fakeProcessRunner([
-      ok(),
-      ok(),
+      failed("bd database unreadable"),
+      failed("not logged in"),
       failed("Cannot connect to the Docker daemon"),
-      ok(),
-      ok(),
+      failed("not a git repository"),
+      failed("bd label query failed"),
       ok(),
       failed("Cannot connect to the Docker daemon"),
       ok(),
@@ -171,17 +185,90 @@ describe("OperatorHealth", () => {
       }),
     );
 
+    expect(checks).toEqual([
+      { name: "beads", status: "fail", detail: "bd database unreadable" },
+      { name: "gitlab", status: "fail", detail: "not logged in" },
+      {
+        name: "docker",
+        status: "fail",
+        detail:
+          "Cannot connect to the Docker daemon. Start a Docker-compatible runtime such as Docker Desktop, OrbStack, Colima, or a remote Docker context, then rerun morpheus doctor.",
+      },
+      { name: "workspace", status: "fail", detail: "not a git repository" },
+      { name: "labels", status: "fail", detail: "bd label query failed" },
+      { name: "daemon", status: "ok", detail: "daemon assumptions readable" },
+      {
+        name: "containers",
+        status: "fail",
+        detail:
+          "Cannot connect to the Docker daemon. Start a Docker-compatible runtime such as Docker Desktop, OrbStack, Colima, or a remote Docker context, then rerun morpheus doctor.",
+      },
+      { name: "worktrees", status: "ok", detail: "worktrees readable" },
+      { name: "config", status: "ok", detail: "config loaded" },
+    ]);
+  });
+
+  it("checks configured GitLab project access", async () => {
+    const processRunner = fakeProcessRunner([ok(), ok(), ok(), ok(), ok(), ok(), ok(), ok()]);
+
+    const checks = await runWithGitLabProjectHealth(
+      processRunner.layer,
+      Effect.gen(function* () {
+        const health = yield* OperatorHealth;
+        return yield* health.check();
+      }),
+    );
+
     expect(checks).toContainEqual({
-      name: "docker",
-      status: "warn",
-      detail:
-        "Cannot connect to the Docker daemon. Start a Docker-compatible runtime such as Docker Desktop, OrbStack, Colima, or a remote Docker context, then rerun morpheus doctor.",
+      name: "gitlab",
+      status: "ok",
+      detail: "GitLab project accessible: group/project",
     });
+    expect(processRunner.calls[1]).toEqual({
+      command: "glab",
+      args: ["repo", "view", "group/project"],
+    });
+  });
+
+  it("fails health when configured agent auth env is missing", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "morpheus-operator-health-"));
+    const processRunner = fakeProcessRunner([ok(), ok(), ok(), ok(), ok(), ok(), ok(), ok()]);
+
+    const checks = await runWithAuthHealth(
+      processRunner.layer,
+      dir,
+      Effect.gen(function* () {
+        const health = yield* OperatorHealth;
+        return yield* health.check();
+      }),
+    );
+
     expect(checks).toContainEqual({
-      name: "containers",
-      status: "warn",
-      detail:
-        "Cannot connect to the Docker daemon. Start a Docker-compatible runtime such as Docker Desktop, OrbStack, Colima, or a remote Docker context, then rerun morpheus doctor.",
+      name: "config",
+      status: "fail",
+      detail: expect.stringContaining("Agent auth env file not found:"),
+    });
+  });
+
+  it("fails health when configured agent auth env has no variables", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "morpheus-operator-health-"));
+    mkdirSync(join(dir, ".morpheus/secrets"), { recursive: true });
+    writeFileSync(join(dir, ".morpheus/secrets/agent.env"), "MALFORMED_LINE\n# OPENAI_API_KEY=\n");
+    const processRunner = fakeProcessRunner([ok(), ok(), ok(), ok(), ok(), ok(), ok(), ok()]);
+
+    const checks = await runWithAuthHealth(
+      processRunner.layer,
+      dir,
+      Effect.gen(function* () {
+        const health = yield* OperatorHealth;
+        return yield* health.check();
+      }),
+    );
+
+    expect(checks).toContainEqual({
+      name: "config",
+      status: "fail",
+      detail: expect.stringContaining("Agent auth env file has no variables:"),
     });
   });
 
