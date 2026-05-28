@@ -293,6 +293,39 @@ export const planAgentStateTransition = (
   }
 
   if (state.status === "conflict") {
+    const repairableConflictEvents = new Set<AgentEvent>([
+      "PreparationReady",
+      "PreparationBlocked",
+      "PreparationFailed",
+      "StartImplementation",
+      "ImplementationReadyForReview",
+      "ImplementationBlocked",
+      "ImplementationFailed",
+      "ReviewPassed",
+      "ReviewBlocked",
+      "ReviewFailed",
+    ]);
+    const candidateStates = repairableConflictEvents.has(event)
+      ? state.activeStates.filter((activeState) => transitionTargets[activeState][event] !== undefined)
+      : [];
+
+    if (candidateStates.length === 1) {
+      const from = candidateStates[0];
+      const to = transitionTargets[from][event];
+
+      if (to !== undefined) {
+        return {
+          status: "planned",
+          event,
+          from,
+          to,
+          addLabels: [to],
+          removeLabels: state.activeStates,
+          finalLabels: [...labels.filter((label) => !new Set<string>(agentStates).has(label)), to],
+        };
+      }
+    }
+
     return state;
   }
 

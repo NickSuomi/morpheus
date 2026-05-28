@@ -1,3 +1,4 @@
+import { execFileSync } from "node:child_process";
 import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -301,6 +302,132 @@ describe("SandcastleAgentRunner", () => {
     await Effect.runPromise(effect ?? Effect.die("missing implementIssue"));
 
     expect(calls).toEqual([{ cwd: worktreePath }]);
+  });
+
+  it("normalizes Sandcastle implementation commit objects into commit ids", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "morpheus-sandcastle-"));
+    const runner = createSandcastleAgentRunner({
+      cwd: dir,
+      logDirectory: join(dir, ".morpheus", "sandcastle-logs"),
+      agent: {
+        name: "fake",
+        env: {},
+        captureSessions: false,
+        buildPrintCommand: () => ({ command: "fake" }),
+        parseStreamLine: () => [],
+      },
+      sandbox: {
+        kind: "none",
+        exec: async () => ({ stdout: "", stderr: "", exitCode: 0 }),
+        close: async () => ({}),
+      } as never,
+      run: async () => ({
+        iterations: [],
+        stdout: `<morpheus_result>{"status":"implemented","implementationEvidence":[{"summary":"Changed README","files":["README.md"]}],"verificationEvidence":[{"command":"true","status":"passed"}],"transcript":"","artifact":{}}</morpheus_result>`,
+        commits: [{ sha: "326eeb67eface000000000000000000000000000" }],
+        branch: "morpheus/morph-bbp-run_123",
+      }),
+    });
+
+    const result = await Effect.runPromise(
+      runner.implementIssue?.({
+        issue: trackedIssue(),
+        contract: {
+          category: "task",
+          summary: "Prepared",
+          currentBehavior: "Before",
+          desiredBehavior: "After",
+          keyInterfaces: ["AgentRunner"],
+          acceptanceCriteria: ["Runs"],
+          outOfScope: ["None"],
+          verificationPlan: ["true"],
+          blockedBy: "None",
+          hitlDecisions: "None",
+          riskLevel: "medium",
+        },
+        workspace: {
+          workspacePath: dir,
+          worktreePath: dir,
+          branch: "morpheus/morph-bbp-run_123",
+          targetBranch: "dev",
+          remote: "origin",
+        },
+        mergeRequest: { reference: "!42" },
+      }) ?? Effect.die("missing implementIssue"),
+    );
+
+    expect((result as { readonly artifact: unknown }).artifact).toMatchObject({
+      commits: ["326eeb67eface000000000000000000000000000"],
+    });
+  });
+
+  it("falls back to host git commit detection when Sandcastle omits implementation commits", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "morpheus-sandcastle-git-"));
+    execFileSync("git", ["-C", dir, "init", "-b", "dev"]);
+    execFileSync("git", ["-C", dir, "config", "user.email", "morpheus@example.invalid"]);
+    execFileSync("git", ["-C", dir, "config", "user.name", "Morpheus Test"]);
+    writeFileSync(join(dir, "README.md"), "base\n");
+    execFileSync("git", ["-C", dir, "add", "README.md"]);
+    execFileSync("git", ["-C", dir, "commit", "-m", "base"]);
+    execFileSync("git", ["-C", dir, "checkout", "-b", "morpheus/morph-bbp-run_123"]);
+    const runner = createSandcastleAgentRunner({
+      cwd: dir,
+      logDirectory: join(dir, ".morpheus", "sandcastle-logs"),
+      agent: {
+        name: "fake",
+        env: {},
+        captureSessions: false,
+        buildPrintCommand: () => ({ command: "fake" }),
+        parseStreamLine: () => [],
+      },
+      sandbox: {
+        kind: "none",
+        exec: async () => ({ stdout: "", stderr: "", exitCode: 0 }),
+        close: async () => ({}),
+      } as never,
+      run: async () => {
+        writeFileSync(join(dir, "README.md"), "base\nchange\n");
+        execFileSync("git", ["-C", dir, "add", "README.md"]);
+        execFileSync("git", ["-C", dir, "commit", "-m", "change"]);
+        return {
+          iterations: [],
+          stdout: `<morpheus_result>{"status":"implemented","implementationEvidence":[{"summary":"Changed README","files":["README.md"]}],"verificationEvidence":[{"command":"true","status":"passed"}],"transcript":"","artifact":{}}</morpheus_result>`,
+          commits: [],
+          branch: "morpheus/morph-bbp-run_123",
+        };
+      },
+    });
+
+    const result = await Effect.runPromise(
+      runner.implementIssue?.({
+        issue: trackedIssue(),
+        contract: {
+          category: "task",
+          summary: "Prepared",
+          currentBehavior: "Before",
+          desiredBehavior: "After",
+          keyInterfaces: ["AgentRunner"],
+          acceptanceCriteria: ["Runs"],
+          outOfScope: ["None"],
+          verificationPlan: ["true"],
+          blockedBy: "None",
+          hitlDecisions: "None",
+          riskLevel: "medium",
+        },
+        workspace: {
+          workspacePath: dir,
+          worktreePath: dir,
+          branch: "morpheus/morph-bbp-run_123",
+          targetBranch: "dev",
+          remote: "origin",
+        },
+        mergeRequest: { reference: "!42" },
+      }) ?? Effect.die("missing implementIssue"),
+    );
+
+    expect((result as { readonly artifact: unknown }).artifact).toMatchObject({
+      commits: [expect.stringMatching(/^[0-9a-f]{40}$/)],
+    });
   });
 
   it("mounts the prepared worktree for Docker-backed implementation runs", async () => {
@@ -922,7 +1049,12 @@ describe("SandcastleAgentRunner", () => {
 
     expect(calls[0].cwd).toBe("/worktree/morph-bbp");
     expect(calls[0].name).toBe("morpheus-implement-morph-bbp");
-    expect(calls[0].prompt).toContain("Workspace: /workspace/morph-bbp");
+    expect(calls[0].prompt).toContain(
+      "Implementation root (edit and verify here ONLY): /worktree/morph-bbp",
+    );
+    expect(calls[0].prompt).toContain(
+      "Host workspace (do not edit for implementation): /workspace/morph-bbp",
+    );
     expect(calls[0].prompt).toContain("Branch: agent/morph-bbp");
     expect(calls[0].prompt).toContain("Merge request: !42");
     expect(calls[0].prompt).toContain("Implement real adapter");
