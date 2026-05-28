@@ -119,6 +119,75 @@ describe("GitWorkspaceRuntime", () => {
       },
     ]);
   });
+
+  it("finalizes implementation workspace by pushing detected branch commits", async () => {
+    const processRunner = fakeProcessRunner([ok("abc123\ndef456\n"), ok("")]);
+
+    const result = await runWithWorkspace(
+      processRunner.layer,
+      Effect.gen(function* () {
+        const workspace = yield* WorkspaceRuntime;
+        return yield* workspace.finalizeImplementationWorkspace({
+          issueId: "morph-7ky",
+          runId: "run_01KRGGDQ6JQN2GMD6KJQ5SFXR6",
+          workspace: {
+            workspacePath: "/repo",
+            worktreePath: "/worktree",
+            branch: "morpheus/morph-7ky-run_01KRGGDQ6JQN2GMD6KJQ5SFXR6",
+            targetBranch: "main",
+            remote: "origin",
+          },
+        });
+      }),
+    );
+
+    expect(result).toEqual({ commits: ["abc123", "def456"] });
+    expect(processRunner.calls).toEqual([
+      {
+        command: "git",
+        args: ["-C", "/worktree", "rev-list", "--reverse", "main..HEAD"],
+      },
+      {
+        command: "git",
+        args: [
+          "-C",
+          "/worktree",
+          "push",
+          "origin",
+          "HEAD:refs/heads/morpheus/morph-7ky-run_01KRGGDQ6JQN2GMD6KJQ5SFXR6",
+        ],
+      },
+    ]);
+  });
+
+  it("does not push when finalization finds no implementation branch commits", async () => {
+    const processRunner = fakeProcessRunner([ok("")]);
+
+    const result = await runWithWorkspace(
+      processRunner.layer,
+      Effect.gen(function* () {
+        const workspace = yield* WorkspaceRuntime;
+        return yield* workspace.finalizeImplementationWorkspace({
+          issueId: "morph-7ky",
+          runId: "run_01KRGGDQ6JQN2GMD6KJQ5SFXR6",
+          workspace: {
+            workspacePath: "/repo",
+            branch: "morpheus/morph-7ky-run_01KRGGDQ6JQN2GMD6KJQ5SFXR6",
+            targetBranch: "main",
+            remote: "origin",
+          },
+        });
+      }),
+    );
+
+    expect(result).toEqual({ commits: [] });
+    expect(processRunner.calls).toEqual([
+      {
+        command: "git",
+        args: ["-C", "/repo", "rev-list", "--reverse", "main..HEAD"],
+      },
+    ]);
+  });
 });
 
 describe("GlabMergeRequestClient", () => {

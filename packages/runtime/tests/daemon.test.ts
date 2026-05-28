@@ -359,6 +359,7 @@ const supportLayer = (
           targetBranch: "main",
           remote: "origin",
         }),
+      finalizeImplementationWorkspace: () => Effect.succeed({ commits: ["runtime-abc123"] }),
       prepareReviewWorkspace: ({ implementationRun }) =>
         Effect.succeed({
           workspacePath: implementationRun.workspacePath ?? "/tmp/review",
@@ -555,6 +556,10 @@ describe("runDaemonOnce", () => {
         prepareImplementationWorkspace: () => {
           calls.workspace += 1;
           return Effect.die("workspace should not be prepared after access failure");
+        },
+        finalizeImplementationWorkspace: () => {
+          calls.workspace += 1;
+          return Effect.die("workspace should not be finalized after access failure");
         },
         prepareReviewWorkspace: () => {
           calls.workspace += 1;

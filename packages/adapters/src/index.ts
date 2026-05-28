@@ -1295,7 +1295,7 @@ const builtInPrompt = (input: SandcastlePhaseInput, skills: AgentSkillConfig): s
     defaultAgentSkillInstructions,
     stageSkillInstructionsForPrompt(phase, skills),
     phase === "implement"
-      ? "Do not close Beads issues. Commit implementation changes on the implementation branch before returning implemented. Do not push; Morpheus or the host operator publishes the branch/MR outside the sandbox."
+      ? "Do not close Beads issues. Commit implementation changes on the implementation branch before returning implemented. Do not push. Do not run glab. Morpheus or the host operator publishes the branch/MR outside the sandbox."
       : "Do not commit. Do not close Beads issues.",
     `Return only JSON inside <${resultTag}>...</${resultTag}>.`,
   ];
@@ -2411,6 +2411,34 @@ export const createGitWorkspaceRuntime = ({
         targetBranch,
         remote,
       };
+    }),
+  finalizeImplementationWorkspace: ({ workspace }) =>
+    Effect.gen(function* () {
+      const implementationRoot = workspace.worktreePath ?? workspace.workspacePath;
+      const commits = (yield* runGitEffect(processRunner, [
+        "-C",
+        implementationRoot,
+        "rev-list",
+        "--reverse",
+        `${workspace.targetBranch}..HEAD`,
+      ])).stdout
+        .split("\n")
+        .map((line) => line.trim())
+        .filter((line) => line.length > 0);
+
+      if (commits.length === 0) {
+        return { commits };
+      }
+
+      yield* runGitEffect(processRunner, [
+        "-C",
+        implementationRoot,
+        "push",
+        workspace.remote,
+        `HEAD:refs/heads/${workspace.branch}`,
+      ]);
+
+      return { commits };
     }),
   prepareReviewWorkspace: ({ implementationRun }) =>
     Effect.succeed({
