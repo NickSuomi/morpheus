@@ -332,7 +332,7 @@ const runPrepare = (
   );
 
 describe("prepareIssue", () => {
-  it("fails agent access before lane mutation", async () => {
+  it("fails agent access terminally before agent execution", async () => {
     const tracker = fakeIssueTracker(["agent:ready"]);
     const ledger = fakeRunLedger();
     const runner = fakeAgentRunner({
@@ -354,9 +354,13 @@ describe("prepareIssue", () => {
       failureKind: "operator_access",
       message: expect.stringContaining("Agent auth env file not found"),
     });
-    expect(tracker.labels).toEqual(["agent:ready"]);
-    expect(tracker.calls).toEqual([]);
-    expect(ledger.calls).toEqual([]);
+    expect(tracker.labels).toEqual(["agent:failed"]);
+    expect(ledger.run).toMatchObject({
+      status: "failed",
+      failureKind: "operator_access",
+      transcriptPath: "/tmp/morpheus/transcript.txt",
+      artifactPath: "/tmp/morpheus/artifact.json",
+    });
     expect(runner.calls).toEqual(["checkAccess"]);
   });
 

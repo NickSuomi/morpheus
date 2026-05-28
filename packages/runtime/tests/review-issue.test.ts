@@ -12,6 +12,7 @@ import {
   reviewIssue,
   RunLedger,
   WorkspaceRuntime,
+  WorkspaceRuntimeError,
   type AgentRunnerService,
   type IssueTrackerService,
   type MergeRequestClientService,
@@ -370,7 +371,7 @@ describe("reviewIssue", () => {
     expect(workspace.calls).toEqual(["review:morph-wv6:run_review"]);
   });
 
-  it("fails Docker-compatible runtime preflight before review lane mutation", async () => {
+  it("fails Docker-compatible runtime preflight terminally before reviewer execution", async () => {
     await withImplementationArtifact(async (artifactPath) => {
       const tracker = fakeIssueTracker();
       const ledger = fakeRunLedger(artifactPath);
@@ -402,11 +403,64 @@ describe("reviewIssue", () => {
           message: expect.stringContaining("Docker-compatible runtime unavailable"),
         });
       }
-      expect(tracker.labels).toEqual(["agent:running"]);
-      expect(tracker.calls).toEqual([]);
-      expect(ledger.events).toEqual([]);
+      expect(tracker.labels).toEqual(["agent:failed"]);
+      expect(ledger.events).toEqual(expect.arrayContaining(["RunArtifactsWritten", "ReviewFailed"]));
+      expect(ledger.run).toMatchObject({
+        status: "failed",
+        failureKind: "operator_access",
+        transcriptPath: "/tmp/review.txt",
+        artifactPath: "/tmp/review.json",
+      });
       expect(mergeRequests.descriptions).toEqual([]);
       expect(workspace.calls).toEqual([]);
+      expect(runner.calls).toEqual(["checkAccess"]);
+    });
+  });
+
+  it("fails review workspace preflight with transcript and artifact evidence", async () => {
+    await withImplementationArtifact(async (artifactPath) => {
+      const tracker = fakeIssueTracker();
+      const ledger = fakeRunLedger(artifactPath);
+      const mergeRequests = fakeMergeRequests();
+      const runner = fakeAgentRunner("passed");
+      const workspace: WorkspaceRuntimeService = {
+        prepareImplementationWorkspace: () => Effect.die("not used"),
+        prepareReviewWorkspace: () =>
+          Effect.fail(
+            new WorkspaceRuntimeError({
+              operation: "prepareReviewWorkspace",
+              message: "review workspace unavailable",
+            }),
+          ),
+      };
+
+      const result = await Effect.runPromise(
+        reviewIssue("morph-wv6").pipe(
+          Effect.provide(
+            Layer.mergeAll(
+              tracker.layer,
+              ledger.layer,
+              mergeRequests.layer,
+              runner.layer,
+              Layer.succeed(WorkspaceRuntime, workspace),
+            ),
+          ),
+        ),
+      );
+
+      expect(result).toMatchObject({
+        status: "failed",
+        failureKind: "runtime_error",
+        message: expect.stringContaining("review workspace unavailable"),
+      });
+      expect(tracker.labels).toEqual(["agent:failed"]);
+      expect(ledger.events).toEqual(expect.arrayContaining(["RunArtifactsWritten", "ReviewFailed"]));
+      expect(ledger.run).toMatchObject({
+        status: "failed",
+        failureKind: "runtime_error",
+        transcriptPath: "/tmp/review.txt",
+        artifactPath: "/tmp/review.json",
+      });
       expect(runner.calls).toEqual(["checkAccess"]);
     });
   });

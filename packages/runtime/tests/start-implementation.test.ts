@@ -656,7 +656,7 @@ describe("startImplementation", () => {
     expect(mergeRequests.descriptions[0]).toContain("Source issue: #1234");
   });
 
-  it("fails Docker-compatible runtime preflight before Beads mutation or Draft MR creation", async () => {
+  it("fails Docker-compatible runtime preflight terminally before workspace or Draft MR creation", async () => {
     const tracker = fakeIssueTracker(["agent:prepared"]);
     const ledger = fakeRunLedger();
     const workspace = fakeWorkspaceRuntime();
@@ -687,9 +687,16 @@ describe("startImplementation", () => {
         message: expect.stringContaining("Docker-compatible runtime unavailable"),
       });
     }
-    expect(tracker.labels).toEqual(["agent:prepared"]);
-    expect(tracker.calls).toEqual([]);
-    expect(ledger.events).toEqual([]);
+    expect(tracker.labels).toEqual(["agent:failed"]);
+    expect(ledger.events).toEqual(
+      expect.arrayContaining(["RunArtifactsWritten", "ImplementationFailed"]),
+    );
+    expect(ledger.run).toMatchObject({
+      status: "failed",
+      failureKind: "operator_access",
+      transcriptPath: "/tmp/morpheus/transcript.txt",
+      artifactPath: "/tmp/morpheus/artifact.json",
+    });
     expect(workspace.calls).toEqual([]);
     expect(mergeRequests.calls).toEqual([]);
     expect(runner.calls).toEqual(["checkAccess"]);
@@ -962,12 +969,12 @@ describe("startImplementation", () => {
       failureKind: "operator_access",
       workspacePath: "/repo",
       branch: "morpheus/morph-7ky",
+      transcriptPath: "/tmp/morpheus/transcript.txt",
+      artifactPath: "/tmp/morpheus/artifact.json",
     });
     expect(ledger.run).not.toHaveProperty("mergeRequestRef");
-    expect(ledger.events).toEqual([
-      "ImplementationStarted",
-      "ImplementationWorkspacePrepared",
-      "ImplementationFailed",
-    ]);
+    expect(ledger.events).toEqual(
+      expect.arrayContaining(["RunArtifactsWritten", "ImplementationFailed"]),
+    );
   });
 });

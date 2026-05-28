@@ -515,7 +515,7 @@ describe("morpheus cli", () => {
     }
   }, 20_000);
 
-  it("fails prepare command before Beads mutation when Docker-compatible runtime is unavailable", () => {
+  it("fails prepare command terminally when Docker-compatible runtime is unavailable", () => {
     const dir = mkdtempSync(join(tmpdir(), "morpheus-cli-prepare-docker-"));
     try {
       const binDir = join(dir, "bin");
@@ -526,6 +526,41 @@ describe("morpheus cli", () => {
         "#!/bin/sh\nprintf 'Cannot connect to the Docker daemon\\n' >&2\nexit 1\n",
       );
       chmodSync(dockerPath, 0o755);
+      const bdStatePath = join(dir, "bd-label.txt");
+      writeFileSync(bdStatePath, "agent:ready");
+      const bdPath = join(binDir, "bd");
+      writeFileSync(
+        bdPath,
+        `#!/usr/bin/env node
+const fs = require("node:fs");
+const statePath = ${JSON.stringify(bdStatePath)};
+const args = process.argv.slice(2);
+const label = fs.readFileSync(statePath, "utf8").trim() || "agent:ready";
+if (args[0] === "show" && args[1] === "morph-runtime" && args.includes("--json")) {
+  process.stdout.write(JSON.stringify({
+    id: "morph-runtime",
+    title: "Runtime preflight",
+    description: "Exercise Docker-compatible runtime preflight.",
+    labels: [label],
+    priority: 1
+  }));
+  process.exit(0);
+}
+if (args[0] === "update" && args[1] === "morph-runtime") {
+  const nextLabels = [];
+  for (let index = 0; index < args.length; index += 1) {
+    if (args[index] === "--set-labels" && args[index + 1] !== undefined) {
+      nextLabels.push(args[index + 1]);
+    }
+  }
+  fs.writeFileSync(statePath, nextLabels[0] ?? label);
+  process.exit(0);
+}
+process.stderr.write("unexpected bd args: " + args.join(" ") + "\\n");
+process.exit(1);
+`,
+      );
+      chmodSync(bdPath, 0o755);
       mkdirSync(join(dir, ".morpheus", "secrets"), { recursive: true });
       writeFileSync(join(dir, ".morpheus", "secrets", "agent.env"), "OPENAI_API_KEY=test\n");
 
@@ -585,6 +620,7 @@ describe("morpheus cli", () => {
       expect(result.stdout).toContain("Docker-compatible runtime unavailable");
       expect(result.stdout).toContain("Docker Desktop, OrbStack, Colima, or remote Docker context");
       expect(result.stderr).not.toContain("bd");
+      expect(readFileSync(bdStatePath, "utf8")).toBe("agent:failed");
     } finally {
       rmSync(dir, { force: true, recursive: true });
     }
