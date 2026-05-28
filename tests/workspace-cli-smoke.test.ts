@@ -194,8 +194,10 @@ describe("morpheus cli", () => {
 
   it("prints version", () => {
     const output = runPnpm(["--filter", "@morpheus/cli", "morpheus", "--version"]);
+    const expectedVersion = JSON.parse(readFileSync(join(process.cwd(), "package.json"), "utf8"))
+      .version;
 
-    expect(output.trim().split("\n").at(-1)).toBe("0.1.12");
+    expect(output.trim().split("\n").at(-1)).toBe(expectedVersion);
   });
 
   it("shows a validated config summary", () => {
