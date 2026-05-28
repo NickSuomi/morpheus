@@ -258,7 +258,7 @@ const fakeRunLedger = (
 
 const fakeAgentRunner = (
   scenario: "implemented" | "single_commit" | "malformed" | "empty_evidence" | "verification_failed" | "no_commits" = "implemented",
-  options: { readonly failAccess?: boolean } = {},
+  options: { readonly failAccess?: boolean; readonly events?: string[] } = {},
 ) => {
   const calls: string[] = [];
   const service: AgentRunnerService = {
@@ -278,6 +278,7 @@ const fakeAgentRunner = (
     prepareIssue: () => Effect.die("not used"),
     implementIssue: (input) => {
       calls.push(`implement:${input.issue.id}:${input.mergeRequest.reference}`);
+      options.events?.push("implementIssue");
       if (scenario === "malformed") {
         return Effect.succeed({
           status: "implemented",
@@ -346,6 +347,11 @@ const fakeWorkspaceRuntime = (options: { readonly events?: string[] } = {}): {
         remote: "origin",
       });
     },
+    finalizeImplementationWorkspace: ({ issueId, runId }) => {
+      calls.push(`finalize:${issueId}:${runId}`);
+      options.events?.push("finalizeWorkspace");
+      return Effect.succeed({ commits: ["runtime-abc123"] });
+    },
     prepareReviewWorkspace: () => Effect.die("not used"),
   };
 
@@ -384,6 +390,7 @@ const fakeMergeRequestClient = (
     },
     updateDescription: (input) => {
       calls.push(`update:${input.reference}`);
+      options.events?.push("updateDescription");
       descriptions.push(input.description);
       return Effect.succeed({
         reference: input.reference,
@@ -476,11 +483,12 @@ describe("startImplementation", () => {
   });
 
   it("prepares workspace, creates Draft MR, records refs, then completes implementation evidence", async () => {
+    const events: string[] = [];
     const tracker = fakeIssueTracker(["agent:prepared", "ready-for-agent"]);
     const ledger = fakeRunLedger();
-    const workspace = fakeWorkspaceRuntime();
-    const mergeRequests = fakeMergeRequestClient("success");
-    const runner = fakeAgentRunner();
+    const workspace = fakeWorkspaceRuntime({ events });
+    const mergeRequests = fakeMergeRequestClient("success", { events });
+    const runner = fakeAgentRunner("implemented", { events });
 
     const result = await Effect.runPromise(
       startImplementation("morph-7ky").pipe(
@@ -519,8 +527,18 @@ describe("startImplementation", () => {
       "RunArtifactsWritten",
       "ImplementationReadyForReview",
     ]);
-    expect(workspace.calls).toEqual(["prepare:morph-7ky:run_01KRGGDQ6JQN2GMD6KJQ5SFXR6"]);
+    expect(workspace.calls).toEqual([
+      "prepare:morph-7ky:run_01KRGGDQ6JQN2GMD6KJQ5SFXR6",
+      "finalize:morph-7ky:run_01KRGGDQ6JQN2GMD6KJQ5SFXR6",
+    ]);
     expect(mergeRequests.calls).toEqual(["morpheus/morph-7ky", "update:!42"]);
+    expect(events).toEqual([
+      "prepareWorkspace",
+      "createDraftMergeRequest",
+      "implementIssue",
+      "finalizeWorkspace",
+      "updateDescription",
+    ]);
     expect(mergeRequests.descriptions[0]).toContain("Fake implementation complete.");
     expect(mergeRequests.descriptions[0]).toContain("passed: pnpm check - passed");
     expect(mergeRequests.descriptions[0]).toContain("Review verdict: pending");
@@ -552,12 +570,30 @@ describe("startImplementation", () => {
     expect(ledger.run.status).toBe("succeeded");
   });
 
-  it("rejects implemented results that produced no implementation branch commits", async () => {
+  it("rejects implemented results when workspace finalization finds no implementation branch commits", async () => {
     const tracker = fakeIssueTracker(["agent:prepared"]);
     const ledger = fakeRunLedger();
-    const workspace = fakeWorkspaceRuntime();
+    const calls: string[] = [];
+    const workspaceService: WorkspaceRuntimeService = {
+      prepareImplementationWorkspace: ({ issueId, runId }) => {
+        calls.push(`prepare:${issueId}:${runId}`);
+        return Effect.succeed({
+          workspacePath: "/repo",
+          worktreePath: "/repo",
+          branch: "morpheus/morph-7ky",
+          targetBranch: "main",
+          remote: "origin",
+        });
+      },
+      finalizeImplementationWorkspace: ({ issueId, runId }) => {
+        calls.push(`finalize:${issueId}:${runId}`);
+        return Effect.succeed({ commits: [] });
+      },
+      prepareReviewWorkspace: () => Effect.die("not used"),
+    };
+    const workspace = Layer.succeed(WorkspaceRuntime, workspaceService);
     const mergeRequests = fakeMergeRequestClient("success");
-    const runner = fakeAgentRunner("no_commits");
+    const runner = fakeAgentRunner("implemented");
 
     const result = await Effect.runPromise(
       startImplementation("morph-7ky").pipe(
@@ -565,7 +601,7 @@ describe("startImplementation", () => {
           testLayer(
             tracker.layer,
             ledger.layer,
-            workspace.layer,
+            workspace,
             mergeRequests.layer,
             runner.layer,
           ),
@@ -576,8 +612,12 @@ describe("startImplementation", () => {
     expect(result).toMatchObject({
       status: "failed",
       failureKind: "verification_error",
-      message: "Implementation agent reported success but produced no commits on the implementation branch.",
+      message: "Implementation workspace finalization found no commits on the implementation branch.",
     });
+    expect(calls).toEqual([
+      "prepare:morph-7ky:run_01KRGGDQ6JQN2GMD6KJQ5SFXR6",
+      "finalize:morph-7ky:run_01KRGGDQ6JQN2GMD6KJQ5SFXR6",
+    ]);
     expect(mergeRequests.calls).toEqual(["morpheus/morph-7ky"]);
   });
 

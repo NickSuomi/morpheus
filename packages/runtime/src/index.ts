@@ -90,6 +90,10 @@ export type PreparedImplementationWorkspace = {
   readonly remote: string;
 };
 
+export type FinalizedImplementationWorkspace = {
+  readonly commits: readonly string[];
+};
+
 export type PreparedReviewWorkspace = {
   readonly workspacePath: string;
   readonly worktreePath?: string;
@@ -111,6 +115,11 @@ export class WorkspaceRuntime extends Context.Tag("@morpheus/runtime/WorkspaceRu
       readonly issueId: string;
       readonly runId: string;
     }) => Effect.Effect<PreparedImplementationWorkspace, WorkspaceRuntimeError>;
+    readonly finalizeImplementationWorkspace: (input: {
+      readonly issueId: string;
+      readonly runId: string;
+      readonly workspace: PreparedImplementationWorkspace;
+    }) => Effect.Effect<FinalizedImplementationWorkspace, WorkspaceRuntimeError>;
     readonly prepareReviewWorkspace: (input: {
       readonly issueId: string;
       readonly runId: string;
@@ -2082,28 +2091,16 @@ const verificationEvidenceLines = (items: readonly VerificationEvidence[]): read
     return `${item.status}: ${item.command}${suffix}`;
   });
 
-const implementationHasCommits = (result: ImplementationAgentResult): boolean => {
-  if (result.status !== "implemented") {
-    return true;
-  }
-
-  const artifact = result.artifact;
-  if (typeof artifact !== "object" || artifact === null || !("commits" in artifact)) {
-    return true;
-  }
-
-  const commits = (artifact as { readonly commits?: unknown }).commits;
-  return Array.isArray(commits) && commits.some((commit) => typeof commit === "string" && commit.length > 0);
-};
-
 const implementationArtifact = (
   result: ImplementationAgentResult,
   mergeRequest: MergeRequestReference,
+  finalizedWorkspace?: FinalizedImplementationWorkspace,
 ) => ({
   status: result.status,
   implementationEvidence: result.implementationEvidence,
   verificationEvidence: result.verificationEvidence,
   mergeRequest,
+  ...(finalizedWorkspace === undefined ? {} : { commits: finalizedWorkspace.commits }),
   ...(result.status === "failed"
     ? {
         failureKind: result.failureKind,
@@ -2337,19 +2334,46 @@ export const startImplementation = (
     }
 
     const implementationResult = decodedResult.result;
-    if (!implementationHasCommits(implementationResult)) {
+    const finalizedWorkspace =
+      implementationResult.status === "implemented"
+        ? yield* Effect.either(
+            workspaceRuntime.finalizeImplementationWorkspace({
+              issueId,
+              runId: run.id,
+              workspace,
+            }),
+          )
+        : undefined;
+    if (finalizedWorkspace !== undefined && Either.isLeft(finalizedWorkspace)) {
+      return yield* failImplementationStart(
+        tracker,
+        ledger,
+        issueId,
+        run.id,
+        "runtime_error",
+        `Implementation workspace finalization failed: ${finalizedWorkspace.left.message}`,
+      );
+    }
+    const finalizedWorkspaceResult =
+      finalizedWorkspace === undefined ? undefined : finalizedWorkspace.right;
+    if (
+      finalizedWorkspaceResult !== undefined &&
+      finalizedWorkspaceResult.commits.length === 0
+    ) {
       return yield* failImplementationStart(
         tracker,
         ledger,
         issueId,
         run.id,
         "verification_error",
-        "Implementation agent reported success but produced no commits on the implementation branch.",
+        "Implementation workspace finalization found no commits on the implementation branch.",
       );
     }
 
     const artifactResult = yield* Effect.either(
-      artifactToString(implementationArtifact(implementationResult, mergeRequest)),
+      artifactToString(
+        implementationArtifact(implementationResult, mergeRequest, finalizedWorkspaceResult),
+      ),
     );
     if (Either.isLeft(artifactResult)) {
       return yield* failImplementationStart(
@@ -2386,9 +2410,12 @@ export const startImplementation = (
           issueId: issue.id,
           sourceIssue,
           contract,
-          implementationEvidence: implementationEvidenceLines(
-            implementationResult.implementationEvidence,
-          ),
+          implementationEvidence: [
+            ...implementationEvidenceLines(implementationResult.implementationEvidence),
+            ...(finalizedWorkspaceResult === undefined
+              ? []
+              : [`Pushed implementation commits: ${finalizedWorkspaceResult.commits.join(", ")}`]),
+          ],
           verificationEvidence: verificationEvidenceLines(
             implementationResult.verificationEvidence,
           ),

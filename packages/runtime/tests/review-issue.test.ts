@@ -215,6 +215,7 @@ const fakeWorkspaceRuntime = () => {
   const calls: string[] = [];
   const service: WorkspaceRuntimeService = {
     prepareImplementationWorkspace: () => Effect.die("not used"),
+    finalizeImplementationWorkspace: () => Effect.die("not used"),
     prepareReviewWorkspace: ({ issueId, runId, implementationRun }) => {
       calls.push(`review:${issueId}:${runId}`);
       return Effect.succeed({
@@ -425,6 +426,7 @@ describe("reviewIssue", () => {
       const runner = fakeAgentRunner("passed");
       const workspace: WorkspaceRuntimeService = {
         prepareImplementationWorkspace: () => Effect.die("not used"),
+        finalizeImplementationWorkspace: () => Effect.die("not used"),
         prepareReviewWorkspace: () =>
           Effect.fail(
             new WorkspaceRuntimeError({

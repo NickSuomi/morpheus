@@ -178,6 +178,8 @@ describe("SandcastleAgentRunner", () => {
     const workspaceRuntime: WorkspaceRuntimeService = {
       prepareImplementationWorkspace: () =>
         Effect.die("prepareImplementationWorkspace should not run"),
+      finalizeImplementationWorkspace: () =>
+        Effect.die("finalizeImplementationWorkspace should not run"),
       prepareReviewWorkspace: () => Effect.die("prepareReviewWorkspace should not run"),
     };
     const mergeRequests: MergeRequestClientService = {
@@ -1108,6 +1110,7 @@ describe("SandcastleAgentRunner", () => {
     expect(calls[0].prompt).toContain("Branch: agent/morph-bbp");
     expect(calls[0].prompt).toContain("Merge request: !42");
     expect(calls[0].prompt).toContain("Implement real adapter");
+    expect(calls[0].prompt).toContain("Do not run glab.");
   });
 
   it("runs review in the prepared review workspace with implementation evidence", async () => {
