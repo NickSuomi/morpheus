@@ -20,12 +20,12 @@ import {
   type MergeRequestClientService,
   type ProcessRunnerService,
   type RunLedgerService,
+  type RunSummary,
   type TrackedIssue,
   type WorkspaceRuntimeService,
 } from "@morpheus/runtime";
 
-const trackedIssue = (): TrackedIssue => {
-  const labels = ["agent:ready"];
+const trackedIssue = (labels: readonly string[] = ["agent:ready"]): TrackedIssue => {
   const derivedState = deriveIssueState(labels);
 
   return {
@@ -104,10 +104,27 @@ describe("SandcastleAgentRunner", () => {
         );
       },
     };
+    let labels = ["agent:ready"];
     const issueTracker: IssueTrackerService = {
-      listRunnableIssues: () => Effect.succeed([trackedIssue()]),
-      getIssue: () => Effect.die("getIssue should not run before Docker preflight"),
-      applyAgentState: () => Effect.die("applyAgentState should not run before Docker preflight"),
+      listRunnableIssues: () => Effect.succeed([trackedIssue(labels)]),
+      getIssue: () => Effect.succeed(trackedIssue(labels)),
+      applyAgentState: (issueId, transitionPlan) => {
+        if (transitionPlan.status !== "planned") {
+          return Effect.succeed({
+            status: "rejected" as const,
+            issueId,
+            reason: transitionPlan.status,
+            plan: transitionPlan,
+          });
+        }
+        labels = [...transitionPlan.finalLabels];
+        return Effect.succeed({
+          status: "applied" as const,
+          issueId,
+          addLabels: transitionPlan.addLabels,
+          removeLabels: transitionPlan.removeLabels,
+        });
+      },
       writeContract: () => Effect.die("writeContract should not run before Docker preflight"),
       readContract: () => Effect.die("readContract should not run before Docker preflight"),
       listImportedGitLabIssues: () => Effect.succeed([]),
@@ -116,15 +133,41 @@ describe("SandcastleAgentRunner", () => {
     const gitlabIssueSource: GitLabIssueSourceService = {
       listReadyIssues: () => Effect.succeed([]),
     };
+    let run: RunSummary = {
+      id: "run_preflight",
+      issueId: "morph-bbp",
+      lane: "preparation",
+      status: "running",
+      summary: "Add real Sandcastle agent runner adapter",
+      startedAt: "2026-05-28T00:00:00.000Z",
+    };
     const runLedger: RunLedgerService = {
-      createPreparationRun: () => Effect.die("createPreparationRun should not run"),
+      createPreparationRun: (input) => {
+        run = { ...run, issueId: input.issueId, summary: input.summary };
+        return Effect.succeed(run);
+      },
       createImplementationRun: () => Effect.die("createImplementationRun should not run"),
       createReviewRun: () => Effect.die("createReviewRun should not run"),
       recordImplementationWorkspace: () =>
         Effect.die("recordImplementationWorkspace should not run"),
       recordMergeRequest: () => Effect.die("recordMergeRequest should not run"),
-      finishRun: () => Effect.die("finishRun should not run"),
-      writeRunArtifacts: () => Effect.die("writeRunArtifacts should not run"),
+      finishRun: (_runId, input) => {
+        run = {
+          ...run,
+          status: input.status,
+          failureKind: input.status === "failed" ? input.failureKind : undefined,
+          endedAt: "2026-05-28T00:00:01.000Z",
+        };
+        return Effect.succeed(run);
+      },
+      writeRunArtifacts: () => {
+        run = {
+          ...run,
+          transcriptPath: "/tmp/run_preflight.txt",
+          artifactPath: "/tmp/run_preflight.json",
+        };
+        return Effect.succeed(run);
+      },
       getRunLogs: () => Effect.die("getRunLogs should not run"),
       getRunArtifact: () => Effect.die("getRunArtifact should not run"),
       listRuns: () => Effect.succeed([]),
@@ -172,6 +215,13 @@ describe("SandcastleAgentRunner", () => {
         failureKind: "operator_access",
         message: expect.stringContaining("Docker-compatible runtime unavailable"),
       },
+    });
+    expect(labels).toEqual(["agent:failed"]);
+    expect(run).toMatchObject({
+      status: "failed",
+      failureKind: "operator_access",
+      transcriptPath: "/tmp/run_preflight.txt",
+      artifactPath: "/tmp/run_preflight.json",
     });
   });
 

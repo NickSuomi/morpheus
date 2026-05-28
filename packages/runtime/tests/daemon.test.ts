@@ -224,7 +224,10 @@ const fakeRunLedger = () => {
     pruneRuns: () => Effect.succeed({ applied: false, eligibleRuns: [], totalArtifactBytes: 0 }),
   };
 
-  return Layer.succeed(RunLedger, service);
+  return Object.assign(Layer.succeed(RunLedger, service), {
+    runsOf: (issueId: string, lane?: RunSummary["lane"]) =>
+      runs.filter((run) => run.issueId === issueId && (lane === undefined || run.lane === lane)),
+  });
 };
 
 const fakeAgentRunner = (
@@ -514,48 +517,102 @@ describe("runDaemonOnce", () => {
     expect(second.executions).toEqual([]);
   });
 
-  it("reports failed lane and does not continue into agent execution when runtime preflight fails", async () => {
-    const tracker = fakeIssueTracker({ "morph-runtime": ["agent:ready"] });
-    let prepareCalled = false;
+  it("fails preflight failures terminally and does no repeated work on next tick", async () => {
+    const tracker = fakeIssueTracker({
+      "morph-preflight-prepare": ["agent:ready"],
+      "morph-preflight-implement": ["agent:prepared"],
+      "morph-preflight-review": ["agent:running"],
+    });
+    const ledger = fakeRunLedger();
+    const calls = {
+      prepare: 0,
+      implement: 0,
+      review: 0,
+      workspace: 0,
+      mergeRequest: 0,
+    };
     const agentRunner = fakeAgentRunnerService({ failAccess: true });
     const layer = Layer.mergeAll(
       tracker.layer,
       supportLayer(),
+      ledger,
       Layer.succeed(AgentRunner, {
         ...agentRunner,
         prepareIssue: (input) => {
-          prepareCalled = true;
+          calls.prepare += 1;
           return agentRunner.prepareIssue(input);
         },
+        implementIssue: (input) => {
+          calls.implement += 1;
+          return agentRunner.implementIssue?.(input) ?? Effect.die("implement should exist");
+        },
+        reviewIssue: (input) => {
+          calls.review += 1;
+          return agentRunner.reviewIssue?.(input) ?? Effect.die("review should exist");
+        },
       } satisfies AgentRunnerService),
+      Layer.succeed(WorkspaceRuntime, {
+        prepareImplementationWorkspace: () => {
+          calls.workspace += 1;
+          return Effect.die("workspace should not be prepared after access failure");
+        },
+        prepareReviewWorkspace: () => {
+          calls.workspace += 1;
+          return Effect.die("review workspace should not be prepared after access failure");
+        },
+      } satisfies WorkspaceRuntimeService),
+      Layer.succeed(MergeRequestClient, {
+        createDraftMergeRequest: () => {
+          calls.mergeRequest += 1;
+          return Effect.die("MR should not be created after access failure");
+        },
+        updateDescription: () => {
+          calls.mergeRequest += 1;
+          return Effect.die("MR should not be updated after access failure");
+        },
+      } satisfies MergeRequestClientService),
     );
 
-    const result = await Effect.runPromise(
+    const first = await Effect.runPromise(
       runDaemonOnce({
         project: "group/project",
         readyLabel: "agent:ready",
       }).pipe(Effect.provide(layer)),
     );
-    const output = await Effect.runPromise(
-      runDaemonOnceForCli({
+    const second = await Effect.runPromise(
+      runDaemonOnce({
         project: "group/project",
         readyLabel: "agent:ready",
       }).pipe(Effect.provide(layer)),
     );
 
-    expect(result.executions).toHaveLength(1);
-    expect(result.executions[0]).toMatchObject({
-      lane: "preparation",
-      issueId: "morph-runtime",
-      result: {
+    expect(first.executions.map((execution) => `${execution.lane}:${execution.issueId}`)).toEqual(
+      expect.arrayContaining([
+        "preparation:morph-preflight-prepare",
+        "implementation:morph-preflight-implement",
+        "review:morph-preflight-review",
+      ]),
+    );
+    expect(first.executions).toHaveLength(3);
+    for (const execution of first.executions) {
+      expect(execution.result).toMatchObject({
         status: "failed",
         failureKind: "operator_access",
         message: expect.stringContaining("Docker-compatible runtime unavailable"),
-      },
-    });
-    expect(output).toContain("preparation morph-runtime: failed failureKind=operator_access");
-    expect(tracker.labelsOf("morph-runtime")).toEqual(["agent:ready"]);
-    expect(prepareCalled).toBe(false);
+      });
+      expect(ledger.runsOf(execution.issueId, execution.lane)).toHaveLength(1);
+      expect(ledger.runsOf(execution.issueId, execution.lane)[0]).toMatchObject({
+        status: "failed",
+        failureKind: "operator_access",
+        transcriptPath: expect.stringContaining(".txt"),
+        artifactPath: expect.stringContaining(".json"),
+      });
+    }
+    expect(tracker.labelsOf("morph-preflight-prepare")).toEqual(["agent:failed"]);
+    expect(tracker.labelsOf("morph-preflight-implement")).toEqual(["agent:failed"]);
+    expect(tracker.labelsOf("morph-preflight-review")).toEqual(["agent:failed"]);
+    expect(second.executions).toEqual([]);
+    expect(calls).toEqual({ prepare: 0, implement: 0, review: 0, workspace: 0, mergeRequest: 0 });
   });
 
   it("leaves blocked review terminal and does no work on next tick", async () => {

@@ -1610,6 +1610,79 @@ const writeArtifactsOrFailRun = (
     return { status: "written" };
   });
 
+const writePreflightFailureArtifacts = (
+  ledger: RunLedgerService,
+  runId: string,
+  lane: RunnableLane,
+  failureKind: FailureKind,
+  message: string,
+): Effect.Effect<void, never> =>
+  Effect.gen(function* () {
+    const artifactResult = yield* Effect.either(
+      artifactToString({
+        status: "failed",
+        lane,
+        failureKind,
+        message,
+      }),
+    );
+    if (Either.isLeft(artifactResult)) {
+      return;
+    }
+
+    yield* Effect.either(
+      ledger.writeRunArtifacts(runId, {
+        transcript: message,
+        artifact: artifactResult.right,
+      }),
+    );
+  });
+
+const failPreparationBeforeAgent = (
+  tracker: IssueTrackerService,
+  ledger: RunLedgerService,
+  issueId: string,
+  runId: string,
+  startPlan: Extract<AgentStateTransitionPlan, { readonly status: "planned" }>,
+  failureKind: FailureKind,
+  message: string,
+): Effect.Effect<Extract<PrepareIssueResult, { readonly status: "failed" }>, RunLedgerError> =>
+  Effect.gen(function* () {
+    yield* writePreflightFailureArtifacts(ledger, runId, "preparation", failureKind, message);
+
+    const startResult = yield* Effect.either(tracker.applyAgentState(issueId, startPlan));
+    if (Either.isLeft(startResult) || startResult.right.status === "rejected") {
+      const terminalRun = yield* finishHandledFailure(
+        ledger,
+        runId,
+        terminalFailureKind(startResult, failureKind),
+        terminalFailureMessage(startResult, message, "Preparation start transition rejected."),
+      );
+      return failedPreparationResult(
+        issueId,
+        terminalRun,
+        terminalRun.failureKind ?? terminalFailureKind(startResult, failureKind),
+        terminalRun.failureKind === failureKind ? message : "Preparation start transition rejected.",
+      );
+    }
+
+    const terminal = yield* Effect.either(
+      applyTerminalTransition(tracker, issueId, "PreparationFailed"),
+    );
+    const terminalRun = yield* finishHandledFailure(
+      ledger,
+      runId,
+      terminalFailureKind(terminal, failureKind),
+      terminalFailureMessage(terminal, message, "Preparation failed transition rejected."),
+    );
+    return failedPreparationResult(
+      issueId,
+      terminalRun,
+      terminalRun.failureKind ?? terminalFailureKind(terminal, failureKind),
+      terminalRun.failureKind === failureKind ? message : "Preparation failed transition rejected.",
+    );
+  });
+
 const terminalFailureKind = (
   terminalResult: Either.Either<IssueTrackerApplyResult, IssueTrackerError>,
   appliedFailureKind: FailureKind,
@@ -1653,16 +1726,6 @@ export const prepareIssue = (
     const ledger = yield* RunLedger;
     const runner = yield* AgentRunner;
 
-    const accessResult = yield* Effect.either(runner.checkAccess?.() ?? Effect.void);
-    if (Either.isLeft(accessResult)) {
-      return {
-        status: "failed",
-        issueId,
-        failureKind: accessResult.left.failureKind ?? "runtime_error",
-        message: `Agent runner access check failed: ${accessResult.left.message}`,
-      };
-    }
-
     const issue = yield* tracker.getIssue(issueId);
     const startPlan = planAgentStateTransition(issue.labels, "StartPreparation");
     if (startPlan.status !== "planned") {
@@ -1678,6 +1741,19 @@ export const prepareIssue = (
       issueId,
       summary: issue.title,
     });
+
+    const accessResult = yield* Effect.either(runner.checkAccess?.() ?? Effect.void);
+    if (Either.isLeft(accessResult)) {
+      return yield* failPreparationBeforeAgent(
+        tracker,
+        ledger,
+        issueId,
+        run.id,
+        startPlan,
+        accessResult.left.failureKind ?? "runtime_error",
+        `Agent runner access check failed: ${accessResult.left.message}`,
+      );
+    }
 
     const startResult = yield* Effect.either(tracker.applyAgentState(issueId, startPlan));
     if (Either.isLeft(startResult) || startResult.right.status === "rejected") {
@@ -1953,11 +2029,16 @@ const failImplementationStart = (
   runId: string,
   failureKind: FailureKind,
   message: string,
+  options: { readonly writeFailureArtifacts?: boolean } = {},
 ): Effect.Effect<
   Extract<StartImplementationResult, { readonly status: "failed" }>,
   RunLedgerError
 > =>
   Effect.gen(function* () {
+    if (options.writeFailureArtifacts === true) {
+      yield* writePreflightFailureArtifacts(ledger, runId, "implementation", failureKind, message);
+    }
+
     const terminal = yield* Effect.either(
       Effect.gen(function* () {
         const currentIssue = yield* tracker.getIssue(issueId);
@@ -2049,16 +2130,6 @@ export const startImplementation = (
     const mergeRequests = yield* MergeRequestClient;
     const runner = yield* AgentRunner;
 
-    const accessResult = yield* Effect.either(runner.checkAccess?.() ?? Effect.void);
-    if (Either.isLeft(accessResult)) {
-      return {
-        status: "failed",
-        issueId,
-        failureKind: accessResult.left.failureKind ?? "runtime_error",
-        message: `Agent runner access check failed: ${accessResult.left.message}`,
-      };
-    }
-
     const issue = yield* tracker.getIssue(issueId);
     const startPlan = planAgentStateTransition(issue.labels, "StartImplementation");
     if (startPlan.status !== "planned") {
@@ -2075,6 +2146,21 @@ export const startImplementation = (
       summary: issue.title,
     });
 
+    const accessResult = yield* Effect.either(runner.checkAccess?.() ?? Effect.void);
+    if (Either.isLeft(accessResult)) {
+      const failureKind = accessResult.left.failureKind ?? "runtime_error";
+      const message = `Agent runner access check failed: ${accessResult.left.message}`;
+      return yield* failImplementationStart(
+        tracker,
+        ledger,
+        issueId,
+        run.id,
+        failureKind,
+        message,
+        { writeFailureArtifacts: true },
+      );
+    }
+
     const contractResult = yield* Effect.either(tracker.readContract(issueId));
     if (Either.isLeft(contractResult)) {
       return yield* failImplementationStart(
@@ -2084,6 +2170,7 @@ export const startImplementation = (
         run.id,
         "runtime_error",
         `Agent-Ready Contract read failed: ${errorMessage(contractResult.left)}`,
+        { writeFailureArtifacts: true },
       );
     }
     if (contractResult.right.status === "missing") {
@@ -2094,6 +2181,7 @@ export const startImplementation = (
         run.id,
         "agent_contract_error",
         "Agent-Ready Contract metadata missing.",
+        { writeFailureArtifacts: true },
       );
     }
     const contract = contractResult.right.contract;
@@ -2112,6 +2200,7 @@ export const startImplementation = (
         run.id,
         "runtime_error",
         `Workspace preparation failed: ${workspaceResult.left.message}`,
+        { writeFailureArtifacts: true },
       );
     }
 
@@ -2131,6 +2220,7 @@ export const startImplementation = (
         run.id,
         "runtime_error",
         `Implementation workspace ledger update failed: ${errorMessage(workspaceRunResult.left)}`,
+        { writeFailureArtifacts: true },
       );
     }
 
@@ -2150,6 +2240,7 @@ export const startImplementation = (
         run.id,
         "state_conflict",
         message,
+        { writeFailureArtifacts: true },
       );
     }
 
@@ -2162,6 +2253,7 @@ export const startImplementation = (
         run.id,
         "runtime_error",
         `Imported GitLab issue metadata read failed: ${errorMessage(importedIssuesResult.left)}`,
+        { writeFailureArtifacts: true },
       );
     }
     const sourceIssue = sourceIssueReferenceFor(importedIssuesResult.right, issue.id);
@@ -2182,6 +2274,7 @@ export const startImplementation = (
         run.id,
         mergeRequestResult.left.failureKind,
         `Draft MR creation failed: ${mergeRequestResult.left.message}`,
+        { writeFailureArtifacts: true },
       );
     }
 
@@ -2195,6 +2288,7 @@ export const startImplementation = (
         run.id,
         "runtime_error",
         `Draft MR ledger update failed: ${errorMessage(mrRunResult.left)}`,
+        { writeFailureArtifacts: true },
       );
     }
 
@@ -2207,6 +2301,7 @@ export const startImplementation = (
         run.id,
         "runtime_error",
         "Agent runner does not support implementation.",
+        { writeFailureArtifacts: true },
       );
     }
 
@@ -2532,11 +2627,16 @@ const failReviewAfterStart = (
   failureKind: FailureKind,
   message: string,
   findings?: readonly ReviewFinding[],
+  options: { readonly writeFailureArtifacts?: boolean } = {},
 ): Effect.Effect<
   Extract<ReviewIssueResult, { readonly status: "failed" }>,
   IssueTrackerError | RunLedgerError
 > =>
   Effect.gen(function* () {
+    if (options.writeFailureArtifacts === true) {
+      yield* writePreflightFailureArtifacts(ledger, runId, "review", failureKind, message);
+    }
+
     const terminalRun = yield* finishReview(tracker, ledger, issueId, runId, "ReviewFailed", {
       status: "failed",
       failureKind,
@@ -2550,6 +2650,47 @@ const failReviewAfterStart = (
       message,
       findings,
     );
+  });
+
+const failReviewBeforeAgent = (
+  tracker: IssueTrackerService,
+  ledger: RunLedgerService,
+  issueId: string,
+  runId: string,
+  startPlan: Extract<AgentStateTransitionPlan, { readonly status: "planned" }>,
+  failureKind: FailureKind,
+  message: string,
+): Effect.Effect<
+  Extract<ReviewIssueResult, { readonly status: "failed" }>,
+  IssueTrackerError | RunLedgerError
+> =>
+  Effect.gen(function* () {
+    yield* writePreflightFailureArtifacts(ledger, runId, "review", failureKind, message);
+
+    const startResult = yield* Effect.either(tracker.applyAgentState(issueId, startPlan));
+    if (Either.isLeft(startResult) || startResult.right.status === "rejected") {
+      const terminalKind = terminalFailureKind(startResult, failureKind);
+      const terminalMessage = terminalFailureMessage(
+        startResult,
+        message,
+        "Review start transition rejected.",
+      );
+      const run = yield* ledger.finishRun(runId, {
+        status: "failed",
+        failureKind: terminalKind,
+        terminalEvent: "ReviewFailed",
+        message: terminalMessage,
+      });
+      return reviewFailureResult(issueId, run, run.failureKind ?? terminalKind, terminalMessage);
+    }
+
+    const terminalRun = yield* finishReview(tracker, ledger, issueId, runId, "ReviewFailed", {
+      status: "failed",
+      failureKind,
+      terminalEvent: "ReviewFailed",
+      message,
+    });
+    return reviewFailureResult(issueId, terminalRun, terminalRun.failureKind ?? failureKind, message);
   });
 
 export const reviewIssue = (
@@ -2570,16 +2711,6 @@ export const reviewIssue = (
     const runner = yield* AgentRunner;
     const mergeRequests = yield* MergeRequestClient;
 
-    const accessResult = yield* Effect.either(runner.checkAccess?.() ?? Effect.void);
-    if (Either.isLeft(accessResult)) {
-      return {
-        status: "failed",
-        issueId,
-        failureKind: accessResult.left.failureKind ?? "runtime_error",
-        message: `Agent runner access check failed: ${accessResult.left.message}`,
-      };
-    }
-
     const issue = yield* tracker.getIssue(issueId);
     const startPlan = planAgentStateTransition(issue.labels, "ImplementationReadyForReview");
     if (startPlan.status !== "planned") {
@@ -2589,6 +2720,24 @@ export const reviewIssue = (
         reason: startPlan.status,
         failureKind: startPlan.status === "conflict" ? "state_conflict" : "runtime_error",
       };
+    }
+
+    const run = yield* ledger.createReviewRun({
+      issueId,
+      summary: issue.title,
+    });
+
+    const accessResult = yield* Effect.either(runner.checkAccess?.() ?? Effect.void);
+    if (Either.isLeft(accessResult)) {
+      return yield* failReviewBeforeAgent(
+        tracker,
+        ledger,
+        issueId,
+        run.id,
+        startPlan,
+        accessResult.left.failureKind ?? "runtime_error",
+        `Agent runner access check failed: ${accessResult.left.message}`,
+      );
     }
 
     const startResult = yield* Effect.either(tracker.applyAgentState(issueId, startPlan));
@@ -2607,11 +2756,6 @@ export const reviewIssue = (
       };
     }
 
-    const run = yield* ledger.createReviewRun({
-      issueId,
-      summary: issue.title,
-    });
-
     const contractResult = yield* Effect.either(tracker.readContract(issueId));
     if (Either.isLeft(contractResult)) {
       return yield* failReviewAfterStart(
@@ -2621,6 +2765,8 @@ export const reviewIssue = (
         run.id,
         "runtime_error",
         `Agent-Ready Contract read failed: ${errorMessage(contractResult.left)}`,
+        undefined,
+        { writeFailureArtifacts: true },
       );
     }
     if (contractResult.right.status === "missing") {
@@ -2631,6 +2777,8 @@ export const reviewIssue = (
         run.id,
         "agent_contract_error",
         "Agent-Ready Contract metadata missing.",
+        undefined,
+        { writeFailureArtifacts: true },
       );
     }
     const contract = contractResult.right.contract;
@@ -2644,6 +2792,8 @@ export const reviewIssue = (
         run.id,
         "runtime_error",
         "Implementation run artifact missing for review.",
+        undefined,
+        { writeFailureArtifacts: true },
       );
     }
 
@@ -2658,6 +2808,8 @@ export const reviewIssue = (
         run.id,
         "runtime_error",
         `Implementation artifact read failed: ${errorMessage(implementationArtifactResult.left)}`,
+        undefined,
+        { writeFailureArtifacts: true },
       );
     }
     const implementationArtifact = implementationArtifactResult.right;
@@ -2673,6 +2825,8 @@ export const reviewIssue = (
         run.id,
         "runtime_error",
         `Review MR ledger update failed: ${errorMessage(mergeRequestRunResult.left)}`,
+        undefined,
+        { writeFailureArtifacts: true },
       );
     }
 
@@ -2685,6 +2839,8 @@ export const reviewIssue = (
         run.id,
         "runtime_error",
         "Agent runner does not support review.",
+        undefined,
+        { writeFailureArtifacts: true },
       );
     }
 
@@ -2703,6 +2859,8 @@ export const reviewIssue = (
         run.id,
         "runtime_error",
         `Review workspace preparation failed: ${reviewWorkspaceResult.left.message}`,
+        undefined,
+        { writeFailureArtifacts: true },
       );
     }
     const reviewWorkspace = reviewWorkspaceResult.right;
