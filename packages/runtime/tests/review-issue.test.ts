@@ -8,9 +8,11 @@ import {
   AgentRunner,
   AgentRunnerError,
   IssueTracker,
+  IssueTrackerCommandError,
   MergeRequestClient,
   reviewIssue,
   RunLedger,
+  RunLedgerPersistenceError,
   WorkspaceRuntime,
   WorkspaceRuntimeError,
   type AgentRunnerService,
@@ -48,7 +50,7 @@ const trackedIssue = (labels: readonly string[]): TrackedIssue => {
   };
 };
 
-const fakeIssueTracker = () => {
+const fakeIssueTracker = (options: { readonly failApply?: boolean } = {}) => {
   let labels = ["agent:running"];
   const calls: string[] = [];
   const service: IssueTrackerService = {
@@ -59,6 +61,17 @@ const fakeIssueTracker = () => {
     },
     applyAgentState: (issueId, transitionPlan) => {
       calls.push(`apply:${transitionPlan.status}`);
+      if (options.failApply === true) {
+        return Effect.fail(
+          new IssueTrackerCommandError({
+            operation: "bd",
+            command: "bd",
+            args: ["update", issueId],
+            exitCode: 1,
+            stderr: "review start transition failed",
+          }),
+        );
+      }
       if (transitionPlan.status !== "planned") {
         return Effect.succeed({
           status: "rejected" as const,
@@ -119,7 +132,10 @@ const withImplementationArtifact = async <A>(
   }
 };
 
-const fakeRunLedger = (artifactPath: string) => {
+const fakeRunLedger = (
+  artifactPath: string,
+  options: { readonly failCreateReviewRun?: boolean } = {},
+) => {
   const events: string[] = [];
   const implementationRun: RunSummary = {
     id: "run_implementation",
@@ -147,6 +163,14 @@ const fakeRunLedger = (artifactPath: string) => {
     createPreparationRun: () => Effect.succeed({ ...reviewRun, lane: "preparation" }),
     createImplementationRun: () => Effect.succeed(implementationRun),
     createReviewRun: (input) => {
+      if (options.failCreateReviewRun === true) {
+        return Effect.fail(
+          new RunLedgerPersistenceError({
+            operation: "createReviewRun",
+            message: "ledger unavailable",
+          }),
+        );
+      }
       events.push("StartReview");
       reviewRun = { ...reviewRun, issueId: input.issueId, summary: input.summary };
       return Effect.succeed(reviewRun);
@@ -344,6 +368,81 @@ const runReview = async (scenario: "passed" | "blocked" | "failed" | "malformed"
   });
 
 describe("reviewIssue", () => {
+  it("finishes the review run as failed when the review start state transition fails", async () => {
+    await withImplementationArtifact(async (artifactPath) => {
+      const tracker = fakeIssueTracker({ failApply: true });
+      const ledger = fakeRunLedger(artifactPath);
+      const mergeRequests = fakeMergeRequests();
+      const runner = fakeAgentRunner("passed");
+      const workspace = fakeWorkspaceRuntime();
+
+      const result = await Effect.runPromise(
+        reviewIssue("morph-wv6").pipe(
+          Effect.provide(
+            Layer.mergeAll(
+              tracker.layer,
+              ledger.layer,
+              mergeRequests.layer,
+              runner.layer,
+              workspace.layer,
+            ),
+          ),
+        ),
+      );
+
+      expect(result).toMatchObject({
+        status: "failed",
+        issueId: "morph-wv6",
+        failureKind: "runtime_error",
+        message: expect.stringContaining("Review start transition rejected"),
+      });
+      expect(tracker.labels).toEqual(["agent:running"]);
+      expect(tracker.calls).toEqual(["getIssue", "apply:planned"]);
+      expect(ledger.events).toEqual(["StartReview", "ReviewFailed"]);
+      expect(ledger.run).toMatchObject({
+        status: "failed",
+        failureKind: "runtime_error",
+        endedAt: "2026-05-18T00:00:02.000Z",
+      });
+      expect(mergeRequests.descriptions).toEqual([]);
+      expect(workspace.calls).toEqual([]);
+    });
+  });
+
+  it("does not apply review labels when creating the review run fails", async () => {
+    await withImplementationArtifact(async (artifactPath) => {
+      const tracker = fakeIssueTracker();
+      const ledger = fakeRunLedger(artifactPath, { failCreateReviewRun: true });
+      const mergeRequests = fakeMergeRequests();
+      const runner = fakeAgentRunner("passed");
+      const workspace = fakeWorkspaceRuntime();
+
+      const result = await Effect.runPromise(
+        Effect.either(
+          reviewIssue("morph-wv6").pipe(
+            Effect.provide(
+              Layer.mergeAll(
+                tracker.layer,
+                ledger.layer,
+                mergeRequests.layer,
+                runner.layer,
+                workspace.layer,
+              ),
+            ),
+          ),
+        ),
+      );
+
+      expect(Either.isLeft(result)).toBe(true);
+      expect(tracker.labels).toEqual(["agent:running"]);
+      expect(tracker.calls).toEqual(["getIssue"]);
+      expect(ledger.events).toEqual([]);
+      expect(mergeRequests.descriptions).toEqual([]);
+      expect(workspace.calls).toEqual([]);
+      expect(runner.calls).toEqual([]);
+    });
+  });
+
   it("moves running work through reviewing to review-candidate with typed findings", async () => {
     const { result, tracker, ledger, mergeRequests } = await runReview("passed");
 
