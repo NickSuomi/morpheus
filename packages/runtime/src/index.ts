@@ -2775,10 +2775,17 @@ export const reviewIssue = (
         "Review start transition rejected.",
         "Review start transition rejected.",
       );
+      const terminalRun = yield* ledger.finishRun(run.id, {
+        status: "failed",
+        failureKind,
+        terminalEvent: "ReviewFailed",
+        message,
+      });
       return {
         status: "failed",
         issueId,
-        failureKind,
+        run: terminalRun,
+        failureKind: terminalRun.failureKind ?? failureKind,
         message,
       };
     }
