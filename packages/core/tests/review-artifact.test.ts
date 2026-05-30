@@ -19,8 +19,34 @@ const contract: AgentReadyContract = {
   riskLevel: "medium",
 };
 
+const expectFullContract = (output: string): void => {
+  expect(output).toContain("Category: task");
+  expect(output).toContain("## Summary");
+  expect(output).toContain("Create Draft MR before implementation.");
+  expect(output).toContain("## Current Behavior");
+  expect(output).toContain("Implementation has not started.");
+  expect(output).toContain("## Desired Behavior");
+  expect(output).toContain("Morpheus creates a Draft MR before implementer execution.");
+  expect(output).toContain("## Key Interfaces");
+  expect(output).toContain("- WorkspaceRuntime");
+  expect(output).toContain("- MergeRequestClient");
+  expect(output).toContain("- RunLedger");
+  expect(output).toContain("## Acceptance Criteria");
+  expect(output).toContain("- Draft MR exists before agent:running.");
+  expect(output).toContain("## Out Of Scope");
+  expect(output).toContain("- Implementer execution");
+  expect(output).toContain("## Verification Plan");
+  expect(output).toContain("- pnpm check");
+  expect(output).toContain("## Blockers");
+  expect(output).toContain("Blocked by: None");
+  expect(output).toContain("## HITL Decisions");
+  expect(output).toContain("HITL decisions: None");
+  expect(output).toContain("## Risk");
+  expect(output).toContain("Risk level: medium");
+};
+
 describe("ReviewArtifact", () => {
-  it("renders a pending Draft MR description from the contract", () => {
+  it("renders every contract field in a pending Draft MR description", () => {
     const output = renderDraftReviewArtifact({
       issueId: "morph-7ky",
       contract,
@@ -28,11 +54,10 @@ describe("ReviewArtifact", () => {
 
     expect(output).toContain("# Morpheus Draft Implementation MR");
     expect(output).toContain("Issue: morph-7ky");
-    expect(output).toContain("Create Draft MR before implementation.");
-    expect(output).toContain("- Draft MR exists before agent:running.");
-    expect(output).toContain("- pnpm check");
+    expectFullContract(output);
     expect(output).toContain("Review verdict: pending");
     expect(output).not.toContain("Source issue:");
+    expect(output).not.toContain("raw transcript");
   });
 
   it("renders a GitLab source issue reference when source IID is known", () => {
@@ -47,7 +72,7 @@ describe("ReviewArtifact", () => {
     expect(output).toContain("Source issue: #1234");
   });
 
-  it("renders full curated MR context without raw transcript content", () => {
+  it("renders every contract field plus curated review context without raw transcript section", () => {
     const output = renderReviewArtifact({
       issueId: "morph-kq2",
       contract,
@@ -63,6 +88,7 @@ describe("ReviewArtifact", () => {
       humanChecklist: ["Confirm GitLab MR description matches artifact."],
     });
 
+    expectFullContract(output);
     expect(output).toContain("## Implementation Evidence");
     expect(output).toContain("- Implemented ReviewArtifact renderer.");
     expect(output).toContain("## Verification Evidence");
@@ -71,6 +97,7 @@ describe("ReviewArtifact", () => {
     expect(output).toContain("Review verdict: blocked");
     expect(output).toContain("- [warning] Follow-up review still pending.");
     expect(output).toContain("- Confirm GitLab MR description matches artifact.");
-    expect(output).not.toContain("raw transcript");
+    expect(output).not.toContain("Raw Transcript");
+    expect(output).not.toContain("Transcript");
   });
 });
