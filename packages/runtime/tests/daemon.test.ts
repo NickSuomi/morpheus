@@ -255,7 +255,7 @@ const fakeAgentRunnerService = (
       if (statuses.failAccess === true) {
         return Effect.fail(
           new AgentRunnerError({
-            operation: "sandcastle.docker",
+            operation: "container-runner.docker",
             failureKind: "operator_access",
             message: "Docker-compatible runtime unavailable: Cannot connect to the Docker daemon",
           }),
@@ -374,6 +374,10 @@ const supportLayer = (
         Effect.succeed({ reference: input.reference, url: "https://gitlab.example/mr/42" }),
     } satisfies MergeRequestClientService),
   );
+
+const expectNoInternalAdapterDetail = (output: string) => {
+  expect(output).not.toContain("internal");
+};
 
 describe("runDaemonOnce", () => {
   it("smokes init to sync to daemon review candidate with fake adapters", async () => {
@@ -655,5 +659,36 @@ describe("runDaemonOnce", () => {
     expect(output).toContain("Morpheus daemon tick");
     expect(output).toContain("selected: preparation=0 implementation=0 review=0");
     expect(output).toContain("work: None");
+  });
+
+  it("renders failed daemon executions without adapter vocabulary", async () => {
+    const tracker = fakeIssueTracker({ "morph-daemon-auth": ["agent:ready"] });
+    const runner: AgentRunnerService = {
+      checkAccess: () =>
+        Effect.fail(
+          new AgentRunnerError({
+            operation: "agent-runner.auth",
+            failureKind: "operator_access",
+            message: "internal auth adapter detail",
+            publicMessage: "Morpheus agent runner auth failed: token missing for daemon",
+          }),
+        ),
+      prepareIssue: () => Effect.die("prepare should not run"),
+    };
+
+    const output = await Effect.runPromise(
+      runDaemonOnceForCli({
+        project: "group/project",
+        readyLabel: "agent:ready",
+      }).pipe(
+        Effect.provide(
+          Layer.mergeAll(tracker.layer, supportLayer(), Layer.succeed(AgentRunner, runner)),
+        ),
+      ),
+    );
+
+    expect(output).toContain("Morpheus daemon tick");
+    expect(output).toContain("Morpheus agent runner auth failed");
+    expectNoInternalAdapterDetail(output);
   });
 });

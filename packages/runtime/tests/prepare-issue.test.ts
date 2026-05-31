@@ -11,6 +11,7 @@ import {
   AgentRunnerError,
   IssueTrackerCommandError,
   prepareIssue,
+  prepareIssueForCli,
   RunLedgerPersistenceError,
   RunLedger,
   IssueTracker,
@@ -331,7 +332,37 @@ const runPrepare = (
     prepareIssue("morph-lpp").pipe(Effect.provide(testLayer(tracker, ledger, runner))),
   );
 
+const expectNoInternalAdapterDetail = (output: string) => {
+  expect(output).not.toContain("internal");
+};
+
 describe("prepareIssue", () => {
+  it("renders agent auth failures with Morpheus vocabulary", async () => {
+    const tracker = fakeIssueTracker(["agent:ready"]);
+    const ledger = fakeRunLedger();
+    const runner = fakeAgentRunner({
+      checkAccess: () =>
+        Effect.fail(
+          new AgentRunnerError({
+            operation: "agent-runner.auth",
+            failureKind: "operator_access",
+            message: "internal auth adapter detail",
+            publicMessage: "Morpheus agent runner auth failed: token missing",
+          }),
+        ),
+      prepareIssue: () => Effect.die("prepare should not run"),
+    });
+
+    const output = await Effect.runPromise(
+      prepareIssueForCli("morph-lpp").pipe(
+        Effect.provide(testLayer(tracker.layer, ledger.layer, runner.layer)),
+      ),
+    );
+
+    expect(output).toContain("Morpheus agent runner auth failed");
+    expectNoInternalAdapterDetail(output);
+  });
+
   it("fails agent access terminally before agent execution", async () => {
     const tracker = fakeIssueTracker(["agent:ready"]);
     const ledger = fakeRunLedger();
@@ -339,7 +370,7 @@ describe("prepareIssue", () => {
       checkAccess: () =>
         Effect.fail(
           new AgentRunnerError({
-            operation: "sandcastle.auth",
+            operation: "agent-runner.auth",
             failureKind: "operator_access",
             message: "Agent auth env file not found: /repo/.morpheus/secrets/agent.env",
           }),

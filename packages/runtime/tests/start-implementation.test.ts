@@ -12,6 +12,7 @@ import {
   RunLedgerPersistenceError,
   decodeImplementationAgentResult,
   startImplementation,
+  startImplementationForCli,
   WorkspaceRuntime,
   type IssueTrackerService,
   type AgentRunnerService,
@@ -257,7 +258,13 @@ const fakeRunLedger = (
 };
 
 const fakeAgentRunner = (
-  scenario: "implemented" | "single_commit" | "malformed" | "empty_evidence" | "verification_failed" | "no_commits" = "implemented",
+  scenario:
+    | "implemented"
+    | "single_commit"
+    | "malformed"
+    | "empty_evidence"
+    | "verification_failed"
+    | "no_commits" = "implemented",
   options: { readonly failAccess?: boolean; readonly events?: string[] } = {},
 ) => {
   const calls: string[] = [];
@@ -267,7 +274,7 @@ const fakeAgentRunner = (
       if (options.failAccess === true) {
         return Effect.fail(
           new AgentRunnerError({
-            operation: "sandcastle.docker",
+            operation: "container-runner.docker",
             failureKind: "operator_access",
             message: "Docker-compatible runtime unavailable: Cannot connect to the Docker daemon",
           }),
@@ -330,7 +337,9 @@ const fakeAgentRunner = (
   };
 };
 
-const fakeWorkspaceRuntime = (options: { readonly events?: string[] } = {}): {
+const fakeWorkspaceRuntime = (
+  options: { readonly events?: string[] } = {},
+): {
   readonly calls: string[];
   readonly layer: Layer.Layer<WorkspaceRuntime>;
 } => {
@@ -449,6 +458,10 @@ const testLayer = (
   mergeRequests: Layer.Layer<MergeRequestClient>,
   runner: Layer.Layer<AgentRunner>,
 ) => Layer.mergeAll(tracker, ledger, workspace, mergeRequests, runner);
+
+const expectNoInternalAdapterDetail = (output: string) => {
+  expect(output).not.toContain("internal");
+};
 
 describe("startImplementation", () => {
   it("normalizes common failed implementation contract drift", () => {
@@ -598,13 +611,7 @@ describe("startImplementation", () => {
     const result = await Effect.runPromise(
       startImplementation("morph-7ky").pipe(
         Effect.provide(
-          testLayer(
-            tracker.layer,
-            ledger.layer,
-            workspace,
-            mergeRequests.layer,
-            runner.layer,
-          ),
+          testLayer(tracker.layer, ledger.layer, workspace, mergeRequests.layer, runner.layer),
         ),
       ),
     );
@@ -612,7 +619,8 @@ describe("startImplementation", () => {
     expect(result).toMatchObject({
       status: "failed",
       failureKind: "verification_error",
-      message: "Implementation workspace finalization found no commits on the implementation branch.",
+      message:
+        "Implementation workspace finalization found no commits on the implementation branch.",
     });
     expect(calls).toEqual([
       "prepare:morph-7ky:run_01KRGGDQ6JQN2GMD6KJQ5SFXR6",
@@ -740,6 +748,45 @@ describe("startImplementation", () => {
     expect(workspace.calls).toEqual([]);
     expect(mergeRequests.calls).toEqual([]);
     expect(runner.calls).toEqual(["checkAccess"]);
+  });
+
+  it("renders Docker preflight failures with container runner vocabulary", async () => {
+    const tracker = fakeIssueTracker(["agent:prepared"]);
+    const ledger = fakeRunLedger();
+    const workspace = fakeWorkspaceRuntime();
+    const mergeRequests = fakeMergeRequestClient("success");
+    const runner: AgentRunnerService = {
+      checkAccess: () =>
+        Effect.fail(
+          new AgentRunnerError({
+            operation: "container-runner.docker",
+            failureKind: "operator_access",
+            message: "internal container adapter detail",
+            publicMessage:
+              "Morpheus container runner access check failed: Docker-compatible runtime unavailable",
+          }),
+        ),
+      prepareIssue: () => Effect.die("not used"),
+      implementIssue: () => Effect.die("implement should not run"),
+    };
+
+    const output = await Effect.runPromise(
+      startImplementationForCli("morph-7ky").pipe(
+        Effect.provide(
+          testLayer(
+            tracker.layer,
+            ledger.layer,
+            workspace.layer,
+            mergeRequests.layer,
+            Layer.succeed(AgentRunner, runner),
+          ),
+        ),
+      ),
+    );
+
+    expect(output).toContain("Morpheus container runner access check failed");
+    expect(output).toContain("Docker-compatible runtime");
+    expectNoInternalAdapterDetail(output);
   });
 
   it("rejects malformed implementation evidence before updating MR evidence", async () => {

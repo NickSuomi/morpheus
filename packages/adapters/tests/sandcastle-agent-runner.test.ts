@@ -3,7 +3,7 @@ import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { deriveIssueState, deriveLane } from "@morpheus/core";
-import { Effect, Layer } from "effect";
+import { Effect, Either, Layer } from "effect";
 import { describe, expect, it } from "vitest";
 import { createSandcastleAgentRunner, sandcastleAgentRunnerLayer } from "../src/index.js";
 import {
@@ -75,18 +75,24 @@ describe("SandcastleAgentRunner", () => {
             new ProcessRunnerError({
               command,
               args: [...args],
-              message: "Cannot connect to the Docker daemon",
+              message: "Sandcastle docker cannot connect to the Docker daemon",
             }),
           ),
       },
     });
 
-    const result = await Effect.runPromiseExit(runner.checkAccess?.() ?? Effect.void);
+    const result = await Effect.runPromise(Effect.either(runner.checkAccess?.() ?? Effect.void));
 
-    expect(result._tag).toBe("Failure");
-    expect(String(result)).toContain("operator_access");
-    expect(String(result)).toContain("Docker-compatible runtime unavailable");
-    expect(String(result)).toContain("Docker Desktop, OrbStack, Colima, or remote Docker context");
+    expect(Either.isLeft(result)).toBe(true);
+    if (Either.isRight(result)) {
+      throw new Error("expected docker access failure");
+    }
+    expect(result.left.operation).toBe("sandcastle.docker");
+    expect(result.left.failureKind).toBe("operator_access");
+    expect(result.left.message).toContain("Docker-compatible runtime unavailable");
+    expect(result.left.publicMessage).toContain("Morpheus container runner access check failed");
+    expect(result.left.publicMessage).toContain("Docker-compatible runtime unavailable");
+    expect(result.left.publicMessage).not.toMatch(/sandcastle/i);
   });
 
   it("preflights Docker-compatible runtime through the daemon layer before agent work", async () => {
@@ -975,11 +981,20 @@ describe("SandcastleAgentRunner", () => {
       },
     });
 
-    const result = await Effect.runPromiseExit(runner.prepareIssue({ issue: trackedIssue() }));
+    const result = await Effect.runPromise(
+      Effect.either(runner.prepareIssue({ issue: trackedIssue() })),
+    );
 
     expect(runCalled).toBe(false);
-    expect(result._tag).toBe("Failure");
-    expect(String(result)).toContain("Agent auth env file not found");
+    expect(Either.isLeft(result)).toBe(true);
+    if (Either.isRight(result)) {
+      throw new Error("expected missing auth env failure");
+    }
+    expect(result.left.operation).toBe("sandcastle.prepare");
+    expect(result.left.failureKind).toBe("operator_access");
+    expect(result.left.message).toContain("Agent auth env file not found");
+    expect(result.left.publicMessage).toContain("Morpheus agent runner auth failed");
+    expect(result.left.publicMessage).not.toMatch(/sandcastle/i);
   });
 
   it("fails before running when Codex auth env file lacks OPENAI_API_KEY", async () => {
@@ -1034,6 +1049,33 @@ describe("SandcastleAgentRunner", () => {
     expect(String(result)).toContain(
       "Codex agent auth env file must not set CODEX_HOME; use OPENAI_API_KEY only",
     );
+  });
+
+  it("maps Sandcastle phase failures to public Morpheus runner messages", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "morpheus-sandcastle-"));
+    writeFileSync(join(dir, "agent.env"), "OPENAI_API_KEY=test-token\n");
+    const runner = createSandcastleAgentRunner({
+      cwd: dir,
+      logDirectory: join(dir, ".morpheus", "sandcastle-logs"),
+      authEnvFile: "agent.env",
+      run: async () => {
+        throw new Error("Sandcastle prepare phase exploded");
+      },
+    });
+
+    const result = await Effect.runPromise(
+      Effect.either(runner.prepareIssue({ issue: trackedIssue() })),
+    );
+
+    expect(Either.isLeft(result)).toBe(true);
+    if (Either.isRight(result)) {
+      throw new Error("expected phase failure");
+    }
+    expect(result.left.operation).toBe("sandcastle.prepare");
+    expect(result.left.failureKind).toBe("runtime_error");
+    expect(result.left.message).toContain("Sandcastle prepare phase exploded");
+    expect(result.left.publicMessage).toContain("Morpheus agent runner failed during prepare");
+    expect(result.left.publicMessage).not.toMatch(/sandcastle/i);
   });
 
   it("runs implementation in the prepared workspace with MR and contract context", async () => {
