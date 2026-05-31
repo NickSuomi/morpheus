@@ -11,6 +11,7 @@ import {
   IssueTrackerCommandError,
   MergeRequestClient,
   reviewIssue,
+  reviewIssueForCli,
   RunLedger,
   RunLedgerPersistenceError,
   WorkspaceRuntime,
@@ -332,7 +333,7 @@ const failingAccessAgentRunner = () => {
       calls.push("checkAccess");
       return Effect.fail(
         new AgentRunnerError({
-          operation: "sandcastle.docker",
+          operation: "container-runner.docker",
           failureKind: "operator_access",
           message: "Docker-compatible runtime unavailable: Cannot connect to the Docker daemon",
         }),
@@ -342,6 +343,10 @@ const failingAccessAgentRunner = () => {
     reviewIssue: () => Effect.die("review should not run"),
   };
   return { calls, layer: Layer.succeed(AgentRunner, service) };
+};
+
+const expectNoInternalAdapterDetail = (output: string) => {
+  expect(output).not.toContain("internal");
 };
 
 const runReview = async (scenario: "passed" | "blocked" | "failed" | "malformed") =>
@@ -504,7 +509,9 @@ describe("reviewIssue", () => {
         });
       }
       expect(tracker.labels).toEqual(["agent:failed"]);
-      expect(ledger.events).toEqual(expect.arrayContaining(["RunArtifactsWritten", "ReviewFailed"]));
+      expect(ledger.events).toEqual(
+        expect.arrayContaining(["RunArtifactsWritten", "ReviewFailed"]),
+      );
       expect(ledger.run).toMatchObject({
         status: "failed",
         failureKind: "operator_access",
@@ -555,7 +562,9 @@ describe("reviewIssue", () => {
         message: expect.stringContaining("review workspace unavailable"),
       });
       expect(tracker.labels).toEqual(["agent:failed"]);
-      expect(ledger.events).toEqual(expect.arrayContaining(["RunArtifactsWritten", "ReviewFailed"]));
+      expect(ledger.events).toEqual(
+        expect.arrayContaining(["RunArtifactsWritten", "ReviewFailed"]),
+      );
       expect(ledger.run).toMatchObject({
         status: "failed",
         failureKind: "runtime_error",
@@ -586,6 +595,45 @@ describe("reviewIssue", () => {
     expect(ledger.events).toContain("ReviewFailed");
     expect(mergeRequests.descriptions[0]).toContain("- [error] Verification mismatch.");
     expect(mergeRequests.descriptions[0]).toContain("Review verdict: failed");
+  });
+
+  it("renders review phase runner failures with Morpheus vocabulary", async () => {
+    await withImplementationArtifact(async (artifactPath) => {
+      const tracker = fakeIssueTracker();
+      const ledger = fakeRunLedger(artifactPath);
+      const mergeRequests = fakeMergeRequests();
+      const workspace = fakeWorkspaceRuntime();
+      const runner: AgentRunnerService = {
+        checkAccess: () => Effect.void,
+        prepareIssue: () => Effect.die("not used"),
+        reviewIssue: () =>
+          Effect.fail(
+            new AgentRunnerError({
+              operation: "agent-runner.review",
+              failureKind: "runtime_error",
+              message: "internal review adapter detail",
+              publicMessage: "Morpheus agent runner failed during review: review phase failed",
+            }),
+          ),
+      };
+
+      const output = await Effect.runPromise(
+        reviewIssueForCli("morph-wv6").pipe(
+          Effect.provide(
+            Layer.mergeAll(
+              tracker.layer,
+              ledger.layer,
+              mergeRequests.layer,
+              Layer.succeed(AgentRunner, runner),
+              workspace.layer,
+            ),
+          ),
+        ),
+      );
+
+      expect(output).toContain("Morpheus agent runner failed during review");
+      expectNoInternalAdapterDetail(output);
+    });
   });
 
   it("rejects malformed review findings before updating the MR", async () => {

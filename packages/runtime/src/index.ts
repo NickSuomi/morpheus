@@ -609,6 +609,7 @@ export class AgentRunnerError extends EffectSchema.TaggedError<AgentRunnerError>
   operation: EffectSchema.String,
   failureKind: EffectSchema.optional(EffectSchema.Literal("operator_access", "runtime_error")),
   message: EffectSchema.String,
+  publicMessage: EffectSchema.optional(EffectSchema.String),
 }) {}
 
 export class AgentRunner extends Context.Tag("@morpheus/runtime/AgentRunner")<
@@ -1760,7 +1761,7 @@ export const prepareIssue = (
         run.id,
         startPlan,
         accessResult.left.failureKind ?? "runtime_error",
-        `Agent runner access check failed: ${accessResult.left.message}`,
+        publicAgentRunnerErrorMessage(accessResult.left, "access"),
       );
     }
 
@@ -1784,7 +1785,7 @@ export const prepareIssue = (
 
     const resultEither = yield* Effect.either(runner.prepareIssue({ issue }));
     if (Either.isLeft(resultEither)) {
-      const message = `Agent runner failed during preparation: ${resultEither.left.message}`;
+      const message = publicAgentRunnerErrorMessage(resultEither.left, "preparation");
       const artifacts = yield* writeArtifactsOrFailRun(ledger, tracker, issueId, run.id, {
         transcript: message,
         artifact: {
@@ -2146,7 +2147,7 @@ export const startImplementation = (
     const accessResult = yield* Effect.either(runner.checkAccess?.() ?? Effect.void);
     if (Either.isLeft(accessResult)) {
       const failureKind = accessResult.left.failureKind ?? "runtime_error";
-      const message = `Agent runner access check failed: ${accessResult.left.message}`;
+      const message = publicAgentRunnerErrorMessage(accessResult.left, "access");
       return yield* failImplementationStart(
         tracker,
         ledger,
@@ -2317,7 +2318,7 @@ export const startImplementation = (
         issueId,
         run.id,
         "runtime_error",
-        `Agent runner failed during implementation: ${agentResult.left.message}`,
+        publicAgentRunnerErrorMessage(agentResult.left, "implementation"),
       );
     }
 
@@ -2763,7 +2764,7 @@ export const reviewIssue = (
         run.id,
         startPlan,
         accessResult.left.failureKind ?? "runtime_error",
-        `Agent runner access check failed: ${accessResult.left.message}`,
+        publicAgentRunnerErrorMessage(accessResult.left, "access"),
       );
     }
 
@@ -2916,7 +2917,7 @@ export const reviewIssue = (
         issueId,
         run.id,
         "runtime_error",
-        `Agent runner failed during review: ${agentResult.left.message}`,
+        publicAgentRunnerErrorMessage(agentResult.left, "review"),
       );
     }
 
@@ -3136,7 +3137,7 @@ const executeDaemonCommand = (
       issueId: command.issueId,
       result: {
         status: "failed",
-        message: errorMessage(execution.left),
+        message: publicErrorMessage(execution.left),
       },
     };
   });
@@ -3438,6 +3439,29 @@ export type AfkReadyContractValidationResult =
 
 const errorMessage = (error: unknown): string =>
   error instanceof Error ? error.message : String(error);
+
+const publicErrorMessage = (error: unknown): string => {
+  if (isRecord(error) && typeof error.publicMessage === "string") {
+    return error.publicMessage;
+  }
+
+  return errorMessage(error);
+};
+
+const publicAgentRunnerErrorMessage = (
+  error: AgentRunnerError,
+  phase: "access" | "preparation" | "implementation" | "review",
+): string => {
+  if (error.publicMessage !== undefined) {
+    return error.publicMessage;
+  }
+
+  if (phase === "access") {
+    return `Morpheus agent runner access check failed: ${error.message}`;
+  }
+
+  return `Morpheus agent runner failed during ${phase}: ${error.message}`;
+};
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === "object" && value !== null;

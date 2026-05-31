@@ -952,6 +952,18 @@ type FakeAgentRunnerOptions = {
 type SandcastlePhase = "prepare" | "implement" | "review";
 
 type SandcastleRun = (options: RunOptions) => Promise<RunResult>;
+
+const scrubSandcastlePublicVocabulary = (message: string): string =>
+  message.replaceAll(/sandcastle/gi, "Morpheus agent runner");
+
+const agentRunnerAuthPublicMessage = (message: string): string =>
+  `Morpheus agent runner auth failed: ${scrubSandcastlePublicVocabulary(message)}`;
+
+const agentRunnerPhasePublicMessage = (phase: SandcastlePhase, message: string): string =>
+  `Morpheus agent runner failed during ${phase}: ${scrubSandcastlePublicVocabulary(message)}`;
+
+const containerRunnerPublicMessage = (detail: string): string =>
+  `Morpheus container runner access check failed: Docker-compatible runtime unavailable: ${scrubSandcastlePublicVocabulary(detail)}. Start Docker Desktop, OrbStack, Colima, or remote Docker context.`;
 type DockerFactory = typeof docker;
 
 export type ContainerAgentConfig = {
@@ -1466,14 +1478,15 @@ const checkDockerCompatibleRuntime = (
   processRunner: ProcessRunnerService,
 ): Effect.Effect<void, AgentRunnerError> =>
   processRunner.run("docker", ["info"]).pipe(
-    Effect.mapError(
-      (error) =>
-        new AgentRunnerError({
-          operation: "sandcastle.docker",
-          failureKind: "operator_access",
-          message: `Docker-compatible runtime unavailable: ${error.message}. Start Docker Desktop, OrbStack, Colima, or remote Docker context.`,
-        }),
-    ),
+    Effect.mapError((error) => {
+      const detail = error.message;
+      return new AgentRunnerError({
+        operation: "sandcastle.docker",
+        failureKind: "operator_access",
+        message: `Docker-compatible runtime unavailable: ${detail}. Start Docker Desktop, OrbStack, Colima, or remote Docker context.`,
+        publicMessage: containerRunnerPublicMessage(detail),
+      });
+    }),
     Effect.flatMap((result) => {
       if (result.exitCode === 0) {
         return Effect.void;
@@ -1485,6 +1498,7 @@ const checkDockerCompatibleRuntime = (
           operation: "sandcastle.docker",
           failureKind: "operator_access",
           message: `Docker-compatible runtime unavailable: ${detail}. Start Docker Desktop, OrbStack, Colima, or remote Docker context.`,
+          publicMessage: containerRunnerPublicMessage(detail),
         }),
       );
     }),
@@ -1630,14 +1644,18 @@ const runSandcastlePhase = (
         },
       };
     },
-    catch: (error) =>
-      new AgentRunnerError({
+    catch: (error) => {
+      const message = errorMessage(error);
+      const isAuthError = message.startsWith("Agent auth env file");
+      return new AgentRunnerError({
         operation: `sandcastle.${input.phase}`,
-        failureKind: errorMessage(error).startsWith("Agent auth env file")
-          ? "operator_access"
-          : "runtime_error",
-        message: errorMessage(error),
-      }),
+        failureKind: isAuthError ? "operator_access" : "runtime_error",
+        message,
+        publicMessage: isAuthError
+          ? agentRunnerAuthPublicMessage(message)
+          : agentRunnerPhasePublicMessage(input.phase, message),
+      });
+    },
   });
 
 export const createSandcastleAgentRunner = (
@@ -1663,6 +1681,7 @@ export const createSandcastleAgentRunner = (
             operation: "sandcastle.auth",
             failureKind: "operator_access",
             message: errorMessage(error),
+            publicMessage: agentRunnerAuthPublicMessage(errorMessage(error)),
           }),
       });
 
