@@ -13,6 +13,8 @@
 
 # Morpheus runtime artifacts
 .morpheus/
+!fixtures/alpha-target-repo/.morpheus/
+!fixtures/alpha-target-repo/.morpheus/**
 
 # Dependencies and build outputs
 node_modules/
