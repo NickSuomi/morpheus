@@ -1,6 +1,6 @@
 {
   "name": "@morpheus/cli",
-  "version": "0.1.13",
+  "version": "0.1.14",
   "bin": {
     "morpheus": "./dist/index.mjs"
   },

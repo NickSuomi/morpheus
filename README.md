@@ -9,7 +9,7 @@ Morpheus gives an operator one place to install, configure, run, inspect, and re
 ## Contents
 
 - [Why Morpheus Exists](#why-morpheus-exists)
-- [What Alpha Means](#what-alpha-means)
+- [What ALPHA Means](#what-alpha-means)
 - [Golden Path](#golden-path)
 - [Operator Map](#operator-map)
 - [Workflow](#workflow)
@@ -34,7 +34,7 @@ Agent runs become risky when they:
 
 Morpheus makes that work inspectable. A run must have explicit config, explicit auth, explicit lifecycle state, a recorded transcript, and review evidence before humans decide whether to merge.
 
-## What Alpha Means
+## What ALPHA Means
 
 Morpheus ALPHA is the first end-to-end path where a maintainer can:
 
@@ -135,7 +135,7 @@ curl -fsSL https://github.com/NickSuomi/morpheus/releases/latest/download/instal
 Pinned release:
 
 ```sh
-curl -fsSL https://github.com/NickSuomi/morpheus/releases/latest/download/install.sh | MORPHEUS_VERSION=0.1.12 sh
+curl -fsSL https://github.com/NickSuomi/morpheus/releases/latest/download/install.sh | MORPHEUS_VERSION=0.1.14 sh
 ```
 
 Custom install dir:
@@ -291,13 +291,13 @@ pnpm --filter @morpheus/cli morpheus --help
 Build release artifacts:
 
 ```sh
-scripts/package-release.sh --version 0.1.12 --only-os darwin --only-arch arm64
+scripts/package-release.sh --version 0.1.14 --only-os darwin --only-arch arm64
 ```
 
 Install from local artifact by overriding URL/checksum:
 
 ```sh
-MORPHEUS_RELEASE_URL="file:///path/to/morpheus-0.1.12-darwin-arm64.tar.gz" \
+MORPHEUS_RELEASE_URL="file:///path/to/morpheus-0.1.14-darwin-arm64.tar.gz" \
 MORPHEUS_CHECKSUM_URL="" \
 scripts/install.sh
 ```

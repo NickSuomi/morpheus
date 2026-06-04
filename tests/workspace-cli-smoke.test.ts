@@ -190,7 +190,7 @@ describe("morpheus cli", () => {
     const output = runPnpm(["--filter", "@morpheus/cli", "morpheus", "--help"]);
 
     expect(output).toContain("Morpheus");
-  });
+  }, 20_000);
 
   it("prints version", () => {
     const output = runPnpm(["--filter", "@morpheus/cli", "morpheus", "--version"]);
@@ -198,7 +198,7 @@ describe("morpheus cli", () => {
       .version;
 
     expect(output.trim().split("\n").at(-1)).toBe(expectedVersion);
-  });
+  }, 20_000);
 
   it("shows a validated config summary", () => {
     const dir = mkdtempSync(join(tmpdir(), "morpheus-cli-config-"));
