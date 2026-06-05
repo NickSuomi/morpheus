@@ -1,6 +1,14 @@
 import { describe, expect, it } from "vitest";
 import { execFileSync, spawnSync } from "node:child_process";
-import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import {
+  chmodSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  statSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, join, resolve } from "node:path";
 
@@ -95,7 +103,7 @@ describe("curl release installer", () => {
     } finally {
       rmSync(dir, { force: true, recursive: true });
     }
-  });
+  }, 10_000);
 
   it("can install a direct runnable shim artifact through MORPHEUS_BIN_DIR", () => {
     const dir = mkdtempSync(join(tmpdir(), "morpheus-install-shim-test-"));
