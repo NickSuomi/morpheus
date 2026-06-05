@@ -239,6 +239,7 @@ type GitLabIssueJson = {
 type BeadsIssueJson = {
   readonly id?: unknown;
   readonly title?: unknown;
+  readonly status?: unknown;
   readonly labels?: unknown;
   readonly priority?: unknown;
   readonly created_at?: unknown;
@@ -745,6 +746,10 @@ const sourceIdentityMatchedGitLabIssueFromJson = (
   issue: BeadsIssueJson,
   source: GitLabIssueInput,
 ): SourceIdentityMatchedGitLabIssue | undefined => {
+  if (optionalString(issue.status) === "closed") {
+    return undefined;
+  }
+
   const imported = importedGitLabIssueFromJson(issue);
   if (imported !== undefined) {
     return imported.metadata.project === source.project && imported.metadata.iid === source.iid
