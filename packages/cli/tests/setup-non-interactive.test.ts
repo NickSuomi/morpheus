@@ -1,10 +1,12 @@
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { planMorpheusSetup } from "@morpheus/runtime";
 import { describe, expect, it } from "vitest";
 import {
   buildNonInteractiveSetupAnswers,
   readSetupConfigInput,
+  setupPlanWantsContainerBuild,
 } from "../src/setup-non-interactive.js";
 
 const withJsonFile = <T>(contents: string, fn: (path: string) => T) => {
@@ -56,6 +58,40 @@ describe("non-interactive setup options", () => {
     expect(() => buildNonInteractiveSetupAnswers({ yes: true, dryRun: false })).toThrow(
       "Missing required non-interactive setup option: --gitlab-project",
     );
+  });
+
+  it("lets setup defaults decide container build when --yes is used without build flags", () => {
+    const result = buildNonInteractiveSetupAnswers({
+      yes: true,
+      dryRun: false,
+      gitlabProject: "group/project",
+    });
+
+    expect(result.buildContainer).toBeUndefined();
+  });
+
+  it("runs container build from the computed setup default", () => {
+    const answers = buildNonInteractiveSetupAnswers({
+      yes: true,
+      dryRun: false,
+      gitlabProject: "group/project",
+    });
+    const plan = planMorpheusSetup({
+      currentWorkingDirectory: "/repos/app",
+      detected: {
+        targetPath: {
+          exists: true,
+          isDirectory: true,
+          isReadable: true,
+          isGitWorktree: true,
+        },
+        gitlabProject: "group/project",
+        dockerAvailable: true,
+      },
+      answers,
+    });
+
+    expect(setupPlanWantsContainerBuild(plan)).toBe(true);
   });
 
   it("rejects inline secret values", () => {

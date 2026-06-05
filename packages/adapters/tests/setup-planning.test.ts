@@ -353,6 +353,26 @@ describe("setup planning", () => {
     );
   });
 
+  it("rejects Git remote URLs as GitLab project paths", () => {
+    const plan = planMorpheusSetup({
+      currentWorkingDirectory: "/repos/app",
+      detected: {
+        targetPath: {
+          exists: true,
+          isDirectory: true,
+          isReadable: true,
+          isGitWorktree: true,
+        },
+      },
+      answers: {
+        gitlabProject: "gitlab.example.com/group/app.git",
+      },
+    });
+
+    expect(plan.configMutation.action).toBe("blocked");
+    expect(plan.errors).toContain("Use a GitLab project path like group/project.");
+  });
+
   it("blocks update mode when an existing config failed validation", () => {
     const plan = planMorpheusSetup({
       currentWorkingDirectory: "/repos/app",

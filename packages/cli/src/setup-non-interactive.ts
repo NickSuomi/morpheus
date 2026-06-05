@@ -1,5 +1,5 @@
 import { readFileSync } from "node:fs";
-import type { SetupPlanningInput } from "@morpheus/runtime";
+import type { SetupPlan, SetupPlanningInput } from "@morpheus/runtime";
 
 type SetupAnswers = NonNullable<SetupPlanningInput["answers"]>;
 
@@ -54,6 +54,9 @@ export const readSetupConfigInput = (path: string): NonInteractiveSetupInput => 
   return parsed;
 };
 
+export const setupPlanWantsContainerBuild = (plan: Pick<SetupPlan, "prompts">): boolean =>
+  plan.prompts.some((prompt) => prompt.id === "containerBuild" && prompt.value === true);
+
 export const buildNonInteractiveSetupAnswers = (input: NonInteractiveSetupInput): SetupAnswers => {
   if (input.authSecret !== undefined) {
     throw new Error("Non-interactive setup does not accept secret values.");
@@ -82,7 +85,7 @@ export const buildNonInteractiveSetupAnswers = (input: NonInteractiveSetupInput)
     ...(input.pollIntervalSeconds === undefined
       ? {}
       : { pollIntervalSeconds: input.pollIntervalSeconds }),
-    ...(input.build === true ? { buildContainer: true } : { buildContainer: false }),
+    ...(input.build === true ? { buildContainer: true } : {}),
     ...(input.noBuild === true ? { buildContainer: false } : {}),
     writeChanges,
     runDoctor: writeChanges,

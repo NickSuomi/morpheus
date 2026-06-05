@@ -359,6 +359,25 @@ describe("Morpheus config", () => {
   });
 
   it.each([
+    ["GitLab project Git remote", { ...validConfig.gitlab, project: "gitlab.example.com/group/app.git" }],
+  ])("rejects invalid GitLab config: %s", (_field, gitlab) => {
+    withTempDir((dir) => {
+      const configPath = writeConfig(dir, {
+        ...validConfig,
+        gitlab,
+      });
+
+      const result = loadMorpheusConfig({ configPath });
+
+      expect(result.status).toBe("error");
+      if (result.status !== "error") {
+        throw new Error("expected config load failure");
+      }
+      expect(result.error.kind).toBe("schema_validation");
+    });
+  });
+
+  it.each([
     ["runner kind", { ...validConfig.agentRunner, kind: "sandcastle" }],
     [
       "agent provider",
