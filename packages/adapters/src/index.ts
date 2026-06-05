@@ -1356,7 +1356,8 @@ const builtInPrompt = (input: SandcastlePhaseInput, skills: AgentSkillConfig): s
     `Verification evidence: ${JSON.stringify(input.verificationEvidence)}`,
     "Stay read-only. Use concise review and diagnosis behavior.",
     "Verify contract acceptance criteria, AFK gates, verification plan, out-of-scope boundaries, and evidence claims.",
-    'JSON shape: {"status":"passed","findings":[],"transcript":"...","artifact":{}} or blocked/failed variant.',
+    'JSON shapes: passed {"status":"passed","findings":[],"transcript":"...","artifact":{}}; blocked {"status":"blocked","reason":"...","findings":[],"transcript":"...","artifact":{}}; failed {"status":"failed","failureKind":"verification_error","message":"...","findings":[],"transcript":"...","artifact":{}}.',
+    "For failed review results, `failureKind` is required and must be one of: operator_access, runtime_error, agent_contract_error, verification_error, state_conflict, unknown.",
   ].join("\n");
 };
 

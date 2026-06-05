@@ -761,6 +761,9 @@ describe("SandcastleAgentRunner", () => {
       ".morpheus/skills/matt-pocock-diagnose/SKILL.md",
     );
     expect(reviewPrompt).toContain("Verify contract acceptance criteria");
+    expect(reviewPrompt).toContain(
+      '{"status":"failed","failureKind":"verification_error","message":"...","findings":[],"transcript":"...","artifact":{}}',
+    );
   });
 
   it("fails when a stage skill is not mapped to a copied skill path", async () => {
@@ -1228,5 +1231,8 @@ describe("SandcastleAgentRunner", () => {
     expect(calls[0].prompt).toContain("Implementation evidence:");
     expect(calls[0].prompt).toContain("Adapter added");
     expect(calls[0].prompt).toContain("Verification evidence:");
+    expect(calls[0].prompt).toContain(
+      '{"status":"blocked","reason":"...","findings":[],"transcript":"...","artifact":{}}',
+    );
   });
 });
