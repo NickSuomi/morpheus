@@ -334,6 +334,54 @@ describe("SandcastleAgentRunner", () => {
     });
   });
 
+  it("maps the first complete JSON value inside tagged output", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "morpheus-sandcastle-"));
+    const payload = JSON.stringify({
+      status: "prepared",
+      contract: {
+        category: "task",
+        summary: "Prepared",
+        currentBehavior: "Before",
+        desiredBehavior: "After",
+        keyInterfaces: ["AgentRunner"],
+        acceptanceCriteria: ["Runs"],
+        outOfScope: ["None"],
+        verificationPlan: ["pnpm check"],
+        blockedBy: "None",
+        hitlDecisions: "None",
+        riskLevel: "medium",
+      },
+      transcript: "ignored",
+      artifact: {},
+    });
+    const runner = createSandcastleAgentRunner({
+      cwd: dir,
+      logDirectory: join(dir, ".morpheus", "sandcastle-logs"),
+      agent: {
+        name: "fake",
+        env: {},
+        captureSessions: false,
+        buildPrintCommand: () => ({ command: "fake" }),
+        parseStreamLine: () => [],
+      },
+      sandbox: {
+        kind: "none",
+        exec: async () => ({ stdout: "", stderr: "", exitCode: 0 }),
+        close: async () => ({}),
+      } as never,
+      run: async () => ({
+        iterations: [],
+        stdout: `<morpheus_result>${payload}}\nAgent stopped</morpheus_result>`,
+        commits: [],
+        branch: "agent/morph-bbp",
+      }),
+    });
+
+    const result = await Effect.runPromise(runner.prepareIssue({ issue: trackedIssue() }));
+
+    expect(result.status).toBe("prepared");
+  });
+
   it("runs implementation in the prepared worktree, not the base checkout", async () => {
     const dir = mkdtempSync(join(tmpdir(), "morpheus-sandcastle-"));
     const worktreePath = join(dir, "../.morpheus-worktree-run_123");

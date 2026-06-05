@@ -1460,13 +1460,91 @@ const resolvePromptText = (
   ].join("\n\n");
 };
 
+const firstJsonValueFrom = (value: string): string | undefined => {
+  const objectStart = value.indexOf("{");
+  const arrayStart = value.indexOf("[");
+  const start =
+    objectStart === -1
+      ? arrayStart
+      : arrayStart === -1
+        ? objectStart
+        : Math.min(objectStart, arrayStart);
+  if (start === -1) {
+    return undefined;
+  }
+
+  const stack: string[] = [];
+  let inString = false;
+  let escaped = false;
+
+  for (let index = start; index < value.length; index += 1) {
+    const char = value[index];
+
+    if (inString) {
+      if (escaped) {
+        escaped = false;
+      } else if (char === "\\") {
+        escaped = true;
+      } else if (char === '"') {
+        inString = false;
+      }
+      continue;
+    }
+
+    if (char === '"') {
+      inString = true;
+      continue;
+    }
+
+    if (char === "{") {
+      stack.push("}");
+      continue;
+    }
+
+    if (char === "[") {
+      stack.push("]");
+      continue;
+    }
+
+    if (char !== "}" && char !== "]") {
+      continue;
+    }
+
+    const expected = stack.pop();
+    if (expected !== char) {
+      return undefined;
+    }
+
+    if (stack.length === 0) {
+      return value.slice(start, index + 1);
+    }
+  }
+
+  return undefined;
+};
+
 const extractTaggedJson = (stdout: string): unknown => {
   const match = stdout.match(new RegExp(`<${resultTag}>([\\s\\S]*?)</${resultTag}>`));
   if (match === null) {
     throw new Error(`Missing <${resultTag}> output`);
   }
 
-  return JSON.parse(match[1]);
+  const payload = match[1].trim();
+
+  try {
+    return JSON.parse(payload);
+  } catch (error) {
+    const firstJsonValue = firstJsonValueFrom(payload);
+    if (firstJsonValue !== undefined && firstJsonValue !== payload) {
+      try {
+        return JSON.parse(firstJsonValue);
+      } catch {
+        // Preserve the original whole-payload parse error below.
+      }
+    }
+
+    throw error;
+  }
 };
 
 const parseEnvFile = (contents: string): Record<string, string> =>
