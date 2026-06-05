@@ -1385,6 +1385,44 @@ describe("BeadsIssueTracker", () => {
     expect(processRunner.calls.some((call) => call.args.includes("morph-closed"))).toBe(false);
   });
 
+  it("does not list closed imported GitLab issues for lifecycle mirroring", async () => {
+    const imported = (id: string, status: "open" | "closed") => ({
+      id,
+      status,
+      title: "Import me",
+      description: "Ready for Morpheus.",
+      labels: ["agent:ready"],
+      metadata: {
+        morpheus: {
+          gitlab: {
+            project: "group/project",
+            iid: id === "morph-open" ? 42 : 43,
+            webUrl: `https://gitlab.example.com/group/project/-/issues/${
+              id === "morph-open" ? 42 : 43
+            }`,
+            labels: ["agent:ready"],
+            lastSyncedAt: "2026-05-19T09:00:00.000Z",
+            title: "Import me",
+            description: "Ready for Morpheus.",
+          },
+        },
+      },
+    });
+    const processRunner = fakeProcessRunner([
+      ok([imported("morph-open", "open"), imported("morph-closed", "closed")]),
+    ]);
+
+    const result = await runWithTracker(
+      processRunner.layer,
+      Effect.gen(function* () {
+        const tracker = yield* IssueTracker;
+        return yield* tracker.listImportedGitLabIssues();
+      }),
+    );
+
+    expect(result.map((issue) => issue.id)).toEqual(["morph-open"]);
+  });
+
   it("fails closed for legacy GitLab imports that only carry source identity in prose", async () => {
     const processRunner = fakeProcessRunner([
       ok([

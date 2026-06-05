@@ -694,6 +694,10 @@ const importedGitLabMetadataFromRecord = (
 };
 
 const importedGitLabIssueFromJson = (issue: BeadsIssueJson): ImportedGitLabIssue | undefined => {
+  if (optionalString(issue.status) === "closed") {
+    return undefined;
+  }
+
   const id = requiredString(issue.id, "id");
   const metadata = issue.metadata;
 
@@ -746,10 +750,6 @@ const sourceIdentityMatchedGitLabIssueFromJson = (
   issue: BeadsIssueJson,
   source: GitLabIssueInput,
 ): SourceIdentityMatchedGitLabIssue | undefined => {
-  if (optionalString(issue.status) === "closed") {
-    return undefined;
-  }
-
   const imported = importedGitLabIssueFromJson(issue);
   if (imported !== undefined) {
     return imported.metadata.project === source.project && imported.metadata.iid === source.iid
