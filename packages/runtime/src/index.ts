@@ -2996,6 +2996,20 @@ export const reviewIssue = (
     }
     const implementationArtifact = implementationArtifactResult.right;
     const mergeRequest = implementationArtifact.mergeRequest;
+    const importedIssuesResult = yield* Effect.either(tracker.listImportedGitLabIssues());
+    if (Either.isLeft(importedIssuesResult)) {
+      return yield* failReviewAfterStart(
+        tracker,
+        ledger,
+        issueId,
+        run.id,
+        "runtime_error",
+        `Imported GitLab issue metadata read failed: ${errorMessage(importedIssuesResult.left)}`,
+        undefined,
+        { writeFailureArtifacts: true },
+      );
+    }
+    const sourceIssue = sourceIssueReferenceFor(importedIssuesResult.right, issue.id);
     const mergeRequestRunResult = yield* Effect.either(
       ledger.recordMergeRequest(run.id, mergeRequest),
     );
@@ -3118,6 +3132,7 @@ export const reviewIssue = (
         reference: mergeRequest.reference,
         description: renderReviewArtifact({
           issueId: issue.id,
+          sourceIssue,
           contract,
           implementationEvidence: implementationEvidenceLines(
             implementationArtifact.implementationEvidence,
