@@ -1581,11 +1581,89 @@ const normalizeImplementationAgentResult = (value: unknown): unknown => {
   };
 };
 
+const normalizeReviewFindingSeverity = (
+  severity: unknown,
+): ReviewFinding["severity"] | undefined => {
+  if (severity === "info" || severity === "warning" || severity === "error") {
+    return severity;
+  }
+
+  if (typeof severity !== "string") {
+    return undefined;
+  }
+
+  const normalized = severity.trim().toLowerCase();
+  if (normalized === "low" || normalized === "minor") {
+    return "info";
+  }
+
+  if (normalized === "medium" || normalized === "moderate") {
+    return "warning";
+  }
+
+  if (normalized === "high" || normalized === "critical" || normalized === "major") {
+    return "error";
+  }
+
+  return undefined;
+};
+
+const normalizeReviewFindingSummary = (finding: Record<string, unknown>): unknown => {
+  if (typeof finding.summary === "string" && finding.summary.trim().length > 0) {
+    return finding.summary;
+  }
+
+  if (typeof finding.message !== "string" || finding.message.trim().length === 0) {
+    return finding.summary;
+  }
+
+  const location =
+    typeof finding.file === "string" && finding.file.trim().length > 0
+      ? `${finding.file}${typeof finding.line === "number" ? `:${finding.line}` : ""}: `
+      : "";
+
+  return `${location}${finding.message}`;
+};
+
+const normalizeReviewFindings = (findings: unknown): unknown => {
+  if (!Array.isArray(findings)) {
+    return findings;
+  }
+
+  return findings.map((finding) => {
+    if (!isRecord(finding)) {
+      return finding;
+    }
+
+    const severity = normalizeReviewFindingSeverity(finding.severity);
+    return {
+      ...finding,
+      severity: severity ?? finding.severity,
+      summary: normalizeReviewFindingSummary(finding),
+    };
+  });
+};
+
+const normalizeReviewAgentResult = (value: unknown): unknown => {
+  if (!isRecord(value)) {
+    return value;
+  }
+
+  return {
+    ...value,
+    findings: normalizeReviewFindings(value.findings),
+  };
+};
+
 export const decodeReviewAgentResult = (value: unknown): ReviewAgentResultDecodeResult => {
+  const normalizedValue = normalizeReviewAgentResult(value);
+
   try {
     return {
       status: "valid",
-      result: Schema.decodeUnknownSync(ReviewAgentResultSchema)(value) as ReviewAgentResult,
+      result: Schema.decodeUnknownSync(ReviewAgentResultSchema)(
+        normalizedValue,
+      ) as ReviewAgentResult,
     };
   } catch (error) {
     return {
