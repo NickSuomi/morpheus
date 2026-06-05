@@ -9,7 +9,9 @@ import {
   syncGitLabIssues,
   type GitLabIssueInput,
   type GitLabIssueSourceService,
+  type ImportedGitLabIssue,
   type IssueTrackerService,
+  type UpdateGitLabIssueLabelsInput,
   type UpsertImportedGitLabIssueInput,
 } from "../src/index.js";
 
@@ -28,6 +30,12 @@ const issueSourceLayer = (
 ): Layer.Layer<GitLabIssueSource> =>
   Layer.succeed(GitLabIssueSource, {
     listReadyIssues: service.listReadyIssues ?? (() => Effect.succeed([])),
+    listLifecycleIssues:
+      service.listLifecycleIssues ??
+      ((input) =>
+        service.listReadyIssues?.({ project: input.project, readyLabel: "agent:ready" }) ??
+        Effect.succeed([])),
+    updateIssueLabels: service.updateIssueLabels ?? (() => Effect.succeed(undefined)),
   });
 
 const issueTrackerLayer = (service: Partial<IssueTrackerService>): Layer.Layer<IssueTracker> =>
@@ -64,7 +72,7 @@ const issueTrackerLayer = (service: Partial<IssueTrackerService>): Layer.Layer<I
         }),
       ),
     readContract: (issueId) => Effect.succeed({ status: "missing", issueId }),
-    listImportedGitLabIssues: () => Effect.succeed([]),
+    listImportedGitLabIssues: service.listImportedGitLabIssues ?? (() => Effect.succeed([])),
     upsertImportedGitLabIssue:
       service.upsertImportedGitLabIssue ??
       (() => Effect.succeed({ status: "skipped", issueId: "morph-skip", reason: "unchanged" })),
@@ -107,6 +115,8 @@ describe("syncGitLabIssues", () => {
       {
         source: gitlabIssue(),
         syncedAt: "2026-05-19T10:00:00.000Z",
+        readyLabel: "agent:ready",
+        stopLabel: "agent:stop",
       },
     ]);
   });
@@ -276,5 +286,63 @@ describe("syncGitLabIssues", () => {
 
     expect(result.failed).toHaveLength(1);
     expect(result.failed[0]?.message).toContain("Unexpected token");
+  });
+
+  it("mirrors Beads lifecycle labels back to GitLab and removes stale ready labels", async () => {
+    const updates: UpdateGitLabIssueLabelsInput[] = [];
+    const importedIssue: ImportedGitLabIssue = {
+      id: "morph-existing",
+      title: "Import me",
+      description: "Ready for Morpheus.",
+      labels: ["agent:running", "backend"],
+      metadata: {
+        project: "group/project",
+        iid: 42,
+        webUrl: "https://gitlab.example.com/group/project/-/issues/42",
+        labels: ["agent:ready", "backend"],
+        lastSyncedAt: "2026-05-19T09:00:00.000Z",
+        title: "Import me",
+        description: "Ready for Morpheus.",
+      },
+    };
+
+    const result = await Effect.runPromise(
+      syncGitLabIssues({
+        project: "group/project",
+        readyLabel: "agent:ready",
+        syncedAt: "2026-05-19T10:00:00.000Z",
+      }).pipe(
+        Effect.provide(
+          Layer.mergeAll(
+            issueSourceLayer({
+              listLifecycleIssues: () => Effect.succeed([gitlabIssue()]),
+              updateIssueLabels: (input) => {
+                updates.push(input);
+                return Effect.succeed(undefined);
+              },
+            }),
+            issueTrackerLayer({
+              upsertImportedGitLabIssue: () =>
+                Effect.succeed({
+                  status: "skipped",
+                  issueId: "morph-existing",
+                  reason: "unchanged",
+                }),
+              listImportedGitLabIssues: () => Effect.succeed([importedIssue]),
+            }),
+          ),
+        ),
+      ),
+    );
+
+    expect(result.failed).toHaveLength(0);
+    expect(updates).toEqual([
+      {
+        project: "group/project",
+        iid: 42,
+        addLabels: ["agent:running"],
+        removeLabels: ["agent:ready"],
+      },
+    ]);
   });
 });

@@ -138,6 +138,8 @@ describe("SandcastleAgentRunner", () => {
     };
     const gitlabIssueSource: GitLabIssueSourceService = {
       listReadyIssues: () => Effect.succeed([]),
+      listLifecycleIssues: () => Effect.succeed([]),
+      updateIssueLabels: () => Effect.succeed(undefined),
     };
     let run: RunSummary = {
       id: "run_preflight",
@@ -190,6 +192,8 @@ describe("SandcastleAgentRunner", () => {
     };
     const mergeRequests: MergeRequestClientService = {
       createDraftMergeRequest: () => Effect.die("createDraftMergeRequest should not run"),
+      findOpenMergeRequestForSourceIssue: () =>
+        Effect.die("findOpenMergeRequestForSourceIssue should not run"),
       updateDescription: () => Effect.die("updateDescription should not run"),
     };
 

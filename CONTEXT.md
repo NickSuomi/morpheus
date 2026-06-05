@@ -22,6 +22,14 @@ Real-world ALPHA validation against a non-public target repository. Private targ
 
 Current Beads `agent:*` label on an issue. Exactly one active `agent:*` state is valid. Beads issue state is source of truth.
 
+### GitLab Lifecycle Mirror
+
+GitLab issue labels that mirror Morpheus issue state for operator visibility and control. GitLab lifecycle labels are reconciled with Beads each daemon tick, but Beads remains authoritative when labels drift.
+
+### Agent Stop Label
+
+GitLab-only operator control label, default `agent:stop`, that tells Morpheus to move an imported issue to `agent:blocked` before the next lane can start. Morpheus removes the stop label from GitLab after reflecting the blocked state.
+
 ### Agent-Ready Contract
 
 Structured behavioral contract produced during preparation. It describes current behavior, desired behavior, key interfaces, acceptance criteria, out of scope, verification plan, blockers, HITL decisions, and risk level.

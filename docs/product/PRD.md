@@ -104,6 +104,8 @@ Target repo owns:
 - No auto-retry in v1.
 - Human/operator requeues failed work by moving issue back to `agent:ready`.
 - Beads remains source of truth for issue state and contract metadata.
+- GitLab lifecycle labels mirror Beads for operator visibility, import, requeue,
+  and stop control; GitLab labels do not replace Beads as scheduler state.
 - GitLab MR becomes human review artifact.
 - Runtime may use `glab` for MR operations.
 - Runtime must not use GitLab issue comments as primary lifecycle state.

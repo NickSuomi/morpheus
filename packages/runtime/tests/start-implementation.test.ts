@@ -18,6 +18,7 @@ import {
   type AgentRunnerService,
   type ImportedGitLabIssue,
   type MergeRequestClientService,
+  type MergeRequestReference,
   type RunLedgerService,
   type RunSummary,
   type TrackedIssue,
@@ -372,7 +373,10 @@ const fakeWorkspaceRuntime = (
 
 const fakeMergeRequestClient = (
   scenario: "success" | "operator_access",
-  options: { readonly events?: string[] } = {},
+  options: {
+    readonly events?: string[];
+    readonly existingMergeRequest?: MergeRequestReference;
+  } = {},
 ) => {
   const calls: string[] = [];
   const draftDescriptions: string[] = [];
@@ -396,6 +400,11 @@ const fakeMergeRequestClient = (
         reference: "!42",
         url: "https://gitlab.example.com/group/project/-/merge_requests/42",
       });
+    },
+    findOpenMergeRequestForSourceIssue: (input) => {
+      calls.push(`find:${input.sourceIssueIid}`);
+      options.events?.push("findOpenMergeRequestForSourceIssue");
+      return Effect.succeed(options.existingMergeRequest);
     },
     updateDescription: (input) => {
       calls.push(`update:${input.reference}`);
@@ -702,6 +711,61 @@ describe("startImplementation", () => {
     expect(result.status).toBe("started");
     expect(mergeRequests.draftDescriptions[0]).toContain("Source issue: #1234");
     expect(mergeRequests.descriptions[0]).toContain("Source issue: #1234");
+  });
+
+  it("fails before workspace side effects when an open MR already references the source issue", async () => {
+    const tracker = fakeIssueTracker(["agent:prepared"], {
+      importedIssues: [
+        {
+          id: "morph-7ky",
+          title: "Imported issue",
+          description: "Ready for Morpheus.",
+          labels: ["agent:prepared"],
+          metadata: {
+            project: "group/project",
+            iid: 1234,
+            webUrl: "https://gitlab.example.com/group/project/-/issues/1234",
+            labels: ["agent:ready"],
+            lastSyncedAt: "2026-05-14T00:00:00.000Z",
+            title: "Imported issue",
+            description: "Ready for Morpheus.",
+          },
+        },
+      ],
+    });
+    const ledger = fakeRunLedger();
+    const workspace = fakeWorkspaceRuntime();
+    const mergeRequests = fakeMergeRequestClient("success", {
+      existingMergeRequest: {
+        reference: "!99",
+        url: "https://gitlab.example.com/group/project/-/merge_requests/99",
+      },
+    });
+    const runner = fakeAgentRunner();
+
+    const result = await Effect.runPromise(
+      startImplementation("morph-7ky").pipe(
+        Effect.provide(
+          testLayer(
+            tracker.layer,
+            ledger.layer,
+            workspace.layer,
+            mergeRequests.layer,
+            runner.layer,
+          ),
+        ),
+      ),
+    );
+
+    expect(result).toMatchObject({
+      status: "failed",
+      failureKind: "runtime_error",
+      message:
+        "Open MR already exists for source issue #1234: !99 https://gitlab.example.com/group/project/-/merge_requests/99",
+    });
+    expect(workspace.calls).toEqual([]);
+    expect(mergeRequests.calls).toEqual(["find:1234"]);
+    expect(runner.calls).toEqual(["checkAccess"]);
   });
 
   it("fails Docker-compatible runtime preflight terminally before workspace or Draft MR creation", async () => {
