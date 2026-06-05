@@ -12,7 +12,7 @@ Product principle: **If it can't explain itself, it can't run.**
 2. `cd` into a target repository.
 3. Run `morpheus setup`.
 4. Answer guided setup prompts.
-5. Let setup write/verify target Morpheus files.
+5. Let setup write/verify target Morpheus files and build the configured container image when Docker is available.
 6. Run doctor with zero `FAIL` results.
 7. Run `morpheus daemon --once` successfully.
 8. Start `morpheus daemon` when ready.
@@ -53,7 +53,8 @@ The installer must:
 - multi-choice prompts toggle with Space and confirm with Enter;
 - text, path, model, and pasted values use readline-style input;
 - secret values are never requested, printed, logged, copied, or summarized;
-- setup creates or points to an explicit env file and tells the operator which required keys to fill.
+- setup creates or points to an explicit env file and tells the operator which required keys to fill;
+- setup defaults to building the configured Morpheus container image when Docker is available, with an explicit opt-out for operators who want to build it later.
 
 Richer prompt copy, validation, and recovery may continue as UX hardening, but
 selector/readline coverage above is part of the ALPHA contract.

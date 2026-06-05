@@ -60,6 +60,7 @@ import {
 import {
   buildNonInteractiveSetupAnswers,
   readSetupConfigInput,
+  setupPlanWantsContainerBuild,
   type NonInteractiveSetupInput,
 } from "./setup-non-interactive.js";
 
@@ -759,7 +760,7 @@ const runNonInteractiveSetup = async (
     ),
   );
 
-  if (answers.buildContainer === true) {
+  if (setupPlanWantsContainerBuild(plan)) {
     console.log(
       await Effect.runPromise(
         runMorpheusSetupContainerBuild(plan).pipe(
@@ -935,7 +936,7 @@ const setup = Command.make(
           ),
         );
 
-        if (writeChanges && answers.buildContainer === true) {
+        if (writeChanges && setupPlanWantsContainerBuild(plan)) {
           const output = await Effect.runPromise(
             runMorpheusSetupContainerBuild(plan).pipe(
               Effect.provide(nodeSetupEnvironmentLayer()),

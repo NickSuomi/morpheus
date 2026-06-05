@@ -1012,11 +1012,30 @@ type SandcastleRun = (options: RunOptions) => Promise<RunResult>;
 const scrubSandcastlePublicVocabulary = (message: string): string =>
   message.replaceAll(/sandcastle/gi, "Morpheus agent runner");
 
+const containerImageMissingPublicMessage = (
+  message: string,
+  containerConfig: ContainerRuntimeConfig,
+): string | undefined => {
+  if (!/not found locally/i.test(message) || !/build-image/i.test(message)) {
+    return undefined;
+  }
+
+  const profile = containerConfig.profile ?? ".morpheus/container/Dockerfile";
+  return `Configured container image ${containerConfig.image} is not available. Build it with: docker build -f ${profile} -t ${containerConfig.image} .`;
+};
+
 const agentRunnerAuthPublicMessage = (message: string): string =>
   `Morpheus agent runner auth failed: ${scrubSandcastlePublicVocabulary(message)}`;
 
-const agentRunnerPhasePublicMessage = (phase: SandcastlePhase, message: string): string =>
-  `Morpheus agent runner failed during ${phase}: ${scrubSandcastlePublicVocabulary(message)}`;
+const agentRunnerPhasePublicMessage = (
+  phase: SandcastlePhase,
+  message: string,
+  containerConfig: ContainerRuntimeConfig,
+): string =>
+  `Morpheus agent runner failed during ${phase}: ${
+    containerImageMissingPublicMessage(message, containerConfig) ??
+    scrubSandcastlePublicVocabulary(message)
+  }`;
 
 const containerRunnerPublicMessage = (detail: string): string =>
   `Morpheus container runner access check failed: Docker-compatible runtime unavailable: ${scrubSandcastlePublicVocabulary(detail)}. Start Docker Desktop, OrbStack, Colima, or remote Docker context.`;
@@ -1710,7 +1729,14 @@ const runSandcastlePhase = (
         message,
         publicMessage: isAuthError
           ? agentRunnerAuthPublicMessage(message)
-          : agentRunnerPhasePublicMessage(input.phase, message),
+          : agentRunnerPhasePublicMessage(
+              input.phase,
+              message,
+              options.containerConfig ?? {
+                image: "morpheus-agent:local",
+                mounts: [],
+              },
+            ),
       });
     },
   });

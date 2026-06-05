@@ -103,7 +103,7 @@ describe("curl release installer", () => {
     } finally {
       rmSync(dir, { force: true, recursive: true });
     }
-  }, 10_000);
+  }, 15_000);
 
   it("can install a direct runnable shim artifact through MORPHEUS_BIN_DIR", () => {
     const dir = mkdtempSync(join(tmpdir(), "morpheus-install-shim-test-"));

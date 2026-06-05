@@ -237,6 +237,36 @@ describe("SandcastleAgentRunner", () => {
     });
   });
 
+  it("maps missing container image guidance to the Morpheus build command", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "morpheus-sandcastle-"));
+    const runner = createSandcastleAgentRunner({
+      cwd: dir,
+      logDirectory: join(dir, ".morpheus", "sandcastle-logs"),
+      authRequiredKeys: [],
+      containerConfig: {
+        image: "morpheus-agent:local",
+        profile: ".morpheus/container/Dockerfile",
+        mounts: [],
+      },
+      run: async () => {
+        throw new Error(
+          "Provider 'docker' create failed: Image 'morpheus-agent:local' not found locally. Build it first with 'sandcastle docker build-image'.",
+        );
+      },
+    });
+
+    const result = await Effect.runPromise(Effect.either(runner.prepareIssue({ issue: trackedIssue() })));
+
+    expect(Either.isLeft(result)).toBe(true);
+    if (Either.isRight(result)) {
+      throw new Error("expected missing image failure");
+    }
+    expect(result.left.publicMessage).toContain(
+      "docker build -f .morpheus/container/Dockerfile -t morpheus-agent:local .",
+    );
+    expect(result.left.publicMessage).not.toMatch(/sandcastle/i);
+  });
+
   it("constructs Sandcastle run options and maps tagged output to preparation result", async () => {
     const dir = mkdtempSync(join(tmpdir(), "morpheus-sandcastle-"));
     const calls: unknown[] = [];

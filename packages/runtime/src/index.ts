@@ -3752,13 +3752,24 @@ const ToolchainProbeSchema = Schema.Struct({
   scope: Schema.optional(Schema.Literal("host", "container")),
 });
 
+const gitlabProjectPathPattern = /^[A-Za-z0-9_.-]+(?:\/[A-Za-z0-9_.-]+)+$/;
+
+const isGitLabProjectPath = (project: string): boolean =>
+  gitlabProjectPathPattern.test(project) && !project.endsWith(".git");
+
+const GitLabProjectPathSchema = Schema.String.pipe(
+  Schema.filter(isGitLabProjectPath, {
+    message: () => "Use a GitLab project path like group/project.",
+  }),
+);
+
 export const MorpheusConfigSchema = Schema.Struct({
   targetRepo: Schema.String,
   issueTracker: Schema.Struct({
     kind: Schema.Literal("beads"),
   }),
   gitlab: Schema.Struct({
-    project: Schema.String,
+    project: GitLabProjectPathSchema,
     readyLabel: Schema.String,
     targetBranch: Schema.String,
   }),
@@ -4294,7 +4305,7 @@ const targetPathValidation = (
 };
 
 const gitlabProjectValidation = (project: string): SetupValidation =>
-  /^[A-Za-z0-9_.-]+(?:\/[A-Za-z0-9_.-]+)+$/.test(project)
+  isGitLabProjectPath(project)
     ? valid()
     : invalid("Use a GitLab project path like group/project.");
 
@@ -5457,7 +5468,7 @@ const containerReadmeTemplate = (capabilities: readonly TargetCapability[]): str
       ? ["- None detected. Add target-specific toolchains manually if needed."]
       : setupLines),
     "",
-    "Build the default image before running container-backed agents:",
+    "`morpheus setup` builds the default image when Docker is available. Rebuild it manually after editing this profile, or when recovering from a missing-image doctor/runtime failure:",
     "",
     "```bash",
     "docker build -f .morpheus/container/Dockerfile -t morpheus-agent:local .",

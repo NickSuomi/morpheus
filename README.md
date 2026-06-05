@@ -62,7 +62,6 @@ morpheus setup
 # You fill this manually. Morpheus never asks for secret values.
 $EDITOR .morpheus/secrets/agent.env
 
-docker build -f .morpheus/container/Dockerfile -t morpheus-agent:local .
 morpheus doctor
 morpheus daemon --once
 morpheus daemon
@@ -195,7 +194,9 @@ morpheus config show
 ```
 
 Setup uses selector prompts for choices and readline-style prompts for text/path
-values. It does not collect secret values.
+values. It does not collect secret values. When Docker is available, setup
+defaults to building the configured Morpheus container image during setup; pass
+`--no-build` only when you intentionally want to build it later.
 
 Fill the agent auth file manually:
 
@@ -203,12 +204,6 @@ Fill the agent auth file manually:
 mkdir -p .morpheus/secrets
 cp .morpheus/secrets/agent.env.example .morpheus/secrets/agent.env
 $EDITOR .morpheus/secrets/agent.env
-```
-
-Build the target agent image:
-
-```sh
-docker build -f .morpheus/container/Dockerfile -t morpheus-agent:local .
 ```
 
 Gate setup:
