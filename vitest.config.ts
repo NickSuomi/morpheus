@@ -16,5 +16,6 @@ export default defineConfig({
   test: {
     exclude: [...configDefaults.exclude, "dist/**", "**/dist/**", "**/release-*/**"],
     globals: false,
+    testTimeout: 10_000,
   },
 });

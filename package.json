@@ -2,6 +2,8 @@
   "name": "morpheus",
   "version": "0.1.15",
   "private": true,
+  "description": "Agent ops for operators running AI work on real repositories.",
+  "license": "Apache-2.0",
   "type": "module",
   "scripts": {
     "build": "pnpm -r build",

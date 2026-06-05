@@ -1,53 +1,56 @@
 # Morpheus
 
-Morpheus is a repo-local agent orchestration system for explainable software work.
+![Morpheus dream/evidence map](assets/brand/morpheus-og-card.png)
+
+**Dream with no limits. Run with evidence.**
+
+Morpheus is agent ops for operators running AI work on real repositories.
 
 > If it can't explain itself, it can't run.
 
-Morpheus gives an operator one place to install, configure, run, inspect, and review AI-agent work against real repositories. It connects GitLab intake, Beads lifecycle state, container-backed agents, SQLite run ledgers, and Draft MR review artifacts without hiding the evidence.
+In a dream, the agent can move fast, branch freely, and touch every layer. In a
+real repository, that power needs shape: explicit intent, explicit auth, durable
+state, sandboxed execution, transcripts, logs, review artifacts, and a human
+merge decision. Morpheus is the layer between the dream and the repo.
+
+[![Release](https://img.shields.io/github/v/release/NickSuomi/morpheus?include_prereleases&label=release)](https://github.com/NickSuomi/morpheus/releases)
+[![Release Artifacts](https://github.com/NickSuomi/morpheus/actions/workflows/release-artifacts.yml/badge.svg)](https://github.com/NickSuomi/morpheus/actions/workflows/release-artifacts.yml)
+[![ALPHA](https://img.shields.io/badge/status-ALPHA-6b46c1)](docs/product/ALPHA.md)
+[![License](https://img.shields.io/badge/license-Apache--2.0-blue)](LICENSE)
 
 ## Contents
 
 - [Why Morpheus Exists](#why-morpheus-exists)
-- [What ALPHA Means](#what-alpha-means)
-- [Golden Path](#golden-path)
-- [Operator Map](#operator-map)
-- [Workflow](#workflow)
+- [Operator Golden Path](#operator-golden-path)
+- [Evidence Flow](#evidence-flow)
+- [What Morpheus Controls](#what-morpheus-controls)
+- [What Morpheus Refuses To Do](#what-morpheus-refuses-to-do)
 - [Install](#install)
 - [Set Up A Target Repo](#set-up-a-target-repo)
 - [Run And Inspect Work](#run-and-inspect-work)
 - [Health Model](#health-model)
-- [What Setup Writes](#what-setup-writes)
-- [Troubleshooting](#troubleshooting)
+- [Morpheus Vs Adjacent Tools](#morpheus-vs-adjacent-tools)
+- [Repository Metadata](#repository-metadata)
 - [Development](#development)
 - [Docs](#docs)
 
 ## Why Morpheus Exists
 
-Agent runs become risky when they:
+AI agents are most dangerous when their work looks complete but cannot explain
+itself. Real repo work fails when agents:
 
 - start from vague issue text;
-- mutate repos without a durable contract;
-- use implicit host credentials;
-- scatter state across comments, logs, and local shells;
-- leave reviewers guessing what happened.
+- mutate code without a durable contract;
+- borrow implicit host credentials;
+- scatter state across comments, shell history, logs, and local memory;
+- leave reviewers guessing what changed, why, and how it was verified.
 
-Morpheus makes that work inspectable. A run must have explicit config, explicit auth, explicit lifecycle state, a recorded transcript, and review evidence before humans decide whether to merge.
+Morpheus makes agent work inspectable. It imports work, prepares an
+Agent-Ready Contract, runs the agent in a configured container path, records a
+ledgered run, updates a Draft MR with curated evidence, and leaves the merge to
+a human.
 
-## What ALPHA Means
-
-Morpheus ALPHA is the first end-to-end path where a maintainer can:
-
-- install Morpheus from a GitHub Release curl installer;
-- run guided target-repo setup;
-- pass `morpheus doctor` with zero `FAIL` results;
-- run `morpheus daemon --once`;
-- execute a real container-backed agent task;
-- inspect status, runs, slices, logs, transcripts, and MR evidence.
-
-Canonical contract: [docs/product/ALPHA.md](docs/product/ALPHA.md).
-
-## Golden Path
+## Operator Golden Path
 
 ```sh
 curl -fsSL https://github.com/NickSuomi/morpheus/releases/latest/download/install.sh | sh
@@ -56,7 +59,7 @@ morpheus --version
 cd /path/to/target-repo
 morpheus setup
 
-# You fill this file manually. Morpheus never asks for secret values.
+# You fill this manually. Morpheus never asks for secret values.
 $EDITOR .morpheus/secrets/agent.env
 
 docker build -f .morpheus/container/Dockerfile -t morpheus-agent:local .
@@ -65,9 +68,10 @@ morpheus daemon --once
 morpheus daemon
 ```
 
-Then mark a GitLab issue with the configured ready label, usually `agent:ready`.
+Then mark a GitLab issue with the configured ready label, usually
+`agent:ready`.
 
-Inspect work:
+Inspect the dream after it runs:
 
 ```sh
 morpheus status
@@ -77,33 +81,27 @@ morpheus run <run-id>
 morpheus logs <run-id>
 ```
 
-## Operator Map
+## Evidence Flow
 
 ```mermaid
 flowchart LR
-  operator[Operator] --> setup[morpheus setup]
-  setup --> config[morpheus.config.json]
-  setup --> files[.morpheus prompts / skills / container / secrets example]
-  operator --> doctor[morpheus doctor]
-  doctor --> gate{zero FAIL?}
-  gate -- no --> fix[fix config/auth/docker/tooling]
-  fix --> doctor
-  gate -- yes --> daemon[morpheus daemon]
-  daemon --> beads[Beads agent:* state]
-  daemon --> gitlab[GitLab intake + Draft MR]
-  daemon --> runner[container agent runner]
-  runner --> ledger[SQLite ledger + transcripts]
-  ledger --> inspect[status / slice / runs / logs]
-  gitlab --> review[human review + merge]
+  issue["GitLab issue<br/>ready label"] --> sync["morpheus sync"]
+  sync --> beads["Beads<br/>agent:* state"]
+  beads --> contract["Agent-Ready<br/>Contract"]
+  contract --> gate{"blockedBy = None<br/>hitlDecisions = None?"}
+  gate -- no --> blocked["agent:blocked<br/>human decision"]
+  gate -- yes --> run["container-backed<br/>agent run"]
+  run --> ledger["SQLite run ledger<br/>events + transcripts"]
+  run --> mr["Draft MR<br/>curated evidence"]
+  ledger --> inspect["status / slice<br/>runs / logs"]
+  mr --> review["human review<br/>merge authority"]
 ```
-
-## Workflow
 
 ```mermaid
 sequenceDiagram
   participant G as GitLab issue
   participant B as Beads
-  participant M as Morpheus daemon
+  participant M as Morpheus
   participant A as Agent container
   participant L as Run ledger
   participant R as Draft MR
@@ -123,6 +121,40 @@ sequenceDiagram
   M->>R: update review verdict
   M->>B: agent:review-candidate
 ```
+
+## What Morpheus Controls
+
+Morpheus owns the operator surface around agent work:
+
+- CLI commands for setup, health, daemon runs, and inspection.
+- GitLab intake through configured ready labels.
+- Beads lifecycle state and Agent-Ready Contract metadata.
+- Lane scheduling for preparation, implementation, and review.
+- Container-backed agent execution.
+- SQLite run ledger, run events, artifacts, logs, and transcript references.
+- Draft MR review artifacts with contract, evidence, verification, risk, and
+  reviewer findings.
+
+The target repository owns its own domain truth:
+
+- `morpheus.config.json`;
+- `.morpheus/` prompts, skills, container profile, and secret example;
+- verification commands;
+- branch and GitLab project settings;
+- product docs, ADRs, and target-specific agent instructions.
+
+## What Morpheus Refuses To Do
+
+The dream has rules.
+
+- Morpheus does not auto-merge.
+- Morpheus does not hide raw run evidence from the operator.
+- Morpheus does not ask for secret values during setup.
+- Morpheus does not silently use host Codex auth paths.
+- Morpheus does not create `.sandcastle` target artifacts.
+- Morpheus does not treat GitLab issue comments as primary lifecycle state.
+- Morpheus does not run implementation when preparation produces weak intent,
+  unresolved HITL decisions, or blockers.
 
 ## Install
 
@@ -162,7 +194,8 @@ morpheus setup
 morpheus config show
 ```
 
-Setup uses selector prompts for choices and readline-style prompts for text/path values. It does not collect secret values.
+Setup uses selector prompts for choices and readline-style prompts for text/path
+values. It does not collect secret values.
 
 Fill the agent auth file manually:
 
@@ -238,47 +271,37 @@ Blocking examples:
 
 `WARN` is not hidden. It tells the operator what a later task may need.
 
-## What Setup Writes
+## Morpheus Vs Adjacent Tools
 
-```txt
-target-repo/
-  morpheus.config.json
-  .morpheus/
-    prompts/
-      prepare.md
-      implement.md
-      review.md
-    skills/
-      ...
-    container/
-      Dockerfile
-      README.md
-    secrets/
-      agent.env.example
-```
+| Tool family                    | Primary promise              | Morpheus position                                   |
+| ------------------------------ | ---------------------------- | --------------------------------------------------- |
+| Terminal coding agents         | Chat with code and edit fast | Runs are lifecycle-managed and ledgered             |
+| IDE coding agents              | Work inside an editor        | Work is repo-local, daemonized, and review-oriented |
+| Autonomous issue fixers        | Try to solve an issue        | Weak intent fails closed before implementation      |
+| Agent platforms and workspaces | Broad agent environments     | Narrow operator path for real repo evidence         |
+| CI systems                     | Run deterministic jobs       | Orchestrates agent work before human merge review   |
 
-Setup also updates `.gitignore` for local ledgers, runs, logs, caches, and real secret env files.
+Morpheus is not trying to be the agent's personality. It is the ritual circle:
+contract, lane, sandbox, ledger, artifact, review.
 
-Morpheus must not create `.sandcastle` target artifacts, private host auth paths, or real secret files containing tokens.
+## Repository Metadata
 
-## Troubleshooting
+Recommended GitHub presentation once the maintainer chooses final license and
+release posture:
 
-| Symptom             | Check                                       | Fix                                                                 |
-| ------------------- | ------------------------------------------- | ------------------------------------------------------------------- |
-| `morpheus` missing  | `which morpheus`                            | Re-run installer or add install dir to `PATH`.                      |
-| Config missing      | `morpheus config show`                      | Run `morpheus setup` in target repo.                                |
-| GitLab auth fails   | `glab auth status`                          | Re-authenticate `glab` and verify project access.                   |
-| Docker fails        | `docker info`                               | Start Docker Desktop, OrbStack, Colima, or remote Docker context.   |
-| Agent image missing | `docker image inspect morpheus-agent:local` | Build image from `.morpheus/container/Dockerfile`.                  |
-| Auth keys missing   | `morpheus doctor`                           | Fill `.morpheus/secrets/agent.env`; never paste secrets into setup. |
-| Run failed          | `morpheus slice <issue-id>`                 | Inspect run events, logs, transcript, and MR evidence.              |
+- Description: `Agent ops for operators running AI work on real repositories.`
+- Topics: `ai-agents`, `agent-ops`, `developer-tools`, `gitlab`,
+  `beads`, `typescript`, `effect`, `sqlite`, `docker`, `cli`.
+- Social preview: `assets/brand/morpheus-og-card.png`.
+- Website: leave empty until a real project site exists.
+- License: [Apache-2.0](LICENSE) with [NOTICE](NOTICE) attribution.
 
 ## Development
 
 ```sh
 pnpm install
 pnpm build
-pnpm check
+pnpm run check
 pnpm typecheck:fast
 ```
 
@@ -328,4 +351,6 @@ Read in this order:
 6. [ALPHA contract](docs/product/ALPHA.md)
 7. [Fixture smoke target](docs/product/alpha-fixture-smoke.md)
 
-The repo-owned architecture map lives at `.understand-anything/knowledge-graph.json`. Use its tour first, then layers, then targeted nodes and edges.
+The repo-owned architecture map lives at
+`.understand-anything/knowledge-graph.json`. Use its tour first, then layers,
+then targeted nodes and edges.
