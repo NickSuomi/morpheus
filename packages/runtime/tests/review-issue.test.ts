@@ -17,6 +17,7 @@ import {
   WorkspaceRuntime,
   WorkspaceRuntimeError,
   type AgentRunnerService,
+  type ImportedGitLabIssue,
   type IssueTrackerService,
   type MergeRequestClientService,
   type ReviewAgentInput,
@@ -51,9 +52,31 @@ const trackedIssue = (labels: readonly string[]): TrackedIssue => {
   };
 };
 
-const fakeIssueTracker = (options: { readonly failApply?: boolean } = {}) => {
+const fakeIssueTracker = (
+  options: { readonly failApply?: boolean; readonly sourceIid?: number } = {},
+) => {
   let labels = ["agent:running"];
   const calls: string[] = [];
+  const importedIssues: readonly ImportedGitLabIssue[] =
+    options.sourceIid === undefined
+      ? []
+      : [
+          {
+            id: "morph-wv6",
+            title: "Run read-only review",
+            description: "Implementation has produced MR evidence.",
+            labels,
+            metadata: {
+              project: "group/project",
+              iid: options.sourceIid,
+              webUrl: `https://gitlab.example.com/group/project/-/issues/${options.sourceIid}`,
+              labels: ["agent:running"],
+              lastSyncedAt: "2026-05-19T10:00:00.000Z",
+              title: "Run read-only review",
+              description: "Implementation has produced MR evidence.",
+            },
+          },
+        ];
   const service: IssueTrackerService = {
     listRunnableIssues: () => Effect.succeed([trackedIssue(labels)]),
     getIssue: () => {
@@ -96,7 +119,7 @@ const fakeIssueTracker = (options: { readonly failApply?: boolean } = {}) => {
         issueId,
         contract,
       }),
-    listImportedGitLabIssues: () => Effect.succeed([]),
+    listImportedGitLabIssues: () => Effect.succeed(importedIssues),
     upsertImportedGitLabIssue: () =>
       Effect.succeed({ status: "skipped", issueId: "morph-skip", reason: "unchanged" }),
   };
@@ -352,7 +375,7 @@ const expectNoInternalAdapterDetail = (output: string) => {
 
 const runReview = async (scenario: "passed" | "blocked" | "failed" | "malformed") =>
   withImplementationArtifact(async (artifactPath) => {
-    const tracker = fakeIssueTracker();
+    const tracker = fakeIssueTracker({ sourceIid: 1234 });
     const ledger = fakeRunLedger(artifactPath);
     const mergeRequests = fakeMergeRequests();
     const runner = fakeAgentRunner(scenario);
@@ -464,6 +487,7 @@ describe("reviewIssue", () => {
     expect(mergeRequests.descriptions[0]).toContain("- [info] Review passed.");
     expect(mergeRequests.descriptions[0]).toContain("Review verdict: passed");
     expect(mergeRequests.descriptions[0]).toContain("Implemented review workflow.");
+    expect(mergeRequests.descriptions[0]).toContain("Source issue: #1234");
   });
 
   it("passes read-only workspace permissions to the reviewer", async () => {
