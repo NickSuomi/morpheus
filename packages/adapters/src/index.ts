@@ -2261,6 +2261,7 @@ export const createBeadsIssueTracker = ({
       const nextMetadata = {
         ...metadata,
         morpheus: {
+          ...(isRecord(metadata.morpheus) ? metadata.morpheus : {}),
           contractVersion: 1,
           agentReadyContract: decoded.contract,
         },
