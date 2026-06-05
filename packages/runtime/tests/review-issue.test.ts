@@ -296,7 +296,9 @@ const fakeMergeRequests = () => {
   };
 };
 
-const fakeAgentRunner = (scenario: "passed" | "blocked" | "failed" | "malformed") => {
+const fakeAgentRunner = (
+  scenario: "passed" | "blocked" | "failed" | "legacy-finding" | "malformed",
+) => {
   const inputs: ReviewAgentInput[] = [];
   const calls: string[] = [];
   const service: AgentRunnerService = {
@@ -311,8 +313,25 @@ const fakeAgentRunner = (scenario: "passed" | "blocked" | "failed" | "malformed"
       if (scenario === "malformed") {
         return Effect.succeed({
           status: "passed",
-          findings: [{ severity: "critical", summary: "bad severity" }],
+          findings: [{ severity: "urgent", summary: "bad severity" }],
           transcript: "malformed",
+          artifact: {},
+        });
+      }
+      if (scenario === "legacy-finding") {
+        return Effect.succeed({
+          status: "failed",
+          failureKind: "verification_error",
+          message: "Verification claim is false.",
+          findings: [
+            {
+              severity: "high",
+              file: "/workspace/src/App.vue",
+              line: 132,
+              message: "Refresh token path bypasses the browser support guard.",
+            },
+          ],
+          transcript: "failed",
           artifact: {},
         });
       }
@@ -373,7 +392,9 @@ const expectNoInternalAdapterDetail = (output: string) => {
   expect(output).not.toContain("internal");
 };
 
-const runReview = async (scenario: "passed" | "blocked" | "failed" | "malformed") =>
+const runReview = async (
+  scenario: "passed" | "blocked" | "failed" | "legacy-finding" | "malformed",
+) =>
   withImplementationArtifact(async (artifactPath) => {
     const tracker = fakeIssueTracker({ sourceIid: 1234 });
     const ledger = fakeRunLedger(artifactPath);
@@ -619,6 +640,18 @@ describe("reviewIssue", () => {
     expect(ledger.run).toMatchObject({ status: "failed", failureKind: "verification_error" });
     expect(ledger.events).toContain("ReviewFailed");
     expect(mergeRequests.descriptions[0]).toContain("- [error] Verification mismatch.");
+    expect(mergeRequests.descriptions[0]).toContain("Review verdict: failed");
+  });
+
+  it("normalizes common review finding shapes before updating the MR", async () => {
+    const { result, tracker, ledger, mergeRequests } = await runReview("legacy-finding");
+
+    expect(result).toMatchObject({ status: "failed", failureKind: "verification_error" });
+    expect(tracker.labels).toEqual(["agent:failed"]);
+    expect(ledger.events).toContain("ReviewFailed");
+    expect(mergeRequests.descriptions[0]).toContain(
+      "- [error] /workspace/src/App.vue:132: Refresh token path bypasses the browser support guard.",
+    );
     expect(mergeRequests.descriptions[0]).toContain("Review verdict: failed");
   });
 
