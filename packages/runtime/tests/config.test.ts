@@ -717,6 +717,12 @@ describe("Morpheus config", () => {
       expect(readFileSync(join(dir, ".morpheus/prompts/review.md"), "utf8")).toContain(
         ".morpheus/skills/matt-pocock-diagnose/SKILL.md",
       );
+      expect(readFileSync(join(dir, ".morpheus/prompts/review.md"), "utf8")).toContain(
+        '"failureKind":"verification_error"',
+      );
+      expect(readFileSync(join(dir, ".morpheus/prompts/review.md"), "utf8")).toContain(
+        '"message":"..."',
+      );
       for (const skillName of bundledSkillNames) {
         const generated = readFileSync(
           join(dir, ".morpheus/skills", skillName, "SKILL.md"),

@@ -5070,7 +5070,8 @@ const starterPrompts = {
     "Review the implementation against the Agent-Ready Contract.",
     "Stay read-only. Use concise review and diagnosis behavior. Report correctness bugs, regressions, missing verification, and risk.",
     "Verify the implementation satisfies contract acceptance criteria, AFK gates, verification plan, out-of-scope boundaries, and evidence claims.",
-    "Return a verdict with actionable findings and verification evidence.",
+    'Return only one exact verdict shape: passed {"status":"passed","findings":[],"transcript":"...","artifact":{}}; blocked {"status":"blocked","reason":"...","findings":[],"transcript":"...","artifact":{}}; failed {"status":"failed","failureKind":"verification_error","message":"...","findings":[],"transcript":"...","artifact":{}}.',
+    "For failed review results, `failureKind` is required and must be one of: operator_access, runtime_error, agent_contract_error, verification_error, state_conflict, unknown.",
     "",
   ].join("\n"),
 } as const;
