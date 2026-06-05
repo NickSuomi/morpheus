@@ -558,6 +558,58 @@ describe("BeadsIssueTracker", () => {
     ]);
   });
 
+  it("preserves imported GitLab metadata when writing contract metadata", async () => {
+    const gitlabMetadata = {
+      project: "group/project",
+      iid: 42,
+      webUrl: "https://gitlab.example.com/group/project/-/issues/42",
+      labels: ["agent:ready", "backend"],
+      lastSyncedAt: "2026-05-19T09:00:00.000Z",
+      title: "Imported GitLab issue",
+      description: "Ready for Morpheus.",
+    };
+    const processRunner = fakeProcessRunner([
+      ok([
+        {
+          id: "morph-kkv",
+          title: "Store Agent-Ready Contract in Beads metadata",
+          labels: ["agent:preparing"],
+          metadata: {
+            morpheus: {
+              gitlab: gitlabMetadata,
+            },
+          },
+        },
+      ]),
+      ok([]),
+    ]);
+
+    const result = await runWithTracker(
+      processRunner.layer,
+      Effect.gen(function* () {
+        const tracker = yield* IssueTracker;
+        return yield* tracker.writeContract("morph-kkv", validContract);
+      }),
+    );
+
+    expect(result).toEqual({
+      status: "written",
+      issueId: "morph-kkv",
+    });
+    expect(processRunner.calls.at(-1)?.args).toEqual([
+      "update",
+      "morph-kkv",
+      "--metadata",
+      JSON.stringify({
+        morpheus: {
+          gitlab: gitlabMetadata,
+          contractVersion: 1,
+          agentReadyContract: validContract,
+        },
+      }),
+    ]);
+  });
+
   it("reads present contract metadata", async () => {
     const processRunner = fakeProcessRunner([
       ok([
