@@ -1334,6 +1334,57 @@ describe("BeadsIssueTracker", () => {
     ]);
   });
 
+  it("ignores closed imported GitLab issues when checking duplicates", async () => {
+    const imported = (id: string, status: "open" | "closed") => ({
+      id,
+      status,
+      title: "Import me",
+      description: "Ready for Morpheus.",
+      labels: ["agent:running"],
+      metadata: {
+        morpheus: {
+          gitlab: {
+            project: "group/project",
+            iid: 2793,
+            webUrl: "https://gitlab.example.com/group/project/-/issues/2793",
+            labels: ["agent:ready"],
+            lastSyncedAt: "2026-05-19T09:00:00.000Z",
+            title: "Import me",
+            description: "Ready for Morpheus.",
+          },
+        },
+      },
+    });
+    const active = imported("morph-primary", "open");
+    const closed = imported("morph-closed", "closed");
+    const processRunner = fakeProcessRunner([ok([active, closed]), ok([active]), ok([])]);
+
+    const result = await runWithTracker(
+      processRunner.layer,
+      Effect.gen(function* () {
+        const tracker = yield* IssueTracker;
+        return yield* tracker.upsertImportedGitLabIssue({
+          syncedAt: "2026-05-19T10:00:00.000Z",
+          source: {
+            project: "group/project",
+            iid: 2793,
+            title: "Import me",
+            description: "Ready for Morpheus.",
+            webUrl: "https://gitlab.example.com/group/project/-/issues/2793",
+            labels: ["agent:ready"],
+          },
+        });
+      }),
+    );
+
+    expect(result).toEqual({
+      status: "skipped",
+      issueId: "morph-primary",
+      reason: "unchanged",
+    });
+    expect(processRunner.calls.some((call) => call.args.includes("morph-closed"))).toBe(false);
+  });
+
   it("fails closed for legacy GitLab imports that only carry source identity in prose", async () => {
     const processRunner = fakeProcessRunner([
       ok([
