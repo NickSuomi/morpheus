@@ -261,6 +261,7 @@ const fakeMergeRequests = () => {
   const descriptions: string[] = [];
   const service: MergeRequestClientService = {
     createDraftMergeRequest: () => Effect.die("not used"),
+    findOpenMergeRequestForSourceIssue: () => Effect.die("not used"),
     updateDescription: (input) => {
       descriptions.push(input.description);
       return Effect.succeed({ reference: input.reference });

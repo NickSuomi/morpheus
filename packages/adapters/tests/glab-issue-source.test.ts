@@ -109,6 +109,132 @@ describe("GlabIssueSource", () => {
     ]);
   });
 
+  it("lists GitLab issues for all lifecycle labels and deduplicates by IID", async () => {
+    const processRunner = fakeProcessRunner([
+      ok([
+        {
+          iid: 42,
+          title: "Import me",
+          description: "Ready for Morpheus import.",
+          web_url: "https://gitlab.example.com/group/project/-/issues/42",
+          labels: ["agent:ready", "backend"],
+        },
+      ]),
+      ok([
+        {
+          iid: 42,
+          title: "Import me",
+          description: "Ready for Morpheus import.",
+          web_url: "https://gitlab.example.com/group/project/-/issues/42",
+          labels: ["agent:running", "backend"],
+        },
+        {
+          iid: 43,
+          title: "Stop me",
+          description: "Operator stop.",
+          web_url: "https://gitlab.example.com/group/project/-/issues/43",
+          labels: ["agent:stop"],
+        },
+      ]),
+    ]);
+
+    const result = await runWithIssueSource(
+      processRunner.layer,
+      Effect.gen(function* () {
+        const source = yield* GitLabIssueSource;
+        return yield* source.listLifecycleIssues({
+          project: "group/project",
+          labels: ["agent:ready", "agent:stop"],
+        });
+      }),
+    );
+
+    expect(result).toEqual([
+      {
+        project: "group/project",
+        iid: 42,
+        title: "Import me",
+        description: "Ready for Morpheus import.",
+        webUrl: "https://gitlab.example.com/group/project/-/issues/42",
+        labels: ["agent:running", "backend"],
+      },
+      {
+        project: "group/project",
+        iid: 43,
+        title: "Stop me",
+        description: "Operator stop.",
+        webUrl: "https://gitlab.example.com/group/project/-/issues/43",
+        labels: ["agent:stop"],
+      },
+    ]);
+    expect(processRunner.calls).toEqual([
+      {
+        command: "glab",
+        args: [
+          "issue",
+          "list",
+          "--repo",
+          "group/project",
+          "--label",
+          "agent:ready",
+          "--output",
+          "json",
+          "--per-page",
+          "100",
+        ],
+      },
+      {
+        command: "glab",
+        args: [
+          "issue",
+          "list",
+          "--repo",
+          "group/project",
+          "--label",
+          "agent:stop",
+          "--output",
+          "json",
+          "--per-page",
+          "100",
+        ],
+      },
+    ]);
+  });
+
+  it("updates GitLab issue lifecycle labels", async () => {
+    const processRunner = fakeProcessRunner([ok({})]);
+
+    await runWithIssueSource(
+      processRunner.layer,
+      Effect.gen(function* () {
+        const source = yield* GitLabIssueSource;
+        yield* source.updateIssueLabels({
+          project: "group/project",
+          iid: 42,
+          addLabels: ["agent:running"],
+          removeLabels: ["agent:ready", "agent:stop"],
+        });
+      }),
+    );
+
+    expect(processRunner.calls).toEqual([
+      {
+        command: "glab",
+        args: [
+          "issue",
+          "update",
+          "42",
+          "--repo",
+          "group/project",
+          "--label",
+          "agent:running",
+          "--unlabel",
+          "agent:ready,agent:stop",
+        ],
+      },
+    ]);
+  });
+
   it("maps auth/access failures to typed operator-access errors", async () => {
     const processRunner = fakeProcessRunner([failed("not logged in to GitLab")]);
 

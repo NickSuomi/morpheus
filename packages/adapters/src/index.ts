@@ -11,7 +11,7 @@ import {
   deriveLane,
   planAgentStateTransition,
 } from "@morpheus/core";
-import type { AgentStateTransitionPlan } from "@morpheus/core";
+import type { AgentState, AgentStateTransitionPlan } from "@morpheus/core";
 import {
   AgentRunner,
   AgentRunnerError,
@@ -37,6 +37,7 @@ import {
   WorkspaceRuntimeError,
   defaultAgentSkillInstructions,
   defaultAgentStageSkillMappings,
+  defaultGitLabStopLabel,
   detectTargetCapabilities,
   gitignoreEntries,
   loadMorpheusConfig,
@@ -53,6 +54,7 @@ import type {
   PreparationAgentResult,
   ImplementationAgentInput,
   MergeRequestClientService,
+  MergeRequestReference,
   MorpheusConfig,
   ProcessResult,
   ProcessRunnerService,
@@ -209,6 +211,7 @@ type OperatorHealthOptions = {
 
 type GitWorkspaceRuntimeOptions = {
   readonly processRunner: ProcessRunnerService;
+  readonly targetBranch?: string;
 };
 
 type GlabMergeRequestClientOptions = {
@@ -720,8 +723,7 @@ type SourceIdentityMatchedGitLabIssue = ImportedGitLabIssue & {
   readonly matchKind: "metadata" | "legacy_prose";
 };
 
-const escapeRegExp = (value: string): string =>
-  value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+const escapeRegExp = (value: string): string => value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
 const legacyGitLabSourcePatterns = (source: GitLabIssueInput): readonly RegExp[] =>
   [source.webUrl, `${source.project}#${source.iid}`]
@@ -774,7 +776,10 @@ const sourceIdentityMatchedGitLabIssuesFromJson = (
       Effect.try({
         try: () =>
           issues.flatMap((issue) => {
-            const matched = sourceIdentityMatchedGitLabIssueFromJson(issueJsonFromUnknown(issue), source);
+            const matched = sourceIdentityMatchedGitLabIssueFromJson(
+              issueJsonFromUnknown(issue),
+              source,
+            );
             return matched === undefined ? [] : [matched];
           }),
         catch: (error) =>
@@ -841,16 +846,62 @@ const rejectPlan = (
   plan,
 });
 
-const addLabelArgs = (labels: readonly string[]): string[] =>
-  labels.flatMap((label) => ["--add-label", label]);
-
 const setLabelArgs = (labels: readonly string[]): string[] =>
   labels.flatMap((label) => ["--set-labels", label]);
 
 const activeAgentLabels = new Set<string>(agentStates);
 
-const hasAgentLifecycleLabel = (labels: readonly string[]): boolean =>
-  labels.some((label) => activeAgentLabels.has(label));
+const agentLifecycleLabelsFrom = (labels: readonly string[]): readonly AgentState[] =>
+  labels.filter((label): label is AgentState => activeAgentLabels.has(label));
+
+const withoutAgentLifecycleLabels = (labels: readonly string[]): readonly string[] =>
+  labels.filter((label) => !activeAgentLabels.has(label));
+
+const replaceAgentLifecycleLabel = (
+  labels: readonly string[],
+  lifecycleLabel: AgentState,
+): readonly string[] => [...withoutAgentLifecycleLabels(labels), lifecycleLabel];
+
+const nextLabelsFromGitLabLifecycle = (
+  currentLabels: readonly string[],
+  sourceLabels: readonly string[],
+  readyLabel: string,
+  stopLabel: string,
+): readonly string[] | undefined => {
+  const currentLifecycleLabels = agentLifecycleLabelsFrom(currentLabels);
+  const currentLifecycleLabel =
+    currentLifecycleLabels.length === 1 ? currentLifecycleLabels[0] : undefined;
+
+  if (sourceLabels.includes(stopLabel) || sourceLabels.includes("agent:blocked")) {
+    return replaceAgentLifecycleLabel(currentLabels, "agent:blocked");
+  }
+
+  if (sourceLabels.includes("agent:failed")) {
+    return replaceAgentLifecycleLabel(currentLabels, "agent:failed");
+  }
+
+  if (sourceLabels.includes(readyLabel)) {
+    if (
+      currentLifecycleLabel === undefined ||
+      currentLifecycleLabel === "agent:blocked" ||
+      currentLifecycleLabel === "agent:failed"
+    ) {
+      return replaceAgentLifecycleLabel(currentLabels, "agent:ready");
+    }
+
+    return undefined;
+  }
+
+  const sourceLifecycleLabels = agentLifecycleLabelsFrom(sourceLabels);
+  if (sourceLifecycleLabels.length === 1 && currentLifecycleLabel === undefined) {
+    return replaceAgentLifecycleLabel(currentLabels, sourceLifecycleLabels[0]);
+  }
+
+  return undefined;
+};
+
+const labelsEqual = (left: readonly string[], right: readonly string[]): boolean =>
+  left.length === right.length && left.every((label, index) => label === right[index]);
 
 const importedMetadataFromGitLabIssue = (
   source: GitLabIssueInput,
@@ -2178,7 +2229,11 @@ export const createBeadsIssueTracker = ({
         return rejectPlan(issueId, currentPlan);
       }
 
-      yield* runBdEffect(processRunner, ["update", issueId, ...setLabelArgs(currentPlan.finalLabels)]);
+      yield* runBdEffect(processRunner, [
+        "update",
+        issueId,
+        ...setLabelArgs(currentPlan.finalLabels),
+      ]);
 
       return {
         status: "applied",
@@ -2281,7 +2336,12 @@ export const createBeadsIssueTracker = ({
       const result = yield* runBdEffect(processRunner, args);
       return yield* importedGitLabIssuesFromJson(result.stdout, args);
     }),
-  upsertImportedGitLabIssue: ({ source, syncedAt }) =>
+  upsertImportedGitLabIssue: ({
+    source,
+    syncedAt,
+    readyLabel = "agent:ready",
+    stopLabel = defaultGitLabStopLabel,
+  }) =>
     Effect.gen(function* () {
       const listArgs = ["list", "--all", "--limit", "0", "--json"] as const;
       const listResult = yield* runBdEffect(processRunner, listArgs);
@@ -2312,7 +2372,7 @@ export const createBeadsIssueTracker = ({
               "update",
               issue.id,
               ...setLabelArgs(duplicateFailurePlan.finalLabels),
-            ]);
+            ]).pipe(Effect.asVoid);
           },
           { discard: true },
         );
@@ -2329,7 +2389,9 @@ export const createBeadsIssueTracker = ({
 
       if (existing === undefined) {
         const metadata = metadataWithGitLabImport({}, source, syncedAt);
-        const labels = ["agent:ready"];
+        const labels = nextLabelsFromGitLabLifecycle([], source.labels, readyLabel, stopLabel) ?? [
+          "agent:ready",
+        ];
         const args = [
           "create",
           source.title,
@@ -2351,7 +2413,7 @@ export const createBeadsIssueTracker = ({
         return {
           status: "created",
           issueId: issue.id,
-          addedReadyLabel: true,
+          addedReadyLabel: labels.includes("agent:ready"),
         };
       }
 
@@ -2360,11 +2422,19 @@ export const createBeadsIssueTracker = ({
       const currentIssueJson = yield* firstIssueFromJson(showResult.stdout, showArgs);
       const currentMetadata = yield* readMetadata(existing.id, currentIssueJson);
       const currentLabels = labelsFromIssue(currentIssueJson.labels);
-      const shouldAddReady = !hasAgentLifecycleLabel(currentLabels);
+      const nextLabelsFromGitLab = nextLabelsFromGitLabLifecycle(
+        currentLabels,
+        source.labels,
+        readyLabel,
+        stopLabel,
+      );
       const nextMetadata = metadataWithGitLabImport(currentMetadata, source, syncedAt);
       const contentChanged = importedIssueChanged(existing, source);
+      const nextLabels = nextLabelsFromGitLab ?? currentLabels;
+      const labelsChanged =
+        nextLabelsFromGitLab !== undefined && !labelsEqual(currentLabels, nextLabels);
 
-      if (!contentChanged && !shouldAddReady) {
+      if (!contentChanged && !labelsChanged) {
         yield* runBdEffect(processRunner, [
           "update",
           existing.id,
@@ -2388,13 +2458,16 @@ export const createBeadsIssueTracker = ({
         source.description,
         "--metadata",
         JSON.stringify(nextMetadata),
-        ...(shouldAddReady ? addLabelArgs(["agent:ready"]) : []),
+        ...(labelsChanged ? setLabelArgs(nextLabels) : []),
       ]);
 
       return {
         status: "updated",
         issueId: existing.id,
-        addedReadyLabel: shouldAddReady,
+        addedReadyLabel:
+          labelsChanged &&
+          nextLabels.includes("agent:ready") &&
+          !currentLabels.includes("agent:ready"),
       };
     }),
 });
@@ -2413,6 +2486,7 @@ const branchSafeRunId = (runId: string): string => runId.replaceAll(/[^A-Za-z0-9
 
 export const createGitWorkspaceRuntime = ({
   processRunner,
+  targetBranch: configuredTargetBranch,
 }: GitWorkspaceRuntimeOptions): WorkspaceRuntimeService => ({
   prepareImplementationWorkspace: ({ issueId, runId }) =>
     Effect.gen(function* () {
@@ -2420,8 +2494,17 @@ export const createGitWorkspaceRuntime = ({
         "rev-parse",
         "--show-toplevel",
       ])).stdout.trim();
-      const targetBranch =
+      const currentBranch =
         (yield* runGitEffect(processRunner, ["branch", "--show-current"])).stdout.trim() || "main";
+      const targetBranch = configuredTargetBranch ?? currentBranch;
+
+      if (configuredTargetBranch !== undefined && currentBranch !== configuredTargetBranch) {
+        return yield* new WorkspaceRuntimeError({
+          operation: "prepareImplementationWorkspace",
+          message: `Configured target branch ${configuredTargetBranch} does not match current checkout branch ${currentBranch}. Checkout the configured target branch before running Morpheus.`,
+        });
+      }
+
       const branch = `morpheus/${branchSafeIssueId(issueId)}-${branchSafeRunId(runId)}`;
       const remote = "origin";
       const worktreePath = join(dirname(root), `.morpheus-worktree-${branchSafeRunId(runId)}`);
@@ -2480,12 +2563,14 @@ export const createGitWorkspaceRuntime = ({
     }),
 });
 
-export const gitWorkspaceRuntimeLayer: Layer.Layer<WorkspaceRuntime, never, ProcessRunner> =
+export const gitWorkspaceRuntimeLayer = (
+  options: { readonly targetBranch?: string } = {},
+): Layer.Layer<WorkspaceRuntime, never, ProcessRunner> =>
   Layer.effect(
     WorkspaceRuntime,
     Effect.gen(function* () {
       const processRunner = yield* ProcessRunner;
-      return createGitWorkspaceRuntime({ processRunner });
+      return createGitWorkspaceRuntime({ processRunner, targetBranch: options.targetBranch });
     }),
   );
 
@@ -2509,6 +2594,51 @@ export const createGlabIssueSource = ({
       const result = yield* runGlabIssueSourceEffect(processRunner, "listReadyGitLabIssues", args);
 
       return yield* gitLabIssuesFromJson(project, result.stdout, args);
+    }),
+  listLifecycleIssues: ({ project, labels }) =>
+    Effect.gen(function* () {
+      const byIid = new Map<number, GitLabIssueInput>();
+
+      for (const label of labels) {
+        const args = [
+          "issue",
+          "list",
+          "--repo",
+          project,
+          "--label",
+          label,
+          "--output",
+          "json",
+          "--per-page",
+          "100",
+        ] as const;
+        const result = yield* runGlabIssueSourceEffect(
+          processRunner,
+          "listLifecycleGitLabIssues",
+          args,
+        );
+        const issues = yield* gitLabIssuesFromJson(project, result.stdout, args);
+
+        for (const issue of issues) {
+          byIid.set(issue.iid, issue);
+        }
+      }
+
+      return [...byIid.values()];
+    }),
+  updateIssueLabels: ({ project, iid, addLabels: labelsToAdd, removeLabels }) =>
+    Effect.gen(function* () {
+      const args = [
+        "issue",
+        "update",
+        String(iid),
+        "--repo",
+        project,
+        ...(labelsToAdd.length === 0 ? [] : ["--label", labelsToAdd.join(",")]),
+        ...(removeLabels.length === 0 ? [] : ["--unlabel", removeLabels.join(",")]),
+      ] as const;
+
+      yield* runGlabIssueSourceEffect(processRunner, "updateGitLabIssueLabels", args);
     }),
 });
 
@@ -2569,6 +2699,54 @@ const parseMergeRequestUrl = (stdout: string): string | undefined => {
   return undefined;
 };
 
+const mergeRequestReferenceFromJson = (value: unknown): MergeRequestReference | undefined => {
+  if (!isRecord(value)) {
+    return undefined;
+  }
+
+  const reference = optionalString(value.reference);
+  const iid = optionalNumber(value.iid);
+  const url = optionalString(value.web_url) ?? optionalString(value.url);
+
+  if (reference !== undefined) {
+    return { reference, url };
+  }
+
+  if (iid !== undefined) {
+    return { reference: `!${iid}`, url };
+  }
+
+  return url === undefined ? undefined : { reference: url, url };
+};
+
+const parseOpenMergeRequestList = (
+  stdout: string,
+): MergeRequestClientError | MergeRequestReference | undefined => {
+  const trimmed = stdout.trim();
+  if (trimmed.length === 0) {
+    return undefined;
+  }
+
+  try {
+    const parsed = JSON.parse(trimmed) as unknown;
+    if (!Array.isArray(parsed)) {
+      return new MergeRequestClientError({
+        operation: "parseOpenMergeRequestList",
+        failureKind: "runtime_error",
+        message: "glab MR list output was not a JSON array",
+      });
+    }
+
+    return parsed.map(mergeRequestReferenceFromJson).find((reference) => reference !== undefined);
+  } catch (error) {
+    return new MergeRequestClientError({
+      operation: "parseOpenMergeRequestList",
+      failureKind: "runtime_error",
+      message: errorMessage(error),
+    });
+  }
+};
+
 export const createGlabMergeRequestClient = ({
   processRunner,
 }: GlabMergeRequestClientOptions): MergeRequestClientService => ({
@@ -2597,6 +2775,25 @@ export const createGlabMergeRequestClient = ({
         reference,
         url: parseMergeRequestUrl(result.stdout),
       };
+    }),
+  findOpenMergeRequestForSourceIssue: ({ sourceIssueIid }) =>
+    Effect.gen(function* () {
+      const result = yield* runGlabEffect(processRunner, "findOpenMergeRequestForSourceIssue", [
+        "mr",
+        "list",
+        "--search",
+        `#${sourceIssueIid}`,
+        "--output",
+        "json",
+        "--per-page",
+        "100",
+      ]);
+      const reference = parseOpenMergeRequestList(result.stdout);
+      if (reference instanceof MergeRequestClientError) {
+        return yield* Effect.fail(reference);
+      }
+
+      return reference;
     }),
   updateDescription: (input) =>
     Effect.gen(function* () {

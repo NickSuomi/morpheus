@@ -196,10 +196,12 @@ Initial shape:
 
 Lane `concurrency` values are positive integers.
 
-`gitlab.readyLabel` is an import trigger for GitLab-to-Beads sync only. After an
-issue is imported, Beads remains the lifecycle source of truth through
-`agent:*` labels; Morpheus must not treat GitLab labels as authoritative issue
-state.
+`gitlab.readyLabel` is the GitLab import and requeue trigger. After an issue is
+imported, Beads remains the lifecycle source of truth through `agent:*` labels,
+but Morpheus mirrors active lifecycle labels back to GitLab and polls GitLab
+lifecycle labels as operator input. GitLab `agent:blocked`, `agent:failed`, and
+the stop control label defaulting to `agent:stop` update Beads before later lanes
+run.
 
 `daemon.pollIntervalSeconds` is a positive integer polling interval for daemon
 ticks.

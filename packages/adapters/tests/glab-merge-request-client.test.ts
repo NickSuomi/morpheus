@@ -61,9 +61,12 @@ const runWithMergeRequests = <A, E>(
 const runWithWorkspace = <A, E>(
   processRunnerLayer: Layer.Layer<ProcessRunner>,
   program: Effect.Effect<A, E, WorkspaceRuntime>,
+  options: Parameters<typeof gitWorkspaceRuntimeLayer>[0] = {},
 ) =>
   Effect.runPromise(
-    program.pipe(Effect.provide(gitWorkspaceRuntimeLayer.pipe(Layer.provide(processRunnerLayer)))),
+    program.pipe(
+      Effect.provide(gitWorkspaceRuntimeLayer(options).pipe(Layer.provide(processRunnerLayer))),
+    ),
   );
 
 describe("GitWorkspaceRuntime", () => {
@@ -116,6 +119,42 @@ describe("GitWorkspaceRuntime", () => {
           "origin",
           "morpheus/morph-7ky-run_01KRGGDQ6JQN2GMD6KJQ5SFXR6",
         ],
+      },
+    ]);
+  });
+
+  it("fails before worktree side effects when configured target branch differs from checkout branch", async () => {
+    const processRunner = fakeProcessRunner([ok("/repo\n"), ok("epic/stale\n")]);
+
+    const result = await runWithWorkspace(
+      processRunner.layer,
+      Effect.gen(function* () {
+        const workspace = yield* WorkspaceRuntime;
+        return yield* workspace.prepareImplementationWorkspace({
+          issueId: "morph-7ky",
+          runId: "run_01KRGGDQ6JQN2GMD6KJQ5SFXR6",
+        });
+      }).pipe(Effect.either),
+      { targetBranch: "dev-6" },
+    );
+
+    expect(Either.isLeft(result)).toBe(true);
+    if (Either.isLeft(result)) {
+      expect(result.left).toMatchObject({
+        _tag: "WorkspaceRuntimeError",
+        operation: "prepareImplementationWorkspace",
+        message:
+          "Configured target branch dev-6 does not match current checkout branch epic/stale. Checkout the configured target branch before running Morpheus.",
+      });
+    }
+    expect(processRunner.calls).toEqual([
+      {
+        command: "git",
+        args: ["rev-parse", "--show-toplevel"],
+      },
+      {
+        command: "git",
+        args: ["branch", "--show-current"],
       },
     ]);
   });
@@ -264,6 +303,38 @@ describe("GlabMergeRequestClient", () => {
         message: "not logged in to GitLab",
       });
     }
+  });
+
+  it("finds an open MR that already references a source issue", async () => {
+    const processRunner = fakeProcessRunner([
+      ok([
+        {
+          iid: 99,
+          web_url: "https://gitlab.example.com/group/project/-/merge_requests/99",
+        },
+      ]),
+    ]);
+
+    const result = await runWithMergeRequests(
+      processRunner.layer,
+      Effect.gen(function* () {
+        const mergeRequests = yield* MergeRequestClient;
+        return yield* mergeRequests.findOpenMergeRequestForSourceIssue({
+          sourceIssueIid: 1234,
+        });
+      }),
+    );
+
+    expect(result).toEqual({
+      reference: "!99",
+      url: "https://gitlab.example.com/group/project/-/merge_requests/99",
+    });
+    expect(processRunner.calls).toEqual([
+      {
+        command: "glab",
+        args: ["mr", "list", "--search", "#1234", "--output", "json", "--per-page", "100"],
+      },
+    ]);
   });
 
   it("updates the full MR description through ProcessRunner-owned glab", async () => {

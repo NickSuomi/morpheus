@@ -988,7 +988,9 @@ describe("BeadsIssueTracker", () => {
             },
           },
         }),
-        "--add-label",
+        "--set-labels",
+        "triaged",
+        "--set-labels",
         "agent:ready",
       ],
     });
@@ -1066,8 +1068,61 @@ describe("BeadsIssueTracker", () => {
     ]);
   });
 
-  it.each(["agent:blocked", "agent:failed", "agent:review-candidate"] as const)(
-    "does not requeue imported GitLab issue in terminal state %s",
+  it("blocks an active imported issue when GitLab carries the stop label", async () => {
+    const imported = {
+      id: "morph-running",
+      title: "Import me",
+      description: "Ready for Morpheus.",
+      labels: ["agent:running", "triaged"],
+      metadata: {
+        morpheus: {
+          gitlab: {
+            project: "group/project",
+            iid: 42,
+            webUrl: "https://gitlab.example.com/group/project/-/issues/42",
+            labels: ["agent:running"],
+            lastSyncedAt: "2026-05-19T09:00:00.000Z",
+            title: "Import me",
+            description: "Ready for Morpheus.",
+          },
+        },
+      },
+    };
+    const processRunner = fakeProcessRunner([ok([imported]), ok([imported]), ok([])]);
+
+    const result = await runWithTracker(
+      processRunner.layer,
+      Effect.gen(function* () {
+        const tracker = yield* IssueTracker;
+        return yield* tracker.upsertImportedGitLabIssue({
+          syncedAt: "2026-05-19T10:00:00.000Z",
+          source: {
+            project: "group/project",
+            iid: 42,
+            title: "Import me",
+            description: "Ready for Morpheus.",
+            webUrl: "https://gitlab.example.com/group/project/-/issues/42",
+            labels: ["agent:stop", "backend"],
+          },
+        });
+      }),
+    );
+
+    expect(result).toEqual({
+      status: "updated",
+      issueId: "morph-running",
+      addedReadyLabel: false,
+    });
+    expect(processRunner.calls.at(-1)?.args.slice(-4)).toEqual([
+      "--set-labels",
+      "triaged",
+      "--set-labels",
+      "agent:blocked",
+    ]);
+  });
+
+  it.each(["agent:blocked", "agent:failed"] as const)(
+    "requeues imported GitLab issue from %s when GitLab ready is set",
     async (agentLabel) => {
       const imported = {
         id: "morph-terminal",
@@ -1111,11 +1166,64 @@ describe("BeadsIssueTracker", () => {
       expect(result).toEqual({
         status: "updated",
         issueId: "morph-terminal",
-        addedReadyLabel: false,
+        addedReadyLabel: true,
       });
-      expect(processRunner.calls.at(-1)?.args).not.toContain("--add-label");
+      expect(processRunner.calls.at(-1)?.args.slice(-4)).toEqual([
+        "--set-labels",
+        "triaged",
+        "--set-labels",
+        "agent:ready",
+      ]);
     },
   );
+
+  it("does not requeue an imported GitLab issue already waiting for review", async () => {
+    const imported = {
+      id: "morph-review",
+      title: "Import me",
+      description: "Ready for Morpheus.",
+      labels: ["agent:review-candidate", "triaged"],
+      metadata: {
+        morpheus: {
+          gitlab: {
+            project: "group/project",
+            iid: 42,
+            webUrl: "https://gitlab.example.com/group/project/-/issues/42",
+            labels: ["agent:ready"],
+            lastSyncedAt: "2026-05-19T09:00:00.000Z",
+            title: "Import me",
+            description: "Ready for Morpheus.",
+          },
+        },
+      },
+    };
+    const processRunner = fakeProcessRunner([ok([imported]), ok([imported]), ok([])]);
+
+    const result = await runWithTracker(
+      processRunner.layer,
+      Effect.gen(function* () {
+        const tracker = yield* IssueTracker;
+        return yield* tracker.upsertImportedGitLabIssue({
+          syncedAt: "2026-05-19T10:00:00.000Z",
+          source: {
+            project: "group/project",
+            iid: 42,
+            title: "Import me",
+            description: "Ready for Morpheus.",
+            webUrl: "https://gitlab.example.com/group/project/-/issues/42",
+            labels: ["agent:ready", "backend"],
+          },
+        });
+      }),
+    );
+
+    expect(result).toEqual({
+      status: "updated",
+      issueId: "morph-review",
+      addedReadyLabel: false,
+    });
+    expect(processRunner.calls.at(-1)?.args).not.toContain("--set-labels");
+  });
 
   it("detects duplicate imported GitLab issues and makes both non-runnable", async () => {
     const imported = (id: string) => ({

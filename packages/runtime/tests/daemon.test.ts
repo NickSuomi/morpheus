@@ -348,6 +348,8 @@ const supportLayer = (
   Layer.mergeAll(
     Layer.succeed(GitLabIssueSource, {
       listReadyIssues: () => Effect.succeed(gitlabIssues),
+      listLifecycleIssues: () => Effect.succeed(gitlabIssues),
+      updateIssueLabels: () => Effect.succeed(undefined),
     } satisfies GitLabIssueSourceService),
     fakeRunLedger(),
     fakeAgentRunner(statuses),
@@ -370,6 +372,7 @@ const supportLayer = (
     Layer.succeed(MergeRequestClient, {
       createDraftMergeRequest: () =>
         Effect.succeed({ reference: "!42", url: "https://gitlab.example/mr/42" }),
+      findOpenMergeRequestForSourceIssue: () => Effect.succeed(undefined),
       updateDescription: (input) =>
         Effect.succeed({ reference: input.reference, url: "https://gitlab.example/mr/42" }),
     } satisfies MergeRequestClientService),
@@ -574,6 +577,10 @@ describe("runDaemonOnce", () => {
         createDraftMergeRequest: () => {
           calls.mergeRequest += 1;
           return Effect.die("MR should not be created after access failure");
+        },
+        findOpenMergeRequestForSourceIssue: () => {
+          calls.mergeRequest += 1;
+          return Effect.die("MR duplicate check should not run after access failure");
         },
         updateDescription: () => {
           calls.mergeRequest += 1;

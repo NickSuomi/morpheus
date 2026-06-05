@@ -143,6 +143,10 @@ export type UpdateMergeRequestDescriptionInput = {
   readonly description: string;
 };
 
+export type FindOpenMergeRequestForSourceIssueInput = {
+  readonly sourceIssueIid: number;
+};
+
 export type MergeRequestReference = {
   readonly reference: string;
   readonly url?: string;
@@ -162,6 +166,9 @@ export class MergeRequestClient extends Context.Tag("@morpheus/runtime/MergeRequ
     readonly createDraftMergeRequest: (
       input: DraftMergeRequestInput,
     ) => Effect.Effect<MergeRequestReference, MergeRequestClientError>;
+    readonly findOpenMergeRequestForSourceIssue: (
+      input: FindOpenMergeRequestForSourceIssueInput,
+    ) => Effect.Effect<MergeRequestReference | undefined, MergeRequestClientError>;
     readonly updateDescription: (
       input: UpdateMergeRequestDescriptionInput,
     ) => Effect.Effect<MergeRequestReference, MergeRequestClientError>;
@@ -182,6 +189,18 @@ export type GitLabIssueInput = {
 export type ListGitLabReadyIssuesInput = {
   readonly project: string;
   readonly readyLabel: string;
+};
+
+export type ListGitLabLifecycleIssuesInput = {
+  readonly project: string;
+  readonly labels: readonly string[];
+};
+
+export type UpdateGitLabIssueLabelsInput = {
+  readonly project: string;
+  readonly iid: number;
+  readonly addLabels: readonly string[];
+  readonly removeLabels: readonly string[];
 };
 
 export class GitLabIssueSourceAccessError extends EffectSchema.TaggedError<GitLabIssueSourceAccessError>(
@@ -232,6 +251,12 @@ export class GitLabIssueSource extends Context.Tag("@morpheus/runtime/GitLabIssu
     readonly listReadyIssues: (
       input: ListGitLabReadyIssuesInput,
     ) => Effect.Effect<readonly GitLabIssueInput[], GitLabIssueSourceError>;
+    readonly listLifecycleIssues: (
+      input: ListGitLabLifecycleIssuesInput,
+    ) => Effect.Effect<readonly GitLabIssueInput[], GitLabIssueSourceError>;
+    readonly updateIssueLabels: (
+      input: UpdateGitLabIssueLabelsInput,
+    ) => Effect.Effect<void, GitLabIssueSourceError>;
   }
 >() {}
 
@@ -304,6 +329,8 @@ export type ImportedGitLabIssue = {
 export type UpsertImportedGitLabIssueInput = {
   readonly source: GitLabIssueInput;
   readonly syncedAt: string;
+  readonly readyLabel?: string;
+  readonly stopLabel?: string;
 };
 
 export type UpsertImportedGitLabIssueResult =
@@ -336,6 +363,17 @@ type SkippedImportedGitLabIssueResult = Extract<
   UpsertImportedGitLabIssueResult,
   { readonly status: "skipped" }
 >;
+
+export const defaultGitLabStopLabel = "agent:stop";
+
+const gitLabLifecycleLabels = (readyLabel: string, stopLabel: string): readonly string[] => [
+  ...new Set([readyLabel, ...agentStates, stopLabel]),
+];
+
+const agentLifecycleLabelSet = new Set<string>(agentStates);
+
+const activeAgentLifecycleLabels = (labels: readonly string[]): readonly AgentState[] =>
+  labels.filter((label): label is AgentState => agentLifecycleLabelSet.has(label));
 
 export class IssueTrackerCommandError extends EffectSchema.TaggedError<IssueTrackerCommandError>(
   "IssueTrackerCommandError",
@@ -1137,6 +1175,7 @@ export const operatorDoctorForCli: Effect.Effect<
 export type SyncGitLabIssuesInput = {
   readonly project: string;
   readonly readyLabel: string;
+  readonly stopLabel?: string;
   readonly syncedAt?: string;
 };
 
@@ -1178,9 +1217,57 @@ const sourceIssueReferenceFor = (
   return importedIssue === undefined ? undefined : { iid: importedIssue.metadata.iid };
 };
 
+const syncGitLabLifecycleLabelsFromBeads = (
+  project: string,
+  lifecycleLabels: readonly string[],
+  importedIssue: ImportedGitLabIssue,
+): Effect.Effect<SyncGitLabIssueFailure | undefined, never, GitLabIssueSource> =>
+  Effect.gen(function* () {
+    if (importedIssue.metadata.project !== project) {
+      return undefined;
+    }
+
+    const source = yield* GitLabIssueSource;
+    const desiredLabels = activeAgentLifecycleLabels(importedIssue.labels);
+    const currentGitLabLifecycleLabels = importedIssue.metadata.labels.filter((label) =>
+      lifecycleLabels.includes(label),
+    );
+    const addLabels = desiredLabels.filter(
+      (label) => !currentGitLabLifecycleLabels.includes(label),
+    );
+    const removeLabels = currentGitLabLifecycleLabels.filter(
+      (label) => !desiredLabels.includes(label as AgentState),
+    );
+
+    if (addLabels.length === 0 && removeLabels.length === 0) {
+      return undefined;
+    }
+
+    const result = yield* Effect.either(
+      source.updateIssueLabels({
+        project,
+        iid: importedIssue.metadata.iid,
+        addLabels,
+        removeLabels,
+      }),
+    );
+
+    return Either.isLeft(result)
+      ? syncFailureFromError(result.left, project, {
+          project,
+          iid: importedIssue.metadata.iid,
+          title: importedIssue.title,
+          description: importedIssue.description,
+          webUrl: importedIssue.metadata.webUrl,
+          labels: importedIssue.metadata.labels,
+        })
+      : undefined;
+  });
+
 export const syncGitLabIssues = ({
   project,
   readyLabel,
+  stopLabel = defaultGitLabStopLabel,
   syncedAt = new Date().toISOString(),
 }: SyncGitLabIssuesInput): Effect.Effect<
   SyncGitLabIssuesResult,
@@ -1194,8 +1281,11 @@ export const syncGitLabIssues = ({
     const updated: UpdatedImportedGitLabIssueResult[] = [];
     const skipped: SkippedImportedGitLabIssueResult[] = [];
     const failed: SyncGitLabIssueFailure[] = [];
+    const lifecycleLabels = gitLabLifecycleLabels(readyLabel, stopLabel);
 
-    const listed = yield* Effect.either(source.listReadyIssues({ project, readyLabel }));
+    const listed = yield* Effect.either(
+      source.listLifecycleIssues({ project, labels: lifecycleLabels }),
+    );
 
     if (Either.isLeft(listed)) {
       return {
@@ -1211,6 +1301,8 @@ export const syncGitLabIssues = ({
         tracker.upsertImportedGitLabIssue({
           source: issue,
           syncedAt,
+          readyLabel,
+          stopLabel,
         }),
       );
 
@@ -1229,6 +1321,22 @@ export const syncGitLabIssues = ({
         case "skipped":
           skipped.push(result.right);
           break;
+      }
+    }
+
+    const imported = yield* Effect.either(tracker.listImportedGitLabIssues());
+    if (Either.isLeft(imported)) {
+      failed.push(syncFailureFromError(imported.left, project));
+    } else {
+      for (const importedIssue of imported.right) {
+        const failure = yield* syncGitLabLifecycleLabelsFromBeads(
+          project,
+          lifecycleLabels,
+          importedIssue,
+        );
+        if (failure !== undefined) {
+          failed.push(failure);
+        }
       }
     }
 
@@ -1672,7 +1780,9 @@ const failPreparationBeforeAgent = (
         issueId,
         terminalRun,
         terminalRun.failureKind ?? terminalFailureKind(startResult, failureKind),
-        terminalRun.failureKind === failureKind ? message : "Preparation start transition rejected.",
+        terminalRun.failureKind === failureKind
+          ? message
+          : "Preparation start transition rejected.",
       );
     }
 
@@ -2184,6 +2294,54 @@ export const startImplementation = (
     }
     const contract = contractResult.right.contract;
 
+    const importedIssuesResult = yield* Effect.either(tracker.listImportedGitLabIssues());
+    if (Either.isLeft(importedIssuesResult)) {
+      return yield* failImplementationStart(
+        tracker,
+        ledger,
+        issueId,
+        run.id,
+        "runtime_error",
+        `Imported GitLab issue metadata read failed: ${errorMessage(importedIssuesResult.left)}`,
+        { writeFailureArtifacts: true },
+      );
+    }
+    const sourceIssue = sourceIssueReferenceFor(importedIssuesResult.right, issue.id);
+    if (sourceIssue !== undefined) {
+      const existingMergeRequestResult = yield* Effect.either(
+        mergeRequests.findOpenMergeRequestForSourceIssue({
+          sourceIssueIid: sourceIssue.iid,
+        }),
+      );
+      if (Either.isLeft(existingMergeRequestResult)) {
+        return yield* failImplementationStart(
+          tracker,
+          ledger,
+          issueId,
+          run.id,
+          existingMergeRequestResult.left.failureKind,
+          `Open MR duplicate check failed: ${existingMergeRequestResult.left.message}`,
+          { writeFailureArtifacts: true },
+        );
+      }
+      if (existingMergeRequestResult.right !== undefined) {
+        const existingMergeRequest = existingMergeRequestResult.right;
+        const location =
+          existingMergeRequest.url === undefined
+            ? existingMergeRequest.reference
+            : `${existingMergeRequest.reference} ${existingMergeRequest.url}`;
+        return yield* failImplementationStart(
+          tracker,
+          ledger,
+          issueId,
+          run.id,
+          "runtime_error",
+          `Open MR already exists for source issue #${sourceIssue.iid}: ${location}`,
+          { writeFailureArtifacts: true },
+        );
+      }
+    }
+
     const workspaceResult = yield* Effect.either(
       workspaceRuntime.prepareImplementationWorkspace({
         issueId,
@@ -2242,19 +2400,6 @@ export const startImplementation = (
       );
     }
 
-    const importedIssuesResult = yield* Effect.either(tracker.listImportedGitLabIssues());
-    if (Either.isLeft(importedIssuesResult)) {
-      return yield* failImplementationStart(
-        tracker,
-        ledger,
-        issueId,
-        run.id,
-        "runtime_error",
-        `Imported GitLab issue metadata read failed: ${errorMessage(importedIssuesResult.left)}`,
-        { writeFailureArtifacts: true },
-      );
-    }
-    const sourceIssue = sourceIssueReferenceFor(importedIssuesResult.right, issue.id);
     const mergeRequestResult = yield* Effect.either(
       mergeRequests.createDraftMergeRequest({
         issueId,
@@ -2357,10 +2502,7 @@ export const startImplementation = (
     }
     const finalizedWorkspaceResult =
       finalizedWorkspace === undefined ? undefined : finalizedWorkspace.right;
-    if (
-      finalizedWorkspaceResult !== undefined &&
-      finalizedWorkspaceResult.commits.length === 0
-    ) {
+    if (finalizedWorkspaceResult !== undefined && finalizedWorkspaceResult.commits.length === 0) {
       return yield* failImplementationStart(
         tracker,
         ledger,
@@ -2718,7 +2860,12 @@ const failReviewBeforeAgent = (
       terminalEvent: "ReviewFailed",
       message,
     });
-    return reviewFailureResult(issueId, terminalRun, terminalRun.failureKind ?? failureKind, message);
+    return reviewFailureResult(
+      issueId,
+      terminalRun,
+      terminalRun.failureKind ?? failureKind,
+      message,
+    );
   });
 
 export const reviewIssue = (
@@ -4369,7 +4516,8 @@ export const planMorpheusSetup = (input: SetupPlanningInput = {}): SetupPlan => 
     input.detected?.defaultBranch ??
     "main";
   const readyLabel = answers.readyLabel ?? existingConfig?.gitlab.readyLabel ?? "agent:ready";
-  const agentModel = answers.agentModel ?? existingConfig?.agentRunner.agent.model ?? "gpt-5.4-mini";
+  const agentModel =
+    answers.agentModel ?? existingConfig?.agentRunner.agent.model ?? "gpt-5.4-mini";
   const agentEffort = answers.agentEffort ?? existingConfig?.agentRunner.agent.effort ?? "xhigh";
   const agentIdleTimeoutSeconds = existingConfig?.agentRunner.agent.idleTimeoutSeconds ?? 1800;
   const authEnvFile =

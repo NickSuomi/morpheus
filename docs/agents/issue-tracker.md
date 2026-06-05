@@ -90,3 +90,6 @@ These labels describe Morpheus-managed issue state and are distinct from Matt Po
 - `agent:failed`
 
 Exactly one active `agent:*` state should exist on a Morpheus-managed issue.
+
+GitLab may also use `agent:stop` as an operator control label. Morpheus reflects
+that into Beads as `agent:blocked`; `agent:stop` is not a Beads lifecycle state.

@@ -273,7 +273,9 @@ const implementationLayerFromConfig = (
         runsDirectory: resolve(config.configDirectory, ".morpheus", "runs"),
       }),
       beadsIssueTrackerLayer.pipe(Layer.provide(processRunnerLayer)),
-      gitWorkspaceRuntimeLayer.pipe(Layer.provide(processRunnerLayer)),
+      gitWorkspaceRuntimeLayer({ targetBranch: config.gitlab.targetBranch }).pipe(
+        Layer.provide(processRunnerLayer),
+      ),
       glabMergeRequestClientLayer.pipe(Layer.provide(processRunnerLayer)),
       sandcastleAgentRunnerLayer(agentRunnerOptionsFromConfig(config)).pipe(
         Layer.provide(processRunnerLayer),
@@ -314,7 +316,9 @@ const reviewLayerFromConfig = (
         runsDirectory: resolve(config.configDirectory, ".morpheus", "runs"),
       }),
       beadsIssueTrackerLayer.pipe(Layer.provide(processRunnerLayer)),
-      gitWorkspaceRuntimeLayer.pipe(Layer.provide(processRunnerLayer)),
+      gitWorkspaceRuntimeLayer({ targetBranch: config.gitlab.targetBranch }).pipe(
+        Layer.provide(processRunnerLayer),
+      ),
       glabMergeRequestClientLayer.pipe(Layer.provide(processRunnerLayer)),
       sandcastleAgentRunnerLayer(agentRunnerOptionsFromConfig(config)).pipe(
         Layer.provide(processRunnerLayer),
@@ -359,7 +363,9 @@ const daemonLayerFromConfig = (
       }),
       beadsIssueTrackerLayer.pipe(Layer.provide(processRunnerLayer)),
       glabIssueSourceLayer.pipe(Layer.provide(processRunnerLayer)),
-      gitWorkspaceRuntimeLayer.pipe(Layer.provide(processRunnerLayer)),
+      gitWorkspaceRuntimeLayer({ targetBranch: config.gitlab.targetBranch }).pipe(
+        Layer.provide(processRunnerLayer),
+      ),
       glabMergeRequestClientLayer.pipe(Layer.provide(processRunnerLayer)),
       sandcastleAgentRunnerLayer(agentRunnerOptionsFromConfig(config)).pipe(
         Layer.provide(processRunnerLayer),
