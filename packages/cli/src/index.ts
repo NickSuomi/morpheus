@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 import { Args, Command, Options, ValidationError } from "@effect/cli";
 import { NodeContext, NodeRuntime } from "@effect/platform-node";
-import { Console, Effect, Layer, Option } from "effect";
+import { Cause, Console, Effect, Layer, Option } from "effect";
 import { chmodSync, mkdirSync, writeFileSync } from "node:fs";
 import { dirname, isAbsolute, join, resolve } from "node:path";
 import { createInterface } from "node:readline/promises";
@@ -1402,14 +1402,29 @@ const formatCliFailure = (error: unknown): string => {
   return "Command failed. Re-run with --help for usage.";
 };
 
+const firstCauseError = (cause: Cause.Cause<unknown>): unknown => {
+  const failure = Option.getOrUndefined(Cause.failureOption(cause));
+  if (failure !== undefined) {
+    return failure;
+  }
+
+  const defect = Array.from(Cause.defects(cause))[0];
+  if (defect !== undefined) {
+    return defect;
+  }
+
+  return "Command interrupted.";
+};
+
 run(process.argv)
   .pipe(
-    Effect.catchAll((error) =>
-      ValidationError.isValidationError(error)
+    Effect.catchAllCause((cause) => {
+      const error = firstCauseError(cause);
+      return ValidationError.isValidationError(error)
         ? Console.error('Run "morpheus --help" to see available commands.').pipe(
             Effect.zipRight(markCliFailure),
           )
-        : Console.error(`Error: ${formatCliFailure(error)}`).pipe(Effect.zipRight(markCliFailure)),
-    ),
+        : Console.error(`Error: ${formatCliFailure(error)}`).pipe(Effect.zipRight(markCliFailure));
+    }),
   )
   .pipe(Effect.provide(NodeContext.layer), NodeRuntime.runMain);
