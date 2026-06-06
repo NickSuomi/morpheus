@@ -517,8 +517,8 @@ describe("setup planning", () => {
       expect.arrayContaining([
         expect.objectContaining({
           id: "containerBuild",
-          defaultValue: true,
-          value: true,
+          defaultValue: false,
+          value: false,
           mutation: {
             kind: "command",
             command:
@@ -1202,10 +1202,10 @@ describe("setup planning", () => {
       expect(planMorpheusSetupExecution(missingAuthInput).daemonOnce).toEqual({
         canRun: false,
         skipReason:
-          "fill .morpheus/secrets/agent.env with non-empty required keys: OPENAI_API_KEY.",
+          "Provide agent auth in .morpheus/secrets/agent.env with non-empty required keys: OPENAI_API_KEY. Use --auth-secret KEY=$KEY during setup or edit the file manually.",
       });
       expect(missingAuthPreview).toContain(
-        "Fill .morpheus/secrets/agent.env with non-empty required keys: OPENAI_API_KEY.",
+        "Provide agent auth in .morpheus/secrets/agent.env with non-empty required keys: OPENAI_API_KEY. Use --auth-secret KEY=$KEY during setup or edit the file manually.",
       );
       const requestedDaemonPlan = planMorpheusSetup({
         ...missingAuthInput,
@@ -1216,7 +1216,7 @@ describe("setup planning", () => {
         answers: { runDaemonOnce: true },
       });
       expect(requestedDaemonPlan.errors).toContain(
-        "Fill .morpheus/secrets/agent.env with non-empty required keys: OPENAI_API_KEY.",
+        "Provide agent auth in .morpheus/secrets/agent.env with non-empty required keys: OPENAI_API_KEY. Use --auth-secret KEY=$KEY during setup or edit the file manually.",
       );
       expect(missingAuthPreview).not.toContain("morpheus sync (after-doctor)");
       expect(missingAuthPreview).not.toContain("morpheus daemon --once (after-doctor)");
@@ -1228,7 +1228,7 @@ describe("setup planning", () => {
       expect(planMorpheusSetupExecution(emptyAuthInput).daemonOnce).toEqual({
         canRun: false,
         skipReason:
-          "fill .morpheus/secrets/agent.env with non-empty required keys: OPENAI_API_KEY.",
+          "Provide agent auth in .morpheus/secrets/agent.env with non-empty required keys: OPENAI_API_KEY. Use --auth-secret KEY=$KEY during setup or edit the file manually.",
       });
     });
   });
@@ -1236,7 +1236,8 @@ describe("setup planning", () => {
   it("renders only placeholder auth templates", () => {
     expect(setupSecretFileTemplate(["OPENAI_API_KEY", "ANTHROPIC_API_KEY"])).toBe(
       [
-        "# Fill these values manually. Morpheus setup never asks for or prints secret values.",
+        "# Morpheus setup may write these values when explicitly provided.",
+        "# Keep this file local and do not commit real token values.",
         "OPENAI_API_KEY=",
         "ANTHROPIC_API_KEY=",
         "",
@@ -1252,7 +1253,7 @@ describe("setup planning", () => {
     );
   });
 
-  it("requires doctor and daemon-once when setup writes changes", () => {
+  it("requires doctor but not daemon-once when setup writes changes", () => {
     const declinedDoctor = planMorpheusSetup({
       currentWorkingDirectory: "/repos/app",
       detected: {
@@ -1296,8 +1297,8 @@ describe("setup planning", () => {
         expect.objectContaining({ id: "doctor", value: true, validation: { status: "valid" } }),
         expect.objectContaining({
           id: "daemonOnce",
-          defaultValue: true,
-          value: true,
+          defaultValue: false,
+          value: false,
           validation: { status: "valid" },
         }),
       ]),
