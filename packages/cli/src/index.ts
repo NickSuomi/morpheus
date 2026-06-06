@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { Args, Command, Options } from "@effect/cli";
+import { Args, Command, Options, ValidationError } from "@effect/cli";
 import { NodeContext, NodeRuntime } from "@effect/platform-node";
 import { Console, Effect, Layer, Option } from "effect";
 import { chmodSync, mkdirSync, writeFileSync } from "node:fs";
@@ -1359,10 +1359,6 @@ const deamon = Command.make("deamon", { configPath, once }, daemonAction).pipe(
   Command.withDescription("Alias for daemon"),
 );
 
-const demon = Command.make("demon", { configPath, once }, daemonAction).pipe(
-  Command.withDescription("Alias for daemon"),
-);
-
 const command = Command.make("morpheus", {}, () =>
   Console.log("Morpheus local agent orchestration"),
 ).pipe(
@@ -1384,7 +1380,6 @@ const command = Command.make("morpheus", {}, () =>
     review,
     daemon,
     deamon,
-    demon,
   ]),
 );
 
@@ -1393,4 +1388,28 @@ const run = Command.run(command, {
   version: pkg.version,
 });
 
-run(process.argv).pipe(Effect.provide(NodeContext.layer), NodeRuntime.runMain);
+const markCliFailure = Effect.sync(() => {
+  process.exitCode = 1;
+});
+
+const formatCliFailure = (error: unknown): string => {
+  if (error instanceof Error) {
+    return error.message;
+  }
+  if (typeof error === "string") {
+    return error;
+  }
+  return "Command failed. Re-run with --help for usage.";
+};
+
+run(process.argv)
+  .pipe(
+    Effect.catchAll((error) =>
+      ValidationError.isValidationError(error)
+        ? Console.error('Run "morpheus --help" to see available commands.').pipe(
+            Effect.zipRight(markCliFailure),
+          )
+        : Console.error(`Error: ${formatCliFailure(error)}`).pipe(Effect.zipRight(markCliFailure)),
+    ),
+  )
+  .pipe(Effect.provide(NodeContext.layer), NodeRuntime.runMain);
