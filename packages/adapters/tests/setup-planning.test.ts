@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { execFileSync } from "node:child_process";
 import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -174,6 +175,43 @@ describe("setup planning", () => {
         expect.objectContaining({ id: "agentAuth" }),
       ]),
     );
+  });
+
+  it("normalizes URL-like GitLab project answers into project paths", () => {
+    const plan = planMorpheusSetup({
+      currentWorkingDirectory: "/repos/app",
+      detected: {
+        targetPath: {
+          exists: true,
+          isDirectory: true,
+          isReadable: true,
+          isGitWorktree: true,
+        },
+        defaultBranch: "dev-6",
+      },
+      existing: { files: [] },
+      answers: {
+        gitlabProject: "gitlab.united-grid.com/intra/intra-ionic.git",
+      },
+    });
+
+    expect(plan.prompts).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: "gitlabProject",
+          value: "intra/intra-ionic",
+          validation: { status: "valid" },
+        }),
+      ]),
+    );
+    expect(plan.configMutation.action).toBe("create");
+    if (plan.configMutation.action !== "create") {
+      throw new Error("Expected setup config creation.");
+    }
+    expect(plan.configMutation.nextConfig.gitlab).toMatchObject({
+      project: "intra/intra-ionic",
+      targetBranch: "dev-6",
+    });
   });
 
   it("preserves existing target-owned templates and refuses secret overwrites by default", () => {
@@ -353,7 +391,7 @@ describe("setup planning", () => {
     );
   });
 
-  it("rejects Git remote URLs as GitLab project paths", () => {
+  it("normalizes Git remote URL-shaped project answers before validation", () => {
     const plan = planMorpheusSetup({
       currentWorkingDirectory: "/repos/app",
       detected: {
@@ -369,8 +407,11 @@ describe("setup planning", () => {
       },
     });
 
-    expect(plan.configMutation.action).toBe("blocked");
-    expect(plan.errors).toContain("Use a GitLab project path like group/project.");
+    expect(plan.configMutation.action).toBe("create");
+    if (plan.configMutation.action !== "create") {
+      throw new Error("Expected setup config creation.");
+    }
+    expect(plan.configMutation.nextConfig.gitlab.project).toBe("group/app");
   });
 
   it("blocks update mode when an existing config failed validation", () => {
@@ -956,6 +997,43 @@ describe("setup planning", () => {
           }),
         ]),
       );
+    });
+  });
+
+  it("detects the checked-out branch as the setup target before origin HEAD", () => {
+    withTempDir((dir) => {
+      execFileSync("git", ["init"], { cwd: dir, stdio: "ignore" });
+      execFileSync("git", ["config", "user.email", "agent@example.com"], {
+        cwd: dir,
+        stdio: "ignore",
+      });
+      execFileSync("git", ["config", "user.name", "Agent"], { cwd: dir, stdio: "ignore" });
+      writeFileSync(join(dir, "README.md"), "fixture\n");
+      execFileSync("git", ["add", "README.md"], { cwd: dir, stdio: "ignore" });
+      execFileSync("git", ["commit", "-m", "init"], { cwd: dir, stdio: "ignore" });
+      execFileSync("git", ["branch", "dev"], { cwd: dir, stdio: "ignore" });
+      execFileSync("git", ["checkout", "-b", "dev-6"], { cwd: dir, stdio: "ignore" });
+      execFileSync(
+        "git",
+        ["remote", "add", "origin", "git@gitlab.united-grid.com:intra/intra-ionic.git"],
+        {
+          cwd: dir,
+          stdio: "ignore",
+        },
+      );
+      execFileSync("git", ["update-ref", "refs/remotes/origin/dev", "dev"], {
+        cwd: dir,
+        stdio: "ignore",
+      });
+      execFileSync("git", ["symbolic-ref", "refs/remotes/origin/HEAD", "refs/remotes/origin/dev"], {
+        cwd: dir,
+        stdio: "ignore",
+      });
+
+      const input = detectMorpheusSetupInput({ targetPath: dir });
+
+      expect(input.detected?.defaultBranch).toBe("dev-6");
+      expect(input.detected?.gitlabProject).toBe("intra/intra-ionic");
     });
   });
 

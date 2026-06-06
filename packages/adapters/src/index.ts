@@ -41,6 +41,7 @@ import {
   detectTargetCapabilities,
   gitignoreEntries,
   loadMorpheusConfig,
+  normalizeGitLabProjectInput,
   setupGeneratedFileContents,
   setupSecretFileTemplate,
 } from "@morpheus/runtime";
@@ -169,15 +170,20 @@ const setupGitlabProject = (target: string): string | undefined => {
     ".fullPath",
   ]);
   if (glabProject !== undefined && glabProject.length > 0) {
-    return glabProject;
+    return normalizeGitLabProjectInput(glabProject);
   }
 
   const remote = setupRunText(target, "git", ["remote", "get-url", "origin"]);
   const match = remote?.match(/[:/]([^/:]+(?:\/[^/]+)+?)(?:\.git)?$/);
-  return match?.[1];
+  return match?.[1] === undefined ? undefined : normalizeGitLabProjectInput(match[1]);
 };
 
 const setupDefaultBranch = (target: string): string | undefined => {
+  const current = setupRunText(target, "git", ["branch", "--show-current"]);
+  if (current !== undefined && current.length > 0) {
+    return current;
+  }
+
   const symbolic = setupRunText(target, "git", [
     "symbolic-ref",
     "--short",
@@ -187,7 +193,7 @@ const setupDefaultBranch = (target: string): string | undefined => {
     return symbolic.slice("origin/".length);
   }
 
-  return setupRunText(target, "git", ["branch", "--show-current"]) || undefined;
+  return undefined;
 };
 
 type NodeProcessRunnerOptions = {

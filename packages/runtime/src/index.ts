@@ -4082,6 +4082,22 @@ const bundledAgentSkillMappings = bundledAgentSkills.map((name) => ({
   path: `${defaultSkillsDirectory}/${name}/SKILL.md`,
 }));
 
+export const normalizeGitLabProjectInput = (project: string): string => {
+  const trimmed = project.trim();
+  const withoutProtocol = trimmed.replace(/^[A-Za-z][A-Za-z0-9+.-]*:\/\//, "");
+  const sshMatch = withoutProtocol.match(/^[^@/]+@[^:]+:(.+)$/);
+  const pathCandidate = sshMatch?.[1] ?? withoutProtocol;
+  const pathWithoutQuery = pathCandidate.split(/[?#]/, 1)[0]?.replace(/\/+$/, "") ?? "";
+  const pathWithoutGit = pathWithoutQuery.replace(/\.git$/i, "");
+  const parts = pathWithoutGit.split("/").filter((part) => part.length > 0);
+
+  if (parts.length >= 3 && (parts[0]?.includes(".") || parts[0]?.includes("@"))) {
+    return parts.slice(1).join("/");
+  }
+
+  return parts.join("/");
+};
+
 export const defaultAgentStageSkillMappings = {
   prepare: [
     "matt-pocock-to-prd",
@@ -4103,7 +4119,7 @@ const makeInitialConfig = (
   targetRepo: ".",
   issueTracker: { kind: "beads" },
   gitlab: {
-    project: options.gitlabProject,
+    project: normalizeGitLabProjectInput(options.gitlabProject),
     readyLabel: options.gitlabReadyLabel ?? "agent:ready",
     targetBranch: options.targetBranch ?? "main",
   },
@@ -4383,7 +4399,7 @@ const targetPathValidation = (
 };
 
 const gitlabProjectValidation = (project: string): SetupValidation =>
-  isGitLabProjectPath(project)
+  isGitLabProjectPath(normalizeGitLabProjectInput(project))
     ? valid()
     : invalid("Use a GitLab project path like group/project.");
 
@@ -4612,8 +4628,9 @@ export const planMorpheusSetup = (input: SetupPlanningInput = {}): SetupPlan => 
       toolchainProbes,
     );
   const answers = input.answers ?? {};
-  const gitlabProject =
-    answers.gitlabProject ?? existingConfig?.gitlab.project ?? input.detected?.gitlabProject ?? "";
+  const gitlabProject = normalizeGitLabProjectInput(
+    answers.gitlabProject ?? existingConfig?.gitlab.project ?? input.detected?.gitlabProject ?? "",
+  );
   const targetBranch =
     answers.targetBranch ??
     existingConfig?.gitlab.targetBranch ??
