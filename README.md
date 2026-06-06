@@ -59,9 +59,6 @@ morpheus --version
 cd /path/to/target-repo
 morpheus setup
 
-# You fill this manually. Morpheus never asks for secret values.
-$EDITOR .morpheus/secrets/agent.env
-
 morpheus doctor
 morpheus daemon --once
 morpheus daemon
@@ -148,7 +145,7 @@ The dream has rules.
 
 - Morpheus does not auto-merge.
 - Morpheus does not hide raw run evidence from the operator.
-- Morpheus does not ask for secret values during setup.
+- Morpheus does not silently use implicit or global host auth.
 - Morpheus does not silently use host Codex auth paths.
 - Morpheus does not create `.sandcastle` target artifacts.
 - Morpheus does not treat GitLab issue comments as primary lifecycle state.
@@ -166,7 +163,7 @@ curl -fsSL https://github.com/NickSuomi/morpheus/releases/latest/download/instal
 Pinned release:
 
 ```sh
-curl -fsSL https://github.com/NickSuomi/morpheus/releases/latest/download/install.sh | MORPHEUS_VERSION=0.1.21 sh
+curl -fsSL https://github.com/NickSuomi/morpheus/releases/latest/download/install.sh | MORPHEUS_VERSION=0.1.22 sh
 ```
 
 Custom install dir:
@@ -194,15 +191,24 @@ morpheus config show
 ```
 
 Setup uses selector prompts for choices and readline-style prompts for text/path
-values. It does not collect secret values. When Docker is available, setup
-defaults to building the configured Morpheus container image during setup; pass
-`--no-build` only when you intentionally want to build it later.
+values. It can collect required agent auth secrets interactively, or accept
+explicit non-interactive secrets through `--auth-secret KEY=VALUE`. Secret
+values are written only to the configured target-local auth env file.
 
-Fill the agent auth file manually:
+One-command setup:
 
 ```sh
-mkdir -p .morpheus/secrets
-cp .morpheus/secrets/agent.env.example .morpheus/secrets/agent.env
+morpheus setup --yes \
+  --gitlab-project group/project \
+  --auth-secret OPENAI_API_KEY="$OPENAI_API_KEY" \
+  --build \
+  --once
+```
+
+Manual auth remains supported:
+
+```sh
+morpheus setup --yes --gitlab-project group/project
 $EDITOR .morpheus/secrets/agent.env
 ```
 
@@ -309,13 +315,13 @@ pnpm --filter @morpheus/cli morpheus --help
 Build release artifacts:
 
 ```sh
-scripts/package-release.sh --version 0.1.21 --only-os darwin --only-arch arm64
+scripts/package-release.sh --version 0.1.22 --only-os darwin --only-arch arm64
 ```
 
 Install from local artifact by overriding URL/checksum:
 
 ```sh
-MORPHEUS_RELEASE_URL="file:///path/to/morpheus-0.1.21-darwin-arm64.tar.gz" \
+MORPHEUS_RELEASE_URL="file:///path/to/morpheus-0.1.22-darwin-arm64.tar.gz" \
 MORPHEUS_CHECKSUM_URL="" \
 scripts/install.sh
 ```

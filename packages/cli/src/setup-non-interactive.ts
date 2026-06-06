@@ -25,14 +25,6 @@ export type NonInteractiveSetupInput = {
   readonly verificationCommands?: readonly string[];
 };
 
-const requiredFlag = (value: string | undefined, flag: string): string => {
-  if (value === undefined || value.trim().length === 0) {
-    throw new Error(`Missing required non-interactive setup option: ${flag}`);
-  }
-
-  return value;
-};
-
 const normalizeList = (
   repeated: readonly string[] | undefined,
   fromConfig: readonly string[] | undefined,
@@ -58,14 +50,10 @@ export const setupPlanWantsContainerBuild = (plan: Pick<SetupPlan, "prompts">): 
   plan.prompts.some((prompt) => prompt.id === "containerBuild" && prompt.value === true);
 
 export const buildNonInteractiveSetupAnswers = (input: NonInteractiveSetupInput): SetupAnswers => {
-  if (input.authSecret !== undefined) {
-    throw new Error("Non-interactive setup does not accept secret values.");
-  }
-
   const writeChanges = input.dryRun === true ? false : input.yes === true;
 
   return {
-    gitlabProject: requiredFlag(input.gitlabProject, "--gitlab-project"),
+    ...(input.gitlabProject === undefined ? {} : { gitlabProject: input.gitlabProject }),
     ...(input.targetBranch === undefined ? {} : { targetBranch: input.targetBranch }),
     ...(input.gitlabReadyLabel === undefined ? {} : { readyLabel: input.gitlabReadyLabel }),
     ...(input.authEnvFile === undefined ? {} : { authEnvFile: input.authEnvFile }),

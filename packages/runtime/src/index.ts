@@ -4581,7 +4581,8 @@ const setupNextSteps = (
 const setupAuthHandoffMessage = (
   authEnvFile: string,
   requiredAuthKeys: readonly string[],
-): string => `Fill ${authEnvFile} with non-empty required keys: ${requiredAuthKeys.join(", ")}.`;
+): string =>
+  `Provide agent auth in ${authEnvFile} with non-empty required keys: ${requiredAuthKeys.join(", ")}. Use --auth-secret KEY=$KEY during setup or edit the file manually.`;
 
 const setupAuthGateReason = (input: SetupPlanningInput): string | undefined => {
   const config = input.existing?.config;
@@ -4594,7 +4595,7 @@ const setupAuthGateReason = (input: SetupPlanningInput): string | undefined => {
     : setupAuthHandoffMessage(
         config.agentRunner.auth.envFile,
         config.agentRunner.auth.requiredKeys,
-      ).replace(/^Fill/, "fill");
+      );
 };
 
 const overwriteTemplatesValidation = (
@@ -4657,10 +4658,7 @@ export const planMorpheusSetup = (input: SetupPlanningInput = {}): SetupPlan => 
     existingConfig?.agentRunner.container.mounts ?? [
       { hostPath: ".", containerPath: "/workspace" },
     ];
-  const profileChanged =
-    existingConfig !== undefined &&
-    containerProfile !== existingConfig.agentRunner.container.profile;
-  const defaultBuildContainer = input.detected?.dockerAvailable === true && !profileChanged;
+  const defaultBuildContainer = false;
   const buildContainer = answers.buildContainer ?? defaultBuildContainer;
   const containerBuildCommand = `docker build -f ${containerProfile} -t ${containerImage} .`;
   const verificationCommands =
@@ -4780,17 +4778,15 @@ export const planMorpheusSetup = (input: SetupPlanningInput = {}): SetupPlan => 
       : agentAuthReady
         ? valid()
         : warning("Sync waits until doctor has no blocking auth or GitLab failures."),
-    writeChanges && answers.runDaemonOnce === false
-      ? invalid("Setup completion requires morpheus daemon --once after writing changes.")
-      : answers.runDaemonOnce === true && !daemonOnceReady
-        ? invalid(
-            agentAuthReady
-              ? "Daemon tick requires doctor to have no FAIL results."
-              : setupAuthHandoffMessage(authEnvFile, requiredAuthKeys),
-          )
-        : agentAuthReady
-          ? valid()
-          : warning("Daemon tick waits until doctor has no FAIL results."),
+    answers.runDaemonOnce === true && !daemonOnceReady
+      ? invalid(
+          agentAuthReady
+            ? "Daemon tick requires doctor to have no FAIL results."
+            : setupAuthHandoffMessage(authEnvFile, requiredAuthKeys),
+        )
+      : agentAuthReady
+        ? valid()
+        : warning("Daemon tick waits until doctor has no FAIL results."),
   ] as const;
 
   const prompts: readonly SetupPrompt[] = [
@@ -4999,16 +4995,10 @@ export const planMorpheusSetup = (input: SetupPlanningInput = {}): SetupPlan => 
       kind: "command",
       command: "morpheus sync",
     }),
-    setupPrompt(
-      "daemonOnce",
-      writeChanges,
-      writeChanges ? (answers.runDaemonOnce ?? true) : (answers.runDaemonOnce ?? false),
-      promptValidations[23],
-      {
-        kind: "command",
-        command: "morpheus daemon --once",
-      },
-    ),
+    setupPrompt("daemonOnce", false, answers.runDaemonOnce ?? false, promptValidations[23], {
+      kind: "command",
+      command: "morpheus daemon --once",
+    }),
   ];
 
   const errors = prompts.flatMap((prompt) =>
@@ -5060,7 +5050,7 @@ export const planMorpheusSetup = (input: SetupPlanningInput = {}): SetupPlan => 
                 action: shouldCreateSecretFile ? ("create" as const) : ("skip" as const),
                 apply: shouldCreateSecretFile && writeChanges,
                 reason: shouldCreateSecretFile
-                  ? "Create empty key placeholders only; no secret values are requested."
+                  ? "Create empty key placeholders only; setup can fill them when auth secrets are provided."
                   : "Operator chose to create the secret file later.",
               },
           { path: ".gitignore", action: "patch", apply: writeChanges },
@@ -5171,7 +5161,8 @@ export const applyMorpheusSetupPlan = (
 
 export const setupSecretFileTemplate = (keys: readonly string[]): string =>
   [
-    "# Fill these values manually. Morpheus setup never asks for or prints secret values.",
+    "# Morpheus setup may write these values when explicitly provided.",
+    "# Keep this file local and do not commit real token values.",
     ...keys.map((key) => `${key}=`),
     "",
   ].join("\n");

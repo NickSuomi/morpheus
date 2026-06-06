@@ -12,7 +12,7 @@ Product principle: **If it can't explain itself, it can't run.**
 2. `cd` into a target repository.
 3. Run `morpheus setup`.
 4. Answer guided setup prompts.
-5. Let setup write/verify target Morpheus files and build the configured container image when Docker is available.
+5. Let setup write/verify target Morpheus files, collect explicit target-local auth, and build the configured container image only when requested.
 6. Run doctor with zero `FAIL` results.
 7. Run `morpheus daemon --once` successfully.
 8. Start `morpheus daemon` when ready.
@@ -34,7 +34,7 @@ morpheus --version
 Pinned installs use the same script with an explicit release version:
 
 ```sh
-curl -fsSL https://github.com/NickSuomi/morpheus/releases/latest/download/install.sh | MORPHEUS_VERSION=0.1.21 sh
+curl -fsSL https://github.com/NickSuomi/morpheus/releases/latest/download/install.sh | MORPHEUS_VERSION=0.1.22 sh
 ```
 
 The installer must:
@@ -52,9 +52,10 @@ The installer must:
 - choices and multi-choice prompts use selector UI;
 - multi-choice prompts toggle with Space and confirm with Enter;
 - text, path, model, and pasted values use readline-style input;
-- secret values are never requested, printed, logged, copied, or summarized;
-- setup creates or points to an explicit env file and tells the operator which required keys to fill;
-- setup defaults to building the configured Morpheus container image when Docker is available, with an explicit opt-out for operators who want to build it later.
+- secret values may be entered interactively or passed with `--auth-secret KEY=VALUE`;
+- secret values are not rendered in setup preview, config summaries, logs, or review artifacts;
+- setup creates or points to an explicit target-local env file and can write required keys there;
+- setup builds the configured Morpheus container image only when requested.
 
 Richer prompt copy, validation, and recovery may continue as UX hardening, but
 selector/readline coverage above is part of the ALPHA contract.
@@ -93,7 +94,9 @@ After successful setup, the target repository has:
 - `.gitignore` entries for local Morpheus runtime state and the real secret env file path;
 - configured GitLab project, target branch, ready label, agent model/effort, auth keys, container image/profile, verification commands, daemon interval, and lane concurrency.
 
-Setup must not create `.sandcastle` artifacts, private host auth paths, or a real secret env file containing token values. Operators create/fill the real auth env file manually.
+Setup must not create `.sandcastle` artifacts or private host auth paths. Setup may
+create/fill the configured real auth env file only when the operator explicitly
+provides secrets during setup.
 
 ## Intentional Lowercase Slugs
 

@@ -21,7 +21,7 @@ const withJsonFile = <T>(contents: string, fn: (path: string) => T) => {
 };
 
 describe("non-interactive setup options", () => {
-  it("maps scriptable flags to setup answers without accepting secret values", () => {
+  it("maps scriptable flags to setup answers without leaking secret values", () => {
     const result = buildNonInteractiveSetupAnswers({
       yes: true,
       dryRun: false,
@@ -35,6 +35,7 @@ describe("non-interactive setup options", () => {
       containerProfile: ".morpheus/container/Dockerfile",
       verificationCommand: ["pnpm test", "pnpm typecheck"],
       pollIntervalSeconds: 15,
+      authSecret: "OPENAI_API_KEY=real-token",
     });
 
     expect(result).toEqual({
@@ -52,12 +53,13 @@ describe("non-interactive setup options", () => {
       runDoctor: true,
       runSync: false,
     });
+    expect("authSecret" in result).toBe(false);
   });
 
-  it("fails closed when required non-interactive inputs are missing", () => {
-    expect(() => buildNonInteractiveSetupAnswers({ yes: true, dryRun: false })).toThrow(
-      "Missing required non-interactive setup option: --gitlab-project",
-    );
+  it("lets setup planning validate missing project input", () => {
+    const result = buildNonInteractiveSetupAnswers({ yes: true, dryRun: false });
+
+    expect(result.gitlabProject).toBeUndefined();
   });
 
   it("lets setup defaults decide container build when --yes is used without build flags", () => {
@@ -70,7 +72,7 @@ describe("non-interactive setup options", () => {
     expect(result.buildContainer).toBeUndefined();
   });
 
-  it("runs container build from the computed setup default", () => {
+  it("does not build container image by default", () => {
     const answers = buildNonInteractiveSetupAnswers({
       yes: true,
       dryRun: false,
@@ -91,18 +93,32 @@ describe("non-interactive setup options", () => {
       answers,
     });
 
-    expect(setupPlanWantsContainerBuild(plan)).toBe(true);
+    expect(setupPlanWantsContainerBuild(plan)).toBe(false);
   });
 
-  it("rejects inline secret values", () => {
-    expect(() =>
-      buildNonInteractiveSetupAnswers({
-        yes: true,
-        dryRun: false,
+  it("builds container image only when requested explicitly", () => {
+    const answers = buildNonInteractiveSetupAnswers({
+      yes: true,
+      dryRun: false,
+      build: true,
+      gitlabProject: "group/project",
+    });
+    const plan = planMorpheusSetup({
+      currentWorkingDirectory: "/repos/app",
+      detected: {
+        targetPath: {
+          exists: true,
+          isDirectory: true,
+          isReadable: true,
+          isGitWorktree: true,
+        },
         gitlabProject: "group/project",
-        authSecret: "OPENAI_API_KEY=real-token",
-      }),
-    ).toThrow("Non-interactive setup does not accept secret values.");
+        dockerAvailable: true,
+      },
+      answers,
+    });
+
+    expect(setupPlanWantsContainerBuild(plan)).toBe(true);
   });
 
   it("does not request daemon-once before setup files are written", () => {

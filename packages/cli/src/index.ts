@@ -2,8 +2,10 @@
 import { Args, Command, Options } from "@effect/cli";
 import { NodeContext, NodeRuntime } from "@effect/platform-node";
 import { Console, Effect, Layer, Option } from "effect";
+import { chmodSync, mkdirSync, writeFileSync } from "node:fs";
 import { dirname, isAbsolute, join, resolve } from "node:path";
 import { createInterface } from "node:readline/promises";
+import { Writable } from "node:stream";
 import {
   beadsIssueTrackerLayer,
   gitWorkspaceRuntimeLayer,
@@ -43,6 +45,7 @@ import {
   showRunLogsForCli,
   startImplementationForCli,
   runMorpheusSetupContainerBuild,
+  setupAuthReady,
   syncGitLabIssuesForCli,
   type MorpheusConfig,
   type SetupPlan,
@@ -424,6 +427,7 @@ const setupTargetBranch = Options.text("target-branch").pipe(Options.optional);
 const setupGitlabReadyLabel = Options.text("gitlab-ready-label").pipe(Options.optional);
 const setupAuthEnvFile = Options.text("auth-env-file").pipe(Options.optional);
 const setupRequiredAuthKey = Options.text("required-auth-key").pipe(Options.optional);
+const setupAuthSecret = Options.text("auth-secret").pipe(Options.optional);
 const setupContainerImage = Options.text("container-image").pipe(Options.optional);
 const setupContainerProfile = Options.text("container-profile").pipe(Options.optional);
 const setupVerificationCommand = Options.text("verification-command").pipe(Options.optional);
@@ -662,11 +666,6 @@ const collectSetupAnswers = async (
     }
   }
 
-  answers.buildContainer = await yesNo(
-    rl,
-    "Build container image now",
-    prompts.get("containerBuild")?.defaultValue === true,
-  );
   answers.addToolchainProbes = await yesNo(
     rl,
     "Add detected toolchain doctor probes",
@@ -727,20 +726,160 @@ const optionString = (value: Option.Option<string>): string | undefined =>
 const commaList = (value: string | undefined): readonly string[] | undefined =>
   value === undefined ? undefined : parseList(value);
 
+type AuthSecretAssignments = ReadonlyMap<string, string>;
+
+const envKeyPattern = /^[A-Za-z_][A-Za-z0-9_]*$/;
+
+const parseAuthSecretAssignments = (value: string | undefined): AuthSecretAssignments => {
+  if (value === undefined || value.trim().length === 0) {
+    return new Map();
+  }
+
+  const assignments = new Map<string, string>();
+  const entries = value
+    .split(/\r?\n|,(?=[A-Za-z_][A-Za-z0-9_]*=)/)
+    .map((entry) => entry.trim())
+    .filter((entry) => entry.length > 0);
+
+  for (const entry of entries) {
+    const separator = entry.indexOf("=");
+    if (separator <= 0) {
+      throw new Error("Auth secret must use KEY=VALUE format.");
+    }
+
+    const key = entry.slice(0, separator).trim();
+    const secret = entry.slice(separator + 1);
+    if (!envKeyPattern.test(key)) {
+      throw new Error(`Invalid auth secret key: ${key}`);
+    }
+    if (secret.length === 0) {
+      throw new Error(`Auth secret value is empty for ${key}.`);
+    }
+
+    assignments.set(key, secret);
+  }
+
+  return assignments;
+};
+
+const setupConfigFromPlan = (plan: SetupPlan): MorpheusConfig | undefined =>
+  plan.configMutation.action === "blocked" ? undefined : plan.configMutation.nextConfig;
+
+const setupAuthEnvPath = (targetPath: string, config: MorpheusConfig): string =>
+  isAbsolute(config.agentRunner.auth.envFile)
+    ? config.agentRunner.auth.envFile
+    : join(targetPath, config.agentRunner.auth.envFile);
+
+const writeSetupAuthSecrets = (
+  targetPath: string,
+  config: MorpheusConfig,
+  assignments: AuthSecretAssignments,
+): void => {
+  if (assignments.size === 0) {
+    return;
+  }
+
+  const missingKeys = config.agentRunner.auth.requiredKeys.filter(
+    (key) => !assignments.has(key) || assignments.get(key)?.length === 0,
+  );
+  if (missingKeys.length > 0) {
+    throw new Error(`Missing auth secret values for required keys: ${missingKeys.join(", ")}`);
+  }
+
+  const orderedKeys = [
+    ...config.agentRunner.auth.requiredKeys,
+    ...[...assignments.keys()].filter((key) => !config.agentRunner.auth.requiredKeys.includes(key)),
+  ];
+  const authPath = setupAuthEnvPath(targetPath, config);
+  mkdirSync(dirname(authPath), { recursive: true });
+  writeFileSync(
+    authPath,
+    [
+      "# Written by Morpheus setup. Keep local; do not commit real token values.",
+      ...orderedKeys.map((key) => `${key}=${assignments.get(key) ?? ""}`),
+      "",
+    ].join("\n"),
+    { mode: 0o600 },
+  );
+  chmodSync(authPath, 0o600);
+  console.log(`Agent auth file written: ${config.agentRunner.auth.envFile}`);
+};
+
+const secretQuestion = async (
+  rl: ReturnType<typeof createInterface>,
+  label: string,
+): Promise<string> => {
+  rl.pause();
+  const mutedOutput = new Writable({
+    write(_chunk, _encoding, callback) {
+      callback();
+    },
+  });
+  const secretRl = createInterface({
+    input: process.stdin,
+    output: mutedOutput,
+    terminal: true,
+  });
+
+  process.stdout.write(`${label}: `);
+  try {
+    const answer = (await secretRl.question("")).trim();
+    process.stdout.write("\n");
+    return answer;
+  } finally {
+    secretRl.close();
+    rl.resume();
+  }
+};
+
+const collectInteractiveAuthSecrets = async (
+  rl: ReturnType<typeof createInterface>,
+  targetPath: string,
+  config: MorpheusConfig,
+): Promise<AuthSecretAssignments> => {
+  const afterApplyInput = await detectSetupInputForTarget(targetPath);
+  if (setupAuthReady(afterApplyInput)) {
+    return new Map();
+  }
+
+  const shouldEnterSecrets = await yesNo(rl, "Enter agent auth secrets now", true);
+  if (!shouldEnterSecrets) {
+    return new Map();
+  }
+
+  const assignments = new Map<string, string>();
+  for (const key of config.agentRunner.auth.requiredKeys) {
+    const value = await secretQuestion(rl, `Agent auth ${key}`);
+    if (value.length === 0) {
+      throw new Error(`Auth secret value is empty for ${key}.`);
+    }
+    assignments.set(key, value);
+  }
+
+  return assignments;
+};
+
+const detectSetupInputForTarget = async (
+  targetPath: string,
+  doctor?: ReturnType<typeof interpretMorpheusSetupDoctorOutput>,
+): Promise<SetupPlanningInput> =>
+  Effect.runPromise(
+    detectMorpheusSetupInput({
+      targetPath,
+      currentWorkingDirectory: process.cwd(),
+      ...(doctor === undefined ? {} : { doctor }),
+    }).pipe(
+      Effect.provide(nodeSetupEnvironmentLayer()),
+      Effect.provide(nodeProcessRunnerLayer({ cwd: targetPath })),
+    ),
+  );
+
 const runNonInteractiveSetup = async (
   options: NonInteractiveSetupInput & { readonly target?: string },
 ): Promise<void> => {
   const targetPath = options.target ?? ".";
   const initialTarget = resolve(process.cwd(), targetPath);
-  const initialInput = await Effect.runPromise(
-    detectMorpheusSetupInput({
-      targetPath: initialTarget,
-      currentWorkingDirectory: process.cwd(),
-    }).pipe(
-      Effect.provide(nodeSetupEnvironmentLayer()),
-      Effect.provide(nodeProcessRunnerLayer({ cwd: initialTarget })),
-    ),
-  );
+  const initialInput = await detectSetupInputForTarget(initialTarget);
   const answers = buildNonInteractiveSetupAnswers(options);
   const plan = planMorpheusSetup({ ...initialInput, answers });
   console.log(formatMorpheusSetupPreview(plan));
@@ -759,6 +898,15 @@ const runNonInteractiveSetup = async (
       Effect.provide(nodeProcessRunnerLayer({ cwd: initialTarget })),
     ),
   );
+
+  const setupConfig = setupConfigFromPlan(plan);
+  if (setupConfig !== undefined) {
+    writeSetupAuthSecrets(
+      initialTarget,
+      setupConfig,
+      parseAuthSecretAssignments(options.authSecret),
+    );
+  }
 
   if (setupPlanWantsContainerBuild(plan)) {
     console.log(
@@ -781,20 +929,18 @@ const runNonInteractiveSetup = async (
   const doctorHealth = interpretMorpheusSetupDoctorOutput(
     await runSetupDoctor(join(initialTarget, "morpheus.config.json")),
   );
-  const postDoctorInput = await Effect.runPromise(
-    detectMorpheusSetupInput({
-      targetPath: initialTarget,
-      currentWorkingDirectory: process.cwd(),
-      doctor: doctorHealth,
-    }).pipe(
-      Effect.provide(nodeSetupEnvironmentLayer()),
-      Effect.provide(nodeProcessRunnerLayer({ cwd: initialTarget })),
-    ),
-  );
+  const postDoctorInput = await detectSetupInputForTarget(initialTarget, doctorHealth);
   const executionGates = planMorpheusSetupExecution(postDoctorInput);
 
   if (!executionGates.sync.canRun) {
     console.log(`Sync not ready: ${executionGates.sync.skipReason}`);
+  }
+
+  if (options.once !== true) {
+    if (!executionGates.daemonOnce.canRun) {
+      console.log(`Daemon once not ready: ${executionGates.daemonOnce.skipReason}`);
+    }
+    return;
   }
 
   if (!executionGates.daemonOnce.canRun) {
@@ -820,6 +966,7 @@ const setup = Command.make(
     gitlabReadyLabel: setupGitlabReadyLabel,
     authEnvFile: setupAuthEnvFile,
     requiredAuthKey: setupRequiredAuthKey,
+    authSecret: setupAuthSecret,
     containerImage: setupContainerImage,
     containerProfile: setupContainerProfile,
     verificationCommand: setupVerificationCommand,
@@ -839,6 +986,7 @@ const setup = Command.make(
     gitlabReadyLabel,
     authEnvFile,
     requiredAuthKey,
+    authSecret,
     containerImage,
     containerProfile,
     verificationCommand,
@@ -860,6 +1008,7 @@ const setup = Command.make(
         optionString(gitlabReadyLabel) !== undefined ||
         optionString(authEnvFile) !== undefined ||
         optionString(requiredAuthKey) !== undefined ||
+        optionString(authSecret) !== undefined ||
         optionString(containerImage) !== undefined ||
         optionString(containerProfile) !== undefined ||
         optionString(verificationCommand) !== undefined ||
@@ -882,6 +1031,7 @@ const setup = Command.make(
           gitlabReadyLabel: optionString(gitlabReadyLabel) ?? fileInput.gitlabReadyLabel,
           authEnvFile: optionString(authEnvFile) ?? fileInput.authEnvFile,
           requiredAuthKey: commaList(optionString(requiredAuthKey)) ?? fileInput.requiredAuthKey,
+          authSecret: optionString(authSecret) ?? fileInput.authSecret,
           containerImage: optionString(containerImage) ?? fileInput.containerImage,
           containerProfile: optionString(containerProfile) ?? fileInput.containerProfile,
           verificationCommand:
@@ -894,7 +1044,6 @@ const setup = Command.make(
           build: build || fileInput.build,
           noSync: noSync || fileInput.noSync,
           once: once || fileInput.once,
-          authSecret: fileInput.authSecret,
         });
         return;
       }
@@ -936,6 +1085,26 @@ const setup = Command.make(
           ),
         );
 
+        const setupConfig = setupConfigFromPlan(plan);
+        if (writeChanges && setupConfig !== undefined) {
+          writeSetupAuthSecrets(
+            initialTarget,
+            setupConfig,
+            await collectInteractiveAuthSecrets(rl, initialTarget, setupConfig),
+          );
+        }
+
+        if (writeChanges && (await yesNo(rl, "Build container image now", false))) {
+          const buildPlan = planMorpheusSetup({
+            ...initialInput,
+            answers: { ...answers, writeChanges, buildContainer: true },
+          });
+          if (buildPlan.errors.length > 0) {
+            throw new Error("Container build is blocked by invalid setup input.");
+          }
+          plan = buildPlan;
+        }
+
         if (writeChanges && setupPlanWantsContainerBuild(plan)) {
           const output = await Effect.runPromise(
             runMorpheusSetupContainerBuild(plan).pipe(
@@ -960,16 +1129,7 @@ const setup = Command.make(
           );
         }
 
-        const postDoctorInput = await Effect.runPromise(
-          detectMorpheusSetupInput({
-            targetPath: initialTarget,
-            currentWorkingDirectory: process.cwd(),
-            doctor: doctorHealth,
-          }).pipe(
-            Effect.provide(nodeSetupEnvironmentLayer()),
-            Effect.provide(nodeProcessRunnerLayer({ cwd: initialTarget })),
-          ),
-        );
+        const postDoctorInput = await detectSetupInputForTarget(initialTarget, doctorHealth);
         const executionGates = planMorpheusSetupExecution(postDoctorInput);
 
         if (writeChanges && !executionGates.sync.canRun) {
@@ -993,9 +1153,13 @@ const setup = Command.make(
         }
 
         if (writeChanges && !executionGates.daemonOnce.canRun) {
-          throw new Error(`Setup completion blocked: ${executionGates.daemonOnce.skipReason}`);
+          console.log(`Daemon once not ready: ${executionGates.daemonOnce.skipReason}`);
         }
-        if (writeChanges && executionGates.daemonOnce.canRun) {
+        if (
+          writeChanges &&
+          executionGates.daemonOnce.canRun &&
+          (await yesNo(rl, "Run daemon once now", false))
+        ) {
           const config = loadCliConfig(Option.some(join(initialTarget, "morpheus.config.json")));
           console.log(
             await Effect.runPromise(
@@ -1154,7 +1318,13 @@ const review = Command.make("review", { issueId, configPath }, ({ issueId, confi
 
 const once = Options.boolean("once");
 
-const daemon = Command.make("daemon", { configPath, once }, ({ configPath, once }) =>
+const daemonAction = ({
+  configPath,
+  once,
+}: {
+  readonly configPath: Option.Option<string>;
+  readonly once: boolean;
+}) =>
   Effect.gen(function* () {
     const config = loadCliConfig(configPath);
 
@@ -1179,8 +1349,19 @@ const daemon = Command.make("daemon", { configPath, once }, ({ configPath, once 
         Console.log,
       ),
     );
-  }),
-).pipe(Command.withDescription("Poll, sync, schedule, and run Morpheus lanes"));
+  });
+
+const daemon = Command.make("daemon", { configPath, once }, daemonAction).pipe(
+  Command.withDescription("Poll, sync, schedule, and run Morpheus lanes"),
+);
+
+const deamon = Command.make("deamon", { configPath, once }, daemonAction).pipe(
+  Command.withDescription("Alias for daemon"),
+);
+
+const demon = Command.make("demon", { configPath, once }, daemonAction).pipe(
+  Command.withDescription("Alias for daemon"),
+);
 
 const command = Command.make("morpheus", {}, () =>
   Console.log("Morpheus local agent orchestration"),
@@ -1202,6 +1383,8 @@ const command = Command.make("morpheus", {}, () =>
     implement,
     review,
     daemon,
+    deamon,
+    demon,
   ]),
 );
 

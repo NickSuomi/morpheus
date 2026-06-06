@@ -194,8 +194,9 @@ describe("morpheus cli", () => {
 
   it("prints version", () => {
     const output = runPnpm(["--filter", "@morpheus/cli", "morpheus", "--version"]);
-    const expectedVersion = JSON.parse(readFileSync(join(process.cwd(), "package.json"), "utf8"))
-      .version;
+    const expectedVersion = JSON.parse(
+      readFileSync(join(process.cwd(), "package.json"), "utf8"),
+    ).version;
 
     expect(output.trim().split("\n").at(-1)).toBe(expectedVersion);
   }, 20_000);
@@ -406,7 +407,7 @@ describe("morpheus cli", () => {
     }
   });
 
-  it("writes setup files before blocking completion on missing auth", () => {
+  it("writes setup files and hands off cleanly when auth is missing", () => {
     const dir = mkdtempSync(join(tmpdir(), "morpheus-cli-setup-auth-"));
     try {
       execFileSync("git", ["init", "-b", "main"], { cwd: dir, stdio: "ignore" });
@@ -423,7 +424,7 @@ describe("morpheus cli", () => {
         chmodSync(path, 0o755);
       }
 
-      const result = runPnpmFailure(
+      const output = runPnpm(
         [
           "--filter",
           "@morpheus/cli",
@@ -439,19 +440,18 @@ describe("morpheus cli", () => {
         { PATH: `${binDir}:${process.env.PATH ?? ""}` },
       );
 
-      const output = `${result.stdout}\n${result.stderr}`;
-      expect(result.status).not.toBe(0);
       expect(existsSync(join(dir, "morpheus.config.json"))).toBe(true);
       expect(existsSync(join(dir, ".morpheus/secrets/agent.env.example"))).toBe(true);
       expect(readFileSync(join(dir, ".morpheus/secrets/agent.env"), "utf8")).toBe(
         [
-          "# Fill these values manually. Morpheus setup never asks for or prints secret values.",
+          "# Morpheus setup may write these values when explicitly provided.",
+          "# Keep this file local and do not commit real token values.",
           "OPENAI_API_KEY=",
           "",
         ].join("\n"),
       );
       expect(output).toContain(
-        "Setup completion blocked: fill .morpheus/secrets/agent.env with non-empty required keys: OPENAI_API_KEY.",
+        "Daemon once not ready: Provide agent auth in .morpheus/secrets/agent.env with non-empty required keys: OPENAI_API_KEY. Use --auth-secret KEY=$KEY during setup or edit the file manually.",
       );
     } finally {
       rmSync(dir, { force: true, recursive: true });
