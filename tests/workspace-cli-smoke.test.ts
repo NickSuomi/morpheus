@@ -201,6 +201,21 @@ describe("morpheus cli", () => {
     expect(output.trim().split("\n").at(-1)).toBe(expectedVersion);
   }, 20_000);
 
+  it("keeps deamon alias and prints friendly invalid-command errors", () => {
+    const deamonHelp = runPnpm(["--filter", "@morpheus/cli", "morpheus", "deamon", "--help"]);
+    expect(deamonHelp).toContain("Alias for daemon");
+
+    const result = runPnpmFailure(["--filter", "@morpheus/cli", "morpheus", "demon"]);
+    const output = `${result.stdout}\n${result.stderr}`;
+
+    expect(result.status).not.toBe(0);
+    expect(output).toContain("Invalid subcommand for morpheus");
+    expect(output).toContain('Run "morpheus --help" to see available commands.');
+    expect(output).not.toContain("CommandMismatch");
+    expect(output).not.toContain('"_tag"');
+    expect(output).not.toContain("ERROR (#");
+  }, 20_000);
+
   it("shows a validated config summary", () => {
     const dir = mkdtempSync(join(tmpdir(), "morpheus-cli-config-"));
     try {
