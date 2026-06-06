@@ -1,6 +1,6 @@
 {
   "name": "morpheus",
-  "version": "0.1.23",
+  "version": "0.1.24",
   "private": true,
   "description": "Agent ops for operators running AI work on real repositories.",
   "license": "Apache-2.0",

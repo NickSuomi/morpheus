@@ -216,6 +216,29 @@ describe("morpheus cli", () => {
     expect(output).not.toContain("ERROR (#");
   }, 20_000);
 
+  it("prints missing config errors without runtime stack dumps", () => {
+    const dir = mkdtempSync(join(tmpdir(), "morpheus-cli-missing-config-"));
+    try {
+      const result = runPnpmFailure([
+        "--filter",
+        "@morpheus/cli",
+        "morpheus",
+        "doctor",
+        "--config",
+        join(dir, "morpheus.config.json"),
+      ]);
+      const output = `${result.stdout}\n${result.stderr}`;
+
+      expect(result.status).not.toBe(0);
+      expect(output).toContain("Error: missing_config:");
+      expect(output).not.toContain("fiberRuntime");
+      expect(output).not.toContain("ERROR (#");
+      expect(output).not.toContain('"_tag"');
+    } finally {
+      rmSync(dir, { force: true, recursive: true });
+    }
+  }, 20_000);
+
   it("shows a validated config summary", () => {
     const dir = mkdtempSync(join(tmpdir(), "morpheus-cli-config-"));
     try {
