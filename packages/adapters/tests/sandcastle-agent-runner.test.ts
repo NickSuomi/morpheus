@@ -194,6 +194,7 @@ describe("SandcastleAgentRunner", () => {
       createDraftMergeRequest: () => Effect.die("createDraftMergeRequest should not run"),
       findOpenMergeRequestForSourceIssue: () =>
         Effect.die("findOpenMergeRequestForSourceIssue should not run"),
+      inspectGate: () => Effect.die("inspectGate should not run"),
       updateDescription: () => Effect.die("updateDescription should not run"),
     };
 
@@ -255,7 +256,9 @@ describe("SandcastleAgentRunner", () => {
       },
     });
 
-    const result = await Effect.runPromise(Effect.either(runner.prepareIssue({ issue: trackedIssue() })));
+    const result = await Effect.runPromise(
+      Effect.either(runner.prepareIssue({ issue: trackedIssue() })),
+    );
 
     expect(Either.isLeft(result)).toBe(true);
     if (Either.isRight(result)) {

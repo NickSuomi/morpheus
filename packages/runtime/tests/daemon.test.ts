@@ -420,6 +420,8 @@ const supportLayer = (
       createDraftMergeRequest: () =>
         Effect.succeed({ reference: "!42", url: "https://gitlab.example/mr/42" }),
       findOpenMergeRequestForSourceIssue: () => Effect.succeed(undefined),
+      inspectGate: () =>
+        Effect.succeed({ status: "passed", summary: "MR head pipeline status is success." }),
       updateDescription: (input) =>
         Effect.succeed({ reference: input.reference, url: "https://gitlab.example/mr/42" }),
     } satisfies MergeRequestClientService),
@@ -676,6 +678,10 @@ describe("runDaemonOnce", () => {
         findOpenMergeRequestForSourceIssue: () => {
           calls.mergeRequest += 1;
           return Effect.die("MR duplicate check should not run after access failure");
+        },
+        inspectGate: () => {
+          calls.mergeRequest += 1;
+          return Effect.die("MR gate should not run after access failure");
         },
         updateDescription: () => {
           calls.mergeRequest += 1;

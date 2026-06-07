@@ -1,6 +1,6 @@
 {
   "name": "@morpheus/cli",
-  "version": "0.1.25",
+  "version": "0.1.26",
   "license": "Apache-2.0",
   "bin": {
     "morpheus": "./dist/index.mjs"

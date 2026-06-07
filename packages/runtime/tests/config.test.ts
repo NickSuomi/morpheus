@@ -359,7 +359,10 @@ describe("Morpheus config", () => {
   });
 
   it.each([
-    ["GitLab project Git remote", { ...validConfig.gitlab, project: "gitlab.example.com/group/app.git" }],
+    [
+      "GitLab project Git remote",
+      { ...validConfig.gitlab, project: "gitlab.example.com/group/app.git" },
+    ],
   ])("rejects invalid GitLab config: %s", (_field, gitlab) => {
     withTempDir((dir) => {
       const configPath = writeConfig(dir, {

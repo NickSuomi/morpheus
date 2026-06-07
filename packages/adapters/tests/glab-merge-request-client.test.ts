@@ -354,6 +354,60 @@ describe("GlabMergeRequestClient", () => {
     ]);
   });
 
+  it("passes MR gate when the head pipeline succeeded", async () => {
+    const processRunner = fakeProcessRunner([
+      ok({
+        head_pipeline: { status: "success" },
+      }),
+    ]);
+
+    const result = await runWithMergeRequests(
+      processRunner.layer,
+      Effect.gen(function* () {
+        const mergeRequests = yield* MergeRequestClient;
+        return yield* mergeRequests.inspectGate({
+          reference: "!42",
+          url: "https://gitlab.example.com/group/project/-/merge_requests/42",
+        });
+      }),
+    );
+
+    expect(result).toEqual({
+      status: "passed",
+      summary: "MR head pipeline status is success.",
+    });
+    expect(processRunner.calls).toEqual([
+      {
+        command: "glab",
+        args: ["mr", "view", "!42", "--output", "json"],
+      },
+    ]);
+  });
+
+  it("fails MR gate when the head pipeline failed", async () => {
+    const processRunner = fakeProcessRunner([
+      ok({
+        head_pipeline: { status: "failed" },
+      }),
+    ]);
+
+    const result = await runWithMergeRequests(
+      processRunner.layer,
+      Effect.gen(function* () {
+        const mergeRequests = yield* MergeRequestClient;
+        return yield* mergeRequests.inspectGate({
+          reference: "!42",
+          url: "https://gitlab.example.com/group/project/-/merge_requests/42",
+        });
+      }),
+    );
+
+    expect(result).toEqual({
+      status: "failed",
+      summary: "MR head pipeline status is failed.",
+    });
+  });
+
   it("updates the full MR description through ProcessRunner-owned glab", async () => {
     const processRunner = fakeProcessRunner([
       ok({
