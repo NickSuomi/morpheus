@@ -34,7 +34,7 @@ morpheus --version
 Pinned installs use the same script with an explicit release version:
 
 ```sh
-curl -fsSL https://github.com/NickSuomi/morpheus/releases/latest/download/install.sh | MORPHEUS_VERSION=0.1.26 sh
+curl -fsSL https://github.com/NickSuomi/morpheus/releases/latest/download/install.sh | MORPHEUS_VERSION=0.1.27 sh
 ```
 
 The installer must:

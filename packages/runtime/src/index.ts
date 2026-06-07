@@ -5395,6 +5395,7 @@ const starterPrompts = {
     "Implement the prepared contract only.",
     "Use caveman for concise communication, TDD for behavior-first implementation where practical, and diagnose before changing unclear code.",
     "Keep changes scoped, preserve user work, and follow repo guidance.",
+    "Inspect obvious repo merge gates such as `.gitlab-ci.yml` and `scripts/**/check_*`; if the target requires a metadata-only version/build bump for every MR, include the minimal required bump and report it as gate evidence.",
     "Run the configured verification commands or explain why they could not run.",
     "Return concise evidence: changed behavior, files touched, verification, and remaining risk.",
     "",

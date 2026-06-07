@@ -1419,6 +1419,7 @@ const builtInPrompt = (input: SandcastlePhaseInput, skills: AgentSkillConfig): s
       `Merge request URL: ${input.mergeRequest.url ?? "None"}`,
       `Contract: ${JSON.stringify(input.contract)}`,
       "All code changes, verification commands, git diff checks, and commits must happen inside the Implementation root. Do not edit or verify the host workspace path.",
+      "Before returning implemented, inspect obvious repo merge gates such as `.gitlab-ci.yml` and `scripts/**/check_*`; if the target requires a metadata-only version/build bump for every MR, include the minimal required bump and report it as gate evidence.",
       "Before returning implemented, run git add for changed files and git commit on the Branch above. A successful implementation must leave at least one commit on that branch. Do not push from the sandbox.",
       "Before returning implemented, verify `git diff --stat TARGET...HEAD` is non-empty and that your implementation commits are on the Branch above.",
       "Use caveman for concise communication, TDD for behavior-first implementation where practical, and diagnose before changing unclear code.",
