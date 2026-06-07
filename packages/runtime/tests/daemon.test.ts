@@ -19,6 +19,7 @@ import {
   type AgentRunnerService,
   type GitLabIssueInput,
   type GitLabIssueSourceService,
+  type ImportedGitLabIssue,
   type IssueTrackerService,
   type MergeRequestClientService,
   type RunArtifact,
@@ -58,6 +59,7 @@ const fakeIssueTracker = (initialIssues: Record<string, readonly string[]>) => {
   const labelsByIssue = new Map(
     Object.entries(initialIssues).map(([id, labels]) => [id, [...labels]]),
   );
+  const importedByIssue = new Map<string, Omit<ImportedGitLabIssue, "labels">>();
   const calls: string[] = [];
   let importedCreateCount = 0;
   const service: IssueTrackerService = {
@@ -96,14 +98,48 @@ const fakeIssueTracker = (initialIssues: Record<string, readonly string[]>) => {
         issueId,
         contract,
       }),
-    listImportedGitLabIssues: () => Effect.succeed([]),
+    listImportedGitLabIssues: () =>
+      Effect.succeed(
+        [...importedByIssue.values()].map((issue) => ({
+          ...issue,
+          labels: labelsByIssue.get(issue.id) ?? [],
+        })),
+      ),
     upsertImportedGitLabIssue: (input) => {
       const issueId = `morph-gl-${input.source.iid}`;
       if (labelsByIssue.has(issueId)) {
+        importedByIssue.set(issueId, {
+          id: issueId,
+          title: input.source.title,
+          description: input.source.description,
+          metadata: {
+            project: input.source.project,
+            iid: input.source.iid,
+            webUrl: input.source.webUrl,
+            labels: input.source.labels,
+            lastSyncedAt: input.syncedAt,
+            title: input.source.title,
+            description: input.source.description,
+          },
+        });
         return Effect.succeed({ status: "skipped", issueId, reason: "unchanged" });
       }
       importedCreateCount += 1;
       labelsByIssue.set(issueId, ["agent:ready"]);
+      importedByIssue.set(issueId, {
+        id: issueId,
+        title: input.source.title,
+        description: input.source.description,
+        metadata: {
+          project: input.source.project,
+          iid: input.source.iid,
+          webUrl: input.source.webUrl,
+          labels: input.source.labels,
+          lastSyncedAt: input.syncedAt,
+          title: input.source.title,
+          description: input.source.description,
+        },
+      });
       return Effect.succeed({ status: "created", issueId, addedReadyLabel: true });
     },
   };
@@ -344,12 +380,23 @@ const fakeAgentRunnerService = (
 const supportLayer = (
   statuses: Parameters<typeof fakeAgentRunner>[0] = {},
   gitlabIssues: readonly GitLabIssueInput[] = [],
+  options: {
+    readonly onUpdateIssueLabels?: (input: {
+      readonly project: string;
+      readonly iid: number;
+      readonly addLabels: readonly string[];
+      readonly removeLabels: readonly string[];
+    }) => void;
+  } = {},
 ) =>
   Layer.mergeAll(
     Layer.succeed(GitLabIssueSource, {
       listReadyIssues: () => Effect.succeed(gitlabIssues),
       listLifecycleIssues: () => Effect.succeed(gitlabIssues),
-      updateIssueLabels: () => Effect.succeed(undefined),
+      updateIssueLabels: (input) => {
+        options.onUpdateIssueLabels?.(input);
+        return Effect.succeed(undefined);
+      },
     } satisfies GitLabIssueSourceService),
     fakeRunLedger(),
     fakeAgentRunner(statuses),
@@ -457,6 +504,54 @@ describe("runDaemonOnce", () => {
     expect(tracker.labelsOf("morph-prepare")).toEqual(["agent:prepared"]);
     expect(tracker.labelsOf("morph-implement")).toEqual(["agent:running"]);
     expect(tracker.labelsOf("morph-review")).toEqual(["agent:review-candidate"]);
+  });
+
+  it("mirrors lifecycle labels to GitLab after daemon work in the same tick", async () => {
+    const tracker = fakeIssueTracker({});
+    const updates: Array<{
+      readonly project: string;
+      readonly iid: number;
+      readonly addLabels: readonly string[];
+      readonly removeLabels: readonly string[];
+    }> = [];
+    const layer = Layer.mergeAll(
+      tracker.layer,
+      supportLayer(
+        {},
+        [
+          {
+            project: "group/project",
+            iid: 42,
+            title: "Prepare imported issue",
+            description: "Ready for Morpheus.",
+            webUrl: "https://gitlab.example.com/group/project/-/issues/42",
+            labels: ["agent:ready", "frontend"],
+          },
+        ],
+        {
+          onUpdateIssueLabels: (input) => updates.push(input),
+        },
+      ),
+    );
+
+    const result = await Effect.runPromise(
+      runDaemonOnce({
+        project: "group/project",
+        readyLabel: "agent:ready",
+        syncedAt: "2026-05-19T00:00:00.000Z",
+      }).pipe(Effect.provide(layer)),
+    );
+
+    expect(result.executions).toHaveLength(1);
+    expect(tracker.labelsOf("morph-gl-42")).toEqual(["agent:prepared"]);
+    expect(updates).toEqual([
+      {
+        project: "group/project",
+        iid: 42,
+        addLabels: ["agent:prepared"],
+        removeLabels: ["agent:ready"],
+      },
+    ]);
   });
 
   it("leaves blocked preparation terminal and does no work on next tick", async () => {

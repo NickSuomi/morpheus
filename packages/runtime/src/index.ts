@@ -87,6 +87,7 @@ export type PreparedImplementationWorkspace = {
   readonly worktreePath?: string;
   readonly branch: string;
   readonly targetBranch: string;
+  readonly baseRef?: string;
   readonly remote: string;
 };
 
@@ -1263,6 +1264,16 @@ const syncGitLabLifecycleLabelsFromBeads = (
         })
       : undefined;
   });
+
+const mergeSyncGitLabIssuesResults = (
+  left: SyncGitLabIssuesResult,
+  right: SyncGitLabIssuesResult,
+): SyncGitLabIssuesResult => ({
+  created: [...left.created, ...right.created],
+  updated: [...left.updated, ...right.updated],
+  skipped: [...left.skipped, ...right.skipped],
+  failed: [...left.failed, ...right.failed],
+});
 
 export const syncGitLabIssues = ({
   project,
@@ -2481,7 +2492,7 @@ export const startImplementation = (
     const mergeRequestResult = yield* Effect.either(
       mergeRequests.createDraftMergeRequest({
         issueId,
-        title: `Draft: ${issue.title}`,
+        title: issue.title,
         sourceBranch: workspace.branch,
         targetBranch: workspace.targetBranch,
         description: renderDraftReviewArtifact({ issueId: issue.id, sourceIssue, contract }),
@@ -3406,11 +3417,22 @@ export const runDaemonOnce = (
       ],
       { concurrency: "unbounded" },
     );
+    const executions = [...preparation, ...implementation, ...review];
+    const postExecutionSync =
+      executions.length === 0
+        ? undefined
+        : yield* syncGitLabIssues({
+            ...input,
+            syncedAt: new Date().toISOString(),
+          });
 
     return {
-      sync,
+      sync:
+        postExecutionSync === undefined
+          ? sync
+          : mergeSyncGitLabIssuesResults(sync, postExecutionSync),
       tick,
-      executions: [...preparation, ...implementation, ...review],
+      executions,
     };
   });
 
@@ -4525,6 +4547,7 @@ const setupNextSteps = (
   requiredAuthKeys: readonly string[],
   containerImage: string,
   containerProfile: string,
+  agentAuthReady: boolean,
   syncReady: boolean,
   daemonOnceReady: boolean,
 ): readonly SetupNextStep[] => [
@@ -4538,11 +4561,15 @@ const setupNextSteps = (
     command: "morpheus doctor",
     gate: "after-write",
   },
-  {
-    id: "agentAuth",
-    command: setupAuthHandoffMessage(authEnvFile, requiredAuthKeys),
-    gate: "manual",
-  },
+  ...(!agentAuthReady
+    ? ([
+        {
+          id: "agentAuth",
+          command: setupAuthHandoffMessage(authEnvFile, requiredAuthKeys),
+          gate: "manual",
+        },
+      ] satisfies readonly SetupNextStep[])
+    : []),
   {
     id: "containerBuild",
     command: `docker build -f ${containerProfile} -t ${containerImage} .`,
@@ -5099,6 +5126,7 @@ export const planMorpheusSetup = (input: SetupPlanningInput = {}): SetupPlan => 
       requiredAuthKeys,
       containerImage,
       containerProfile,
+      agentAuthReady,
       syncReady && errors.length === 0,
       daemonOnceReady && errors.length === 0,
     ),
