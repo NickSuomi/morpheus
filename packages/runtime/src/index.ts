@@ -3373,8 +3373,16 @@ export type RunDaemonLoopInput = RunDaemonOnceInput & {
 
 export type DaemonOnceResult = {
   readonly sync: SyncGitLabIssuesResult;
+  readonly gateAudits: readonly ReviewCandidateGateAudit[];
   readonly tick: DaemonTickPlan;
   readonly executions: readonly DaemonLaneExecution[];
+};
+
+export type ReviewCandidateGateAudit = {
+  readonly issueId: string;
+  readonly mergeRequest?: MergeRequestReference;
+  readonly gate: MergeRequestGateStatus;
+  readonly changed: boolean;
 };
 
 type DaemonRunError =
@@ -3438,6 +3446,101 @@ const executeDaemonCommand = (
     };
   });
 
+const latestMergeRequestForIssue = (
+  runs: readonly RunSummary[],
+  issueId: string,
+): MergeRequestReference | undefined => {
+  const run = [...runs]
+    .reverse()
+    .find(
+      (item) =>
+        item.issueId === issueId &&
+        item.mergeRequestRef !== undefined &&
+        item.mergeRequestRef.length > 0,
+    );
+
+  return run?.mergeRequestRef === undefined
+    ? undefined
+    : { reference: run.mergeRequestRef, url: run.mergeRequestUrl };
+};
+
+const auditReviewCandidateMergeRequestGates = (): Effect.Effect<
+  readonly ReviewCandidateGateAudit[],
+  never,
+  IssueTracker | RunLedger | MergeRequestClient
+> =>
+  Effect.gen(function* () {
+    const tracker = yield* IssueTracker;
+    const ledger = yield* RunLedger;
+    const mergeRequests = yield* MergeRequestClient;
+    const importedIssuesResult = yield* Effect.either(tracker.listImportedGitLabIssues());
+    if (Either.isLeft(importedIssuesResult)) {
+      return [];
+    }
+
+    const runsResult = yield* Effect.either(ledger.listRuns());
+    if (Either.isLeft(runsResult)) {
+      return [];
+    }
+
+    const audits = yield* Effect.all(
+      importedIssuesResult.right
+        .filter((issue) => issue.labels.includes("agent:review-candidate"))
+        .map((issue) =>
+          Effect.gen(function* () {
+            const mergeRequest = latestMergeRequestForIssue(runsResult.right, issue.id);
+            if (mergeRequest === undefined) {
+              return {
+                issueId: issue.id,
+                gate: {
+                  status: "unknown" as const,
+                  summary: "No merge request recorded for review-candidate issue.",
+                },
+                changed: false,
+              };
+            }
+
+            const gateResult = yield* Effect.either(mergeRequests.inspectGate(mergeRequest));
+            if (Either.isLeft(gateResult)) {
+              return {
+                issueId: issue.id,
+                mergeRequest,
+                gate: {
+                  status: "unknown" as const,
+                  summary: `MR gate inspection failed: ${gateResult.left.message}`,
+                },
+                changed: false,
+              };
+            }
+
+            if (gateResult.right.status !== "failed") {
+              return { issueId: issue.id, mergeRequest, gate: gateResult.right, changed: false };
+            }
+
+            const currentIssueResult = yield* Effect.either(tracker.getIssue(issue.id));
+            if (Either.isLeft(currentIssueResult)) {
+              return { issueId: issue.id, mergeRequest, gate: gateResult.right, changed: false };
+            }
+
+            const transition = planAgentStateTransition(
+              currentIssueResult.right.labels,
+              "ReviewGateFailed",
+            );
+            const transitionResult = yield* Effect.either(
+              tracker.applyAgentState(issue.id, transition),
+            );
+            const changed =
+              Either.isRight(transitionResult) && transitionResult.right.status === "applied";
+
+            return { issueId: issue.id, mergeRequest, gate: gateResult.right, changed };
+          }),
+        ),
+      { concurrency: "unbounded" },
+    );
+
+    return audits;
+  });
+
 export const runDaemonOnce = (
   input: RunDaemonOnceInput,
 ): Effect.Effect<
@@ -3447,6 +3550,7 @@ export const runDaemonOnce = (
 > =>
   Effect.gen(function* () {
     const sync = yield* syncGitLabIssues(input);
+    const gateAudits = yield* auditReviewCandidateMergeRequestGates();
     const tick = yield* scheduleLaneWork({ capacities: input.capacities });
     const [preparation, implementation, review] = yield* Effect.all(
       [
@@ -3463,19 +3567,20 @@ export const runDaemonOnce = (
       { concurrency: "unbounded" },
     );
     const executions = [...preparation, ...implementation, ...review];
-    const postExecutionSync =
-      executions.length === 0
-        ? undefined
-        : yield* syncGitLabIssues({
-            ...input,
-            syncedAt: new Date().toISOString(),
-          });
+    const shouldSyncAfterWork = executions.length > 0 || gateAudits.some((audit) => audit.changed);
+    const postExecutionSync = !shouldSyncAfterWork
+      ? undefined
+      : yield* syncGitLabIssues({
+          ...input,
+          syncedAt: new Date().toISOString(),
+        });
 
     return {
       sync:
         postExecutionSync === undefined
           ? sync
           : mergeSyncGitLabIssuesResults(sync, postExecutionSync),
+      gateAudits,
       tick,
       executions,
     };
@@ -3503,6 +3608,11 @@ export const renderDaemonOnceResult = (result: DaemonOnceResult): string => {
   return [
     "Morpheus daemon tick",
     `sync: created=${result.sync.created.length} updated=${result.sync.updated.length} skipped=${result.sync.skipped.length} failed=${result.sync.failed.length}`,
+    ...(result.gateAudits.length === 0
+      ? []
+      : [
+          `mrGates: failed=${result.gateAudits.filter((audit) => audit.gate.status === "failed").length} changed=${result.gateAudits.filter((audit) => audit.changed).length} pending=${result.gateAudits.filter((audit) => audit.gate.status === "pending").length} unknown=${result.gateAudits.filter((audit) => audit.gate.status === "unknown").length}`,
+        ]),
     `selected: preparation=${result.tick.commands.preparation.length} implementation=${result.tick.commands.implementation.length} review=${result.tick.commands.review.length}`,
     `excluded: ${result.tick.reconciliation.excluded.length}`,
     noWork ? "work: None" : "work:",
