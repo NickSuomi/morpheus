@@ -1,0 +1,16 @@
+:root {
+  --morpheus-bg: #05090D;
+  --morpheus-bg-raised: #081018;
+  --morpheus-panel: #F2F0EA;
+  --morpheus-ink: #070A0D;
+  --morpheus-text: #F4F7FA;
+  --morpheus-muted: #A9B1BB;
+  --morpheus-line: #242A31;
+  --morpheus-accent: #6AA7FF;
+  --morpheus-accent-strong: #2D7DFF;
+  --morpheus-radius-sm: 10px;
+  --morpheus-radius-md: 18px;
+  --morpheus-radius-icon: 22%;
+  --morpheus-font-sans: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  --morpheus-font-mono: 'IBM Plex Mono', 'SFMono-Regular', Consolas, monospace;
+}
