@@ -25,3 +25,5 @@ packages/*/dist/
 
 # bv (beads viewer) local config and caches
 .bv/
+
+.superpowers
