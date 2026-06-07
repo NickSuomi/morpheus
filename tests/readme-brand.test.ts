@@ -21,10 +21,10 @@ describe("README brand contract", () => {
     expect(readme).toContain("## Repository Metadata");
   });
 
-  it("references only committed lightweight brand assets and no demo media", () => {
+  it("opens with a committed evidence-flow visual and no demo media", () => {
     const imageRefs = [...readme.matchAll(/!\[[^\]]*\]\(([^)]+)\)/g)].map((match) => match[1]);
 
-    expect(imageRefs).toContain("assets/brand/morpheus-og-card.png");
+    expect(imageRefs[0]).toBe("assets/brand/morpheus-evidence-flow.svg");
     expect(imageRefs.some((ref) => ref.endsWith(".gif") || ref.endsWith(".mp4"))).toBe(false);
 
     for (const ref of imageRefs) {
