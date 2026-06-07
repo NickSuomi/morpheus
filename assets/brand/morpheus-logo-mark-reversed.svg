@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="256" height="256" viewBox="0 0 256 256" role="img">
+  <defs>
+    <style><![CDATA[
+      .sans { font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; }
+      .mono { font-family: 'IBM Plex Mono', 'SFMono-Regular', Consolas, monospace; }
+      .small { font-size: 18px; letter-spacing: 0.24em; font-weight: 600; }
+      .label { font-size: 18px; letter-spacing: 0.16em; font-weight: 600; }
+      .body { font-size: 22px; line-height: 1.5; }
+      .principle { font-size: 22px; letter-spacing: 0.18em; font-weight: 500; }
+    ]]></style>
+    
+  </defs>
+  
+  <title>Morpheus logo mark for dark backgrounds</title>
+<g>
+  <path d="M24 48 L101 48 C135 76 135 180 101 208 L24 208 Z" fill="#FFFFFF"/>
+  <path d="M232 48 L155 48 C121 76 121 180 155 208 L232 208 Z" fill="#FFFFFF"/>
+</g>
+</svg>
