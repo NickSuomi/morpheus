@@ -163,7 +163,7 @@ curl -fsSL https://github.com/NickSuomi/morpheus/releases/latest/download/instal
 Pinned release:
 
 ```sh
-curl -fsSL https://github.com/NickSuomi/morpheus/releases/latest/download/install.sh | MORPHEUS_VERSION=0.1.26 sh
+curl -fsSL https://github.com/NickSuomi/morpheus/releases/latest/download/install.sh | MORPHEUS_VERSION=0.1.27 sh
 ```
 
 Custom install dir:
@@ -318,13 +318,13 @@ pnpm --filter @morpheus/cli morpheus --help
 Build release artifacts:
 
 ```sh
-scripts/package-release.sh --version 0.1.26 --only-os darwin --only-arch arm64
+scripts/package-release.sh --version 0.1.27 --only-os darwin --only-arch arm64
 ```
 
 Install from local artifact by overriding URL/checksum:
 
 ```sh
-MORPHEUS_RELEASE_URL="file:///path/to/morpheus-0.1.26-darwin-arm64.tar.gz" \
+MORPHEUS_RELEASE_URL="file:///path/to/morpheus-0.1.27-darwin-arm64.tar.gz" \
 MORPHEUS_CHECKSUM_URL="" \
 scripts/install.sh
 ```
