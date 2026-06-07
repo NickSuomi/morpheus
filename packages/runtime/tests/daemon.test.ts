@@ -387,6 +387,7 @@ const supportLayer = (
       readonly addLabels: readonly string[];
       readonly removeLabels: readonly string[];
     }) => void;
+    readonly inspectGate?: MergeRequestClientService["inspectGate"];
   } = {},
 ) =>
   Layer.mergeAll(
@@ -420,8 +421,10 @@ const supportLayer = (
       createDraftMergeRequest: () =>
         Effect.succeed({ reference: "!42", url: "https://gitlab.example/mr/42" }),
       findOpenMergeRequestForSourceIssue: () => Effect.succeed(undefined),
-      inspectGate: () =>
-        Effect.succeed({ status: "passed", summary: "MR head pipeline status is success." }),
+      inspectGate:
+        options.inspectGate ??
+        (() =>
+          Effect.succeed({ status: "passed", summary: "MR head pipeline status is success." })),
       updateDescription: (input) =>
         Effect.succeed({ reference: input.reference, url: "https://gitlab.example/mr/42" }),
     } satisfies MergeRequestClientService),
@@ -477,6 +480,66 @@ describe("runDaemonOnce", () => {
     } finally {
       rmSync(targetRepo, { force: true, recursive: true });
     }
+  });
+
+  it("moves an existing review candidate to failed when its MR gate later fails", async () => {
+    const tracker = fakeIssueTracker({});
+    let gateStatus: "passed" | "failed" = "passed";
+    const layer = Layer.mergeAll(
+      tracker.layer,
+      supportLayer(
+        {},
+        [
+          {
+            project: "group/project",
+            iid: 42,
+            title: "Review candidate with MR gate",
+            description: "Ready for Morpheus.",
+            webUrl: "https://gitlab.example.com/group/project/-/issues/42",
+            labels: ["agent:ready"],
+          },
+        ],
+        {
+          inspectGate: () =>
+            Effect.succeed(
+              gateStatus === "passed"
+                ? { status: "passed", summary: "MR head pipeline status is success." }
+                : { status: "failed", summary: "MR head pipeline status is failed." },
+            ),
+        },
+      ),
+    );
+
+    for (let tick = 0; tick < 3; tick += 1) {
+      await Effect.runPromise(
+        runDaemonOnce({
+          project: "group/project",
+          readyLabel: "agent:ready",
+          syncedAt: `2026-05-19T00:00:0${tick}.000Z`,
+        }).pipe(Effect.provide(layer)),
+      );
+    }
+
+    expect(tracker.labelsOf("morph-gl-42")).toEqual(["agent:review-candidate"]);
+    gateStatus = "failed";
+    const audit = await Effect.runPromise(
+      runDaemonOnce({
+        project: "group/project",
+        readyLabel: "agent:ready",
+        syncedAt: "2026-05-19T00:00:04.000Z",
+      }).pipe(Effect.provide(layer)),
+    );
+
+    expect(audit.executions).toHaveLength(0);
+    expect(audit.gateAudits).toEqual([
+      {
+        issueId: "morph-gl-42",
+        mergeRequest: { reference: "!42", url: "https://gitlab.example/mr/42" },
+        gate: { status: "failed", summary: "MR head pipeline status is failed." },
+        changed: true,
+      },
+    ]);
+    expect(tracker.labelsOf("morph-gl-42")).toEqual(["agent:failed"]);
   });
 
   it("syncs first, schedules runnable Beads issues, and dispatches selected lanes", async () => {

@@ -88,6 +88,11 @@ const validTransitions: ReadonlyArray<{
     to: "agent:failed",
   },
   {
+    from: "agent:review-candidate",
+    event: "ReviewGateFailed",
+    to: "agent:failed",
+  },
+  {
     from: "agent:blocked",
     event: "HumanRequeued",
     to: "agent:ready",

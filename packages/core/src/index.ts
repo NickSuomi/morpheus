@@ -27,6 +27,7 @@ export const agentEvents = [
   "ReviewPassed",
   "ReviewBlocked",
   "ReviewFailed",
+  "ReviewGateFailed",
   "HumanRequeued",
   "HumanRetryFailed",
 ] as const;
@@ -262,7 +263,9 @@ const transitionTargets: Readonly<Record<AgentState, Partial<Record<AgentEvent, 
     ReviewBlocked: "agent:blocked",
     ReviewFailed: "agent:failed",
   },
-  "agent:review-candidate": {},
+  "agent:review-candidate": {
+    ReviewGateFailed: "agent:failed",
+  },
   "agent:blocked": {
     HumanRequeued: "agent:ready",
     HumanRetryFailed: "agent:ready",
@@ -336,7 +339,9 @@ export const planAgentStateTransition = (
       "ReviewFailed",
     ]);
     const candidateStates = repairableConflictEvents.has(event)
-      ? state.activeStates.filter((activeState) => transitionTargets[activeState][event] !== undefined)
+      ? state.activeStates.filter(
+          (activeState) => transitionTargets[activeState][event] !== undefined,
+        )
       : [];
 
     if (candidateStates.length === 1) {
