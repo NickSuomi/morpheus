@@ -406,6 +406,7 @@ const fakeMergeRequestClient = (
       options.events?.push("findOpenMergeRequestForSourceIssue");
       return Effect.succeed(options.existingMergeRequest);
     },
+    inspectGate: () => Effect.die("not used"),
     updateDescription: (input) => {
       calls.push(`update:${input.reference}`);
       options.events?.push("updateDescription");

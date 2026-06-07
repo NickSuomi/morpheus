@@ -280,11 +280,15 @@ const fakeWorkspaceRuntime = () => {
   };
 };
 
-const fakeMergeRequests = () => {
+const fakeMergeRequests = (
+  gate: MergeRequestClientService["inspectGate"] = () =>
+    Effect.succeed({ status: "passed", summary: "MR head pipeline status is success." }),
+) => {
   const descriptions: string[] = [];
   const service: MergeRequestClientService = {
     createDraftMergeRequest: () => Effect.die("not used"),
     findOpenMergeRequestForSourceIssue: () => Effect.die("not used"),
+    inspectGate: gate,
     updateDescription: (input) => {
       descriptions.push(input.description);
       return Effect.succeed({ reference: input.reference });
@@ -509,6 +513,49 @@ describe("reviewIssue", () => {
     expect(mergeRequests.descriptions[0]).toContain("Review verdict: passed");
     expect(mergeRequests.descriptions[0]).toContain("Implemented review workflow.");
     expect(mergeRequests.descriptions[0]).toContain("Source issue: #1234");
+  });
+
+  it("fails review instead of marking review-candidate when the MR gate fails", async () => {
+    await withImplementationArtifact(async (artifactPath) => {
+      const tracker = fakeIssueTracker({ sourceIid: 1234 });
+      const ledger = fakeRunLedger(artifactPath);
+      const mergeRequests = fakeMergeRequests(() =>
+        Effect.succeed({
+          status: "failed",
+          summary: "MR head pipeline status is failed.",
+        }),
+      );
+      const runner = fakeAgentRunner("passed");
+      const workspace = fakeWorkspaceRuntime();
+
+      const result = await Effect.runPromise(
+        reviewIssue("morph-wv6").pipe(
+          Effect.provide(
+            Layer.mergeAll(
+              tracker.layer,
+              ledger.layer,
+              mergeRequests.layer,
+              runner.layer,
+              workspace.layer,
+            ),
+          ),
+        ),
+      );
+
+      expect(result).toMatchObject({
+        status: "failed",
+        failureKind: "verification_error",
+        message: "MR gate failed: MR head pipeline status is failed.",
+      });
+      expect(tracker.labels).toEqual(["agent:failed"]);
+      expect(ledger.events).toEqual([
+        "StartReview",
+        "DraftMergeRequestCreated",
+        "RunArtifactsWritten",
+        "ReviewFailed",
+      ]);
+      expect(mergeRequests.descriptions[0]).toContain("Review verdict: passed");
+    });
   });
 
   it("passes read-only workspace permissions to the reviewer", async () => {

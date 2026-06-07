@@ -55,6 +55,7 @@ import type {
   PreparationAgentResult,
   ImplementationAgentInput,
   MergeRequestClientService,
+  MergeRequestGateStatus,
   MergeRequestReference,
   MorpheusConfig,
   ProcessResult,
@@ -1388,6 +1389,7 @@ const builtInPrompt = (input: SandcastlePhaseInput, skills: AgentSkillConfig): s
     `Description: ${issue.description ?? "None"}`,
     defaultAgentSkillInstructions,
     stageSkillInstructionsForPrompt(phase, skills),
+    "If a listed repo path or skill path does not exist inside the container, run `pwd` and use the current checkout root; resolve relative `.morpheus/...` skill paths from that root.",
     phase === "implement"
       ? "Do not close Beads issues. Commit implementation changes on the implementation branch before returning implemented. Do not push. Do not run glab. Morpheus or the host operator publishes the branch/MR outside the sandbox."
       : "Do not commit. Do not close Beads issues.",
@@ -2860,6 +2862,70 @@ const parseOpenMergeRequestList = (
   }
 };
 
+const pipelineStatusFromJson = (value: unknown): string | undefined => {
+  if (!isRecord(value)) {
+    return undefined;
+  }
+
+  const headPipeline = value.head_pipeline;
+  if (headPipeline === null || headPipeline === undefined) {
+    return undefined;
+  }
+  if (!isRecord(headPipeline)) {
+    return undefined;
+  }
+
+  return optionalString(headPipeline.status);
+};
+
+const mergeRequestGateStatusFromPipeline = (status: string | undefined): MergeRequestGateStatus => {
+  if (status === undefined) {
+    return {
+      status: "unknown",
+      summary: "MR has no head pipeline status yet.",
+    };
+  }
+
+  if (status === "success" || status === "manual" || status === "skipped") {
+    return {
+      status: "passed",
+      summary: `MR head pipeline status is ${status}.`,
+    };
+  }
+
+  if (
+    status === "failed" ||
+    status === "canceled" ||
+    status === "cancelled" ||
+    status === "stuck"
+  ) {
+    return {
+      status: "failed",
+      summary: `MR head pipeline status is ${status}.`,
+    };
+  }
+
+  return {
+    status: "pending",
+    summary: `MR head pipeline status is ${status}.`,
+  };
+};
+
+const parseMergeRequestGateStatus = (
+  stdout: string,
+): MergeRequestClientError | MergeRequestGateStatus => {
+  try {
+    const parsed = JSON.parse(stdout.trim()) as unknown;
+    return mergeRequestGateStatusFromPipeline(pipelineStatusFromJson(parsed));
+  } catch (error) {
+    return new MergeRequestClientError({
+      operation: "parseMergeRequestGateStatus",
+      failureKind: "runtime_error",
+      message: errorMessage(error),
+    });
+  }
+};
+
 export const createGlabMergeRequestClient = ({
   processRunner,
 }: GlabMergeRequestClientOptions): MergeRequestClientService => ({
@@ -2907,6 +2973,22 @@ export const createGlabMergeRequestClient = ({
       }
 
       return reference;
+    }),
+  inspectGate: (reference) =>
+    Effect.gen(function* () {
+      const result = yield* runGlabEffect(processRunner, "inspectMergeRequestGate", [
+        "mr",
+        "view",
+        reference.reference,
+        "--output",
+        "json",
+      ]);
+      const gate = parseMergeRequestGateStatus(result.stdout);
+      if (gate instanceof MergeRequestClientError) {
+        return yield* Effect.fail(gate);
+      }
+
+      return gate;
     }),
   updateDescription: (input) =>
     Effect.gen(function* () {

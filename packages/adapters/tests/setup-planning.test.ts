@@ -529,6 +529,29 @@ describe("setup planning", () => {
     );
   });
 
+  it("does not keep manual container build guidance when setup is already building", () => {
+    const plan = planMorpheusSetup({
+      currentWorkingDirectory: "/repos/app",
+      detected: {
+        targetPath: {
+          exists: true,
+          isDirectory: true,
+          isReadable: true,
+          isGitWorktree: true,
+        },
+        gitlabProject: "group/app",
+        dockerAvailable: true,
+      },
+      answers: { buildContainer: true },
+    });
+
+    expect(plan.errors).toEqual([]);
+    expect(plan.prompts).toEqual(
+      expect.arrayContaining([expect.objectContaining({ id: "containerBuild", value: true })]),
+    );
+    expect(plan.nextSteps.map((step) => step.id)).not.toContain("containerBuild");
+  });
+
   it("lets operators decline detected toolchain probes", () => {
     const plan = planMorpheusSetup({
       currentWorkingDirectory: "/repos/app",

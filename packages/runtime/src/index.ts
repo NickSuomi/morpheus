@@ -153,6 +153,24 @@ export type MergeRequestReference = {
   readonly url?: string;
 };
 
+export type MergeRequestGateStatus =
+  | {
+      readonly status: "passed";
+      readonly summary: string;
+    }
+  | {
+      readonly status: "pending";
+      readonly summary: string;
+    }
+  | {
+      readonly status: "failed";
+      readonly summary: string;
+    }
+  | {
+      readonly status: "unknown";
+      readonly summary: string;
+    };
+
 export class MergeRequestClientError extends EffectSchema.TaggedError<MergeRequestClientError>(
   "MergeRequestClientError",
 )("MergeRequestClientError", {
@@ -173,6 +191,9 @@ export class MergeRequestClient extends Context.Tag("@morpheus/runtime/MergeRequ
     readonly updateDescription: (
       input: UpdateMergeRequestDescriptionInput,
     ) => Effect.Effect<MergeRequestReference, MergeRequestClientError>;
+    readonly inspectGate: (
+      reference: MergeRequestReference,
+    ) => Effect.Effect<MergeRequestGateStatus, MergeRequestClientError>;
   }
 >() {}
 
@@ -3278,6 +3299,30 @@ export const reviewIssue = (
       );
     }
 
+    const gateResult = yield* Effect.either(mergeRequests.inspectGate(mergeRequest));
+    if (Either.isLeft(gateResult)) {
+      return yield* failReviewAfterStart(
+        tracker,
+        ledger,
+        issueId,
+        run.id,
+        gateResult.left.failureKind,
+        `MR gate inspection failed: ${gateResult.left.message}`,
+        reviewResult.findings,
+      );
+    }
+    if (gateResult.right.status === "failed") {
+      return yield* failReviewAfterStart(
+        tracker,
+        ledger,
+        issueId,
+        run.id,
+        "verification_error",
+        `MR gate failed: ${gateResult.right.summary}`,
+        reviewResult.findings,
+      );
+    }
+
     const terminalRun = yield* finishReview(tracker, ledger, issueId, run.id, "ReviewPassed", {
       status: "succeeded",
       terminalEvent: "ReviewPassed",
@@ -4548,6 +4593,7 @@ const setupNextSteps = (
   containerImage: string,
   containerProfile: string,
   agentAuthReady: boolean,
+  buildContainer: boolean,
   syncReady: boolean,
   daemonOnceReady: boolean,
 ): readonly SetupNextStep[] => [
@@ -4570,11 +4616,15 @@ const setupNextSteps = (
         },
       ] satisfies readonly SetupNextStep[])
     : []),
-  {
-    id: "containerBuild",
-    command: `docker build -f ${containerProfile} -t ${containerImage} .`,
-    gate: "manual",
-  },
+  ...(!buildContainer
+    ? ([
+        {
+          id: "containerBuild",
+          command: `docker build -f ${containerProfile} -t ${containerImage} .`,
+          gate: "manual",
+        },
+      ] satisfies readonly SetupNextStep[])
+    : []),
   {
     id: "readyLabel",
     command: readyLabel,
@@ -5127,6 +5177,7 @@ export const planMorpheusSetup = (input: SetupPlanningInput = {}): SetupPlan => 
       containerImage,
       containerProfile,
       agentAuthReady,
+      buildContainer,
       syncReady && errors.length === 0,
       daemonOnceReady && errors.length === 0,
     ),
