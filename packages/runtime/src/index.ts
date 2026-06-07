@@ -3446,6 +3446,70 @@ const executeDaemonCommand = (
     };
   });
 
+const laneStartLifecycleStates: Record<
+  RunnableLane,
+  { readonly before: AgentState; readonly started: AgentState }
+> = {
+  preparation: { before: "agent:ready", started: "agent:preparing" },
+  implementation: { before: "agent:prepared", started: "agent:running" },
+  review: { before: "agent:running", started: "agent:reviewing" },
+};
+
+const sleepMilliseconds = (milliseconds: number): Effect.Effect<void, never> =>
+  Effect.promise(() => new Promise<void>((resolveSleep) => setTimeout(resolveSleep, milliseconds)));
+
+const syncGitLabLifecycleAfterLaneStart = (
+  input: RunDaemonOnceInput,
+  command: ScheduledLaneWorkCommand,
+): Effect.Effect<SyncGitLabIssuesResult | undefined, never, IssueTracker | GitLabIssueSource> =>
+  Effect.gen(function* () {
+    const tracker = yield* IssueTracker;
+    const lifecycle = laneStartLifecycleStates[command.lane];
+
+    for (let attempt = 0; attempt < 100; attempt += 1) {
+      const issueResult = yield* Effect.either(tracker.getIssue(command.issueId));
+      if (Either.isLeft(issueResult)) {
+        return undefined;
+      }
+
+      const labels = issueResult.right.labels;
+      if (labels.includes(lifecycle.started)) {
+        return yield* syncGitLabIssues({
+          ...input,
+          syncedAt: new Date().toISOString(),
+        });
+      }
+
+      if (!labels.includes(lifecycle.before)) {
+        return undefined;
+      }
+
+      yield* sleepMilliseconds(50);
+    }
+
+    return undefined;
+  });
+
+const executeDaemonCommandWithLifecycleSync = (
+  input: RunDaemonOnceInput,
+  command: ScheduledLaneWorkCommand,
+): Effect.Effect<
+  {
+    readonly execution: DaemonLaneExecution;
+    readonly startSync?: SyncGitLabIssuesResult;
+  },
+  never,
+  IssueTracker | GitLabIssueSource | RunLedger | AgentRunner | WorkspaceRuntime | MergeRequestClient
+> =>
+  Effect.all([executeDaemonCommand(command), syncGitLabLifecycleAfterLaneStart(input, command)], {
+    concurrency: "unbounded",
+  }).pipe(
+    Effect.map(([execution, startSync]) => ({
+      execution,
+      ...(startSync === undefined ? {} : { startSync }),
+    })),
+  );
+
 const latestMergeRequestForIssue = (
   runs: readonly RunSummary[],
   issueId: string,
@@ -3554,19 +3618,38 @@ export const runDaemonOnce = (
     const tick = yield* scheduleLaneWork({ capacities: input.capacities });
     const [preparation, implementation, review] = yield* Effect.all(
       [
-        Effect.all(tick.commands.preparation.map(executeDaemonCommand), {
-          concurrency: "unbounded",
-        }),
-        Effect.all(tick.commands.implementation.map(executeDaemonCommand), {
-          concurrency: "unbounded",
-        }),
-        Effect.all(tick.commands.review.map(executeDaemonCommand), {
-          concurrency: "unbounded",
-        }),
+        Effect.all(
+          tick.commands.preparation.map((command) =>
+            executeDaemonCommandWithLifecycleSync(input, command),
+          ),
+          {
+            concurrency: "unbounded",
+          },
+        ),
+        Effect.all(
+          tick.commands.implementation.map((command) =>
+            executeDaemonCommandWithLifecycleSync(input, command),
+          ),
+          {
+            concurrency: "unbounded",
+          },
+        ),
+        Effect.all(
+          tick.commands.review.map((command) =>
+            executeDaemonCommandWithLifecycleSync(input, command),
+          ),
+          {
+            concurrency: "unbounded",
+          },
+        ),
       ],
       { concurrency: "unbounded" },
     );
-    const executions = [...preparation, ...implementation, ...review];
+    const commandResults = [...preparation, ...implementation, ...review];
+    const executions = commandResults.map((result) => result.execution);
+    const startSyncs = commandResults.flatMap((result) =>
+      result.startSync === undefined ? [] : [result.startSync],
+    );
     const shouldSyncAfterWork = executions.length > 0 || gateAudits.some((audit) => audit.changed);
     const postExecutionSync = !shouldSyncAfterWork
       ? undefined
@@ -3576,10 +3659,10 @@ export const runDaemonOnce = (
         });
 
     return {
-      sync:
-        postExecutionSync === undefined
-          ? sync
-          : mergeSyncGitLabIssuesResults(sync, postExecutionSync),
+      sync: [...startSyncs, ...(postExecutionSync === undefined ? [] : [postExecutionSync])].reduce(
+        mergeSyncGitLabIssuesResults,
+        sync,
+      ),
       gateAudits,
       tick,
       executions,

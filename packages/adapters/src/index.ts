@@ -95,6 +95,7 @@ const setupRunText = (
       cwd,
       encoding: "utf8",
       stdio: ["ignore", "pipe", "ignore"],
+      timeout: 5_000,
     }).trim();
   } catch {
     return undefined;
@@ -162,6 +163,12 @@ const setupVerificationCommands = (target: string): readonly string[] => {
 };
 
 const setupGitlabProject = (target: string): string | undefined => {
+  const remote = setupRunText(target, "git", ["remote", "get-url", "origin"]);
+  const match = remote?.match(/[:/]([^/:]+(?:\/[^/]+)+?)(?:\.git)?$/);
+  if (match?.[1] !== undefined) {
+    return normalizeGitLabProjectInput(match[1]);
+  }
+
   const glabProject = setupRunText(target, "glab", [
     "repo",
     "view",
@@ -174,9 +181,7 @@ const setupGitlabProject = (target: string): string | undefined => {
     return normalizeGitLabProjectInput(glabProject);
   }
 
-  const remote = setupRunText(target, "git", ["remote", "get-url", "origin"]);
-  const match = remote?.match(/[:/]([^/:]+(?:\/[^/]+)+?)(?:\.git)?$/);
-  return match?.[1] === undefined ? undefined : normalizeGitLabProjectInput(match[1]);
+  return undefined;
 };
 
 const setupDefaultBranch = (target: string): string | undefined => {

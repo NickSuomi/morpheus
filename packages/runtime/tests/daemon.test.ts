@@ -388,6 +388,7 @@ const supportLayer = (
       readonly removeLabels: readonly string[];
     }) => void;
     readonly inspectGate?: MergeRequestClientService["inspectGate"];
+    readonly agentRunner?: AgentRunnerService;
   } = {},
 ) =>
   Layer.mergeAll(
@@ -400,7 +401,7 @@ const supportLayer = (
       },
     } satisfies GitLabIssueSourceService),
     fakeRunLedger(),
-    fakeAgentRunner(statuses),
+    Layer.succeed(AgentRunner, options.agentRunner ?? fakeAgentRunnerService(statuses)),
     Layer.succeed(WorkspaceRuntime, {
       prepareImplementationWorkspace: ({ issueId }) =>
         Effect.succeed({
@@ -617,6 +618,75 @@ describe("runDaemonOnce", () => {
         removeLabels: ["agent:ready"],
       },
     ]);
+  });
+
+  it("mirrors lane start labels to GitLab while agent work is still running", async () => {
+    const tracker = fakeIssueTracker({});
+    let prepareFinished = false;
+    const updates: Array<{
+      readonly project: string;
+      readonly iid: number;
+      readonly addLabels: readonly string[];
+      readonly removeLabels: readonly string[];
+      readonly duringPrepare: boolean;
+    }> = [];
+    const agentRunner: AgentRunnerService = {
+      ...fakeAgentRunnerService(),
+      prepareIssue: () =>
+        Effect.promise(async () => {
+          await new Promise<void>((resolvePrepare) => setTimeout(resolvePrepare, 250));
+          prepareFinished = true;
+          return {
+            status: "prepared" as const,
+            contract,
+            transcript: "prepared",
+            artifact: { status: "prepared" },
+          };
+        }),
+    };
+    const layer = Layer.mergeAll(
+      tracker.layer,
+      supportLayer(
+        {},
+        [
+          {
+            project: "group/project",
+            iid: 42,
+            title: "Prepare imported issue",
+            description: "Ready for Morpheus.",
+            webUrl: "https://gitlab.example.com/group/project/-/issues/42",
+            labels: ["agent:ready", "frontend"],
+          },
+        ],
+        {
+          agentRunner,
+          onUpdateIssueLabels: (input) =>
+            updates.push({ ...input, duringPrepare: !prepareFinished }),
+        },
+      ),
+    );
+
+    await Effect.runPromise(
+      runDaemonOnce({
+        project: "group/project",
+        readyLabel: "agent:ready",
+        syncedAt: "2026-05-19T00:00:00.000Z",
+      }).pipe(Effect.provide(layer)),
+    );
+
+    expect(updates).toContainEqual({
+      project: "group/project",
+      iid: 42,
+      addLabels: ["agent:preparing"],
+      removeLabels: ["agent:ready"],
+      duringPrepare: true,
+    });
+    expect(updates.at(-1)).toMatchObject({
+      project: "group/project",
+      iid: 42,
+      addLabels: ["agent:prepared"],
+      removeLabels: ["agent:ready"],
+    });
   });
 
   it("leaves blocked preparation terminal and does no work on next tick", async () => {
