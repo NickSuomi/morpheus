@@ -1178,6 +1178,9 @@ describe("setup planning", () => {
       expect(setupCanRunDaemonOnce(emptyAuth)).toBe(false);
       expect(setupCanRunSync(ready)).toBe(true);
       expect(setupCanRunDaemonOnce(ready)).toBe(true);
+      expect(formatMorpheusSetupPreview(planMorpheusSetup(ready))).not.toContain(
+        "Provide agent auth in .morpheus/secrets/agent.env",
+      );
       expect(setupCanRunSync(doctorFailed)).toBe(false);
       expect(setupCanRunDaemonOnce(doctorFailed)).toBe(false);
       expect(setupCanRunSync(afterRemoval)).toBe(false);

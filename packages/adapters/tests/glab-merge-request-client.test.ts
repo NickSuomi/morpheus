@@ -71,7 +71,14 @@ const runWithWorkspace = <A, E>(
 
 describe("GitWorkspaceRuntime", () => {
   it("prepares implementation branch state through ProcessRunner-owned git", async () => {
-    const processRunner = fakeProcessRunner([ok("/repo\n"), ok("main\n"), ok(""), ok("")]);
+    const processRunner = fakeProcessRunner([
+      ok("/repo\n"),
+      ok("main\n"),
+      ok(""),
+      ok("origin/main\n"),
+      ok(""),
+      ok(""),
+    ]);
 
     const result = await runWithWorkspace(
       processRunner.layer,
@@ -89,6 +96,7 @@ describe("GitWorkspaceRuntime", () => {
       worktreePath: "/.morpheus-worktree-run_01KRGGDQ6JQN2GMD6KJQ5SFXR6",
       branch: "morpheus/morph-7ky-run_01KRGGDQ6JQN2GMD6KJQ5SFXR6",
       targetBranch: "main",
+      baseRef: "origin/main",
       remote: "origin",
     });
     expect(processRunner.calls).toEqual([
@@ -102,13 +110,21 @@ describe("GitWorkspaceRuntime", () => {
       },
       {
         command: "git",
+        args: ["fetch", "origin", "main"],
+      },
+      {
+        command: "git",
+        args: ["rev-parse", "--verify", "origin/main"],
+      },
+      {
+        command: "git",
         args: [
           "worktree",
           "add",
           "-b",
           "morpheus/morph-7ky-run_01KRGGDQ6JQN2GMD6KJQ5SFXR6",
           "/.morpheus-worktree-run_01KRGGDQ6JQN2GMD6KJQ5SFXR6",
-          "main",
+          "origin/main",
         ],
       },
       {
@@ -174,6 +190,7 @@ describe("GitWorkspaceRuntime", () => {
             worktreePath: "/worktree",
             branch: "morpheus/morph-7ky-run_01KRGGDQ6JQN2GMD6KJQ5SFXR6",
             targetBranch: "main",
+            baseRef: "origin/main",
             remote: "origin",
           },
         });
@@ -184,7 +201,7 @@ describe("GitWorkspaceRuntime", () => {
     expect(processRunner.calls).toEqual([
       {
         command: "git",
-        args: ["-C", "/worktree", "rev-list", "--reverse", "main..HEAD"],
+        args: ["-C", "/worktree", "rev-list", "--reverse", "origin/main..HEAD"],
       },
       {
         command: "git",
@@ -244,7 +261,7 @@ describe("GlabMergeRequestClient", () => {
         const mergeRequests = yield* MergeRequestClient;
         return yield* mergeRequests.createDraftMergeRequest({
           issueId: "morph-7ky",
-          title: "Draft: Create Draft MR before implementation",
+          title: "Create Draft MR before implementation",
           sourceBranch: "morpheus/morph-7ky",
           targetBranch: "main",
           description: "Draft MR created before implementer agent execution.",
@@ -268,7 +285,7 @@ describe("GlabMergeRequestClient", () => {
           "--target-branch",
           "main",
           "--title",
-          "Draft: Create Draft MR before implementation",
+          "Create Draft MR before implementation",
           "--description",
           "Draft MR created before implementer agent execution.",
           "--yes",

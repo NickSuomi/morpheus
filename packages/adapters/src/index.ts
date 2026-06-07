@@ -1789,7 +1789,7 @@ const runSandcastlePhase = (
       const reportedCommits = normalizeCommitIds(result.commits);
       const commits =
         phase === "implement" && reportedCommits.length === 0
-          ? branchCommitsFromGit(cwd, input.workspace.targetBranch)
+          ? branchCommitsFromGit(cwd, input.workspace.baseRef ?? input.workspace.targetBranch)
           : reportedCommits;
 
       return {
@@ -2613,6 +2613,7 @@ export const createGitWorkspaceRuntime = ({
       const currentBranch =
         (yield* runGitEffect(processRunner, ["branch", "--show-current"])).stdout.trim() || "main";
       const targetBranch = configuredTargetBranch ?? currentBranch;
+      const remote = "origin";
 
       if (configuredTargetBranch !== undefined && currentBranch !== configuredTargetBranch) {
         return yield* new WorkspaceRuntimeError({
@@ -2622,16 +2623,11 @@ export const createGitWorkspaceRuntime = ({
       }
 
       const branch = `morpheus/${branchSafeIssueId(issueId)}-${branchSafeRunId(runId)}`;
-      const remote = "origin";
+      yield* runGitEffect(processRunner, ["fetch", remote, targetBranch]);
+      const baseRef = `${remote}/${targetBranch}`;
+      yield* runGitEffect(processRunner, ["rev-parse", "--verify", baseRef]);
       const worktreePath = join(dirname(root), `.morpheus-worktree-${branchSafeRunId(runId)}`);
-      yield* runGitEffect(processRunner, [
-        "worktree",
-        "add",
-        "-b",
-        branch,
-        worktreePath,
-        targetBranch,
-      ]);
+      yield* runGitEffect(processRunner, ["worktree", "add", "-b", branch, worktreePath, baseRef]);
       yield* runGitEffect(processRunner, ["push", "--set-upstream", remote, branch]);
 
       return {
@@ -2639,6 +2635,7 @@ export const createGitWorkspaceRuntime = ({
         worktreePath,
         branch,
         targetBranch,
+        baseRef,
         remote,
       };
     }),
@@ -2650,7 +2647,7 @@ export const createGitWorkspaceRuntime = ({
         implementationRoot,
         "rev-list",
         "--reverse",
-        `${workspace.targetBranch}..HEAD`,
+        `${workspace.baseRef ?? workspace.targetBranch}..HEAD`,
       ])).stdout
         .split("\n")
         .map((line) => line.trim())
