@@ -1,0 +1,78 @@
+<svg width="1200" height="520" viewBox="0 0 1200 520" fill="none" xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="title desc">
+  <title id="title">Morpheus evidence flow</title>
+  <desc id="desc">A simplified hand-drawn style flow from issue to contract, sandboxed run, ledger and draft merge request, ending in human review.</desc>
+  <defs>
+    <filter id="shadow" x="-10%" y="-20%" width="120%" height="140%">
+      <feDropShadow dx="0" dy="7" stdDeviation="8" flood-color="#111827" flood-opacity="0.14"/>
+    </filter>
+    <marker id="arrow" markerWidth="14" markerHeight="14" refX="11" refY="7" orient="auto" markerUnits="strokeWidth">
+      <path d="M2 2 L12 7 L2 12" stroke="#253041" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/>
+    </marker>
+    <style>
+      .bg { fill: #fbfaf7; }
+      .card { fill: #ffffff; stroke: #253041; stroke-width: 2.5; filter: url(#shadow); }
+      .card2 { fill: #f5fbff; stroke: #253041; stroke-width: 2.5; filter: url(#shadow); }
+      .card3 { fill: #fff9e8; stroke: #253041; stroke-width: 2.5; filter: url(#shadow); }
+      .card4 { fill: #f3fff7; stroke: #253041; stroke-width: 2.5; filter: url(#shadow); }
+      .title { font: 700 34px ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; fill: #111827; }
+      .label { font: 700 23px ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; fill: #111827; }
+      .body { font: 500 18px ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; fill: #3f4652; }
+      .small { font: 700 15px ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; fill: #5b6472; letter-spacing: 0.08em; }
+      .line { stroke: #253041; stroke-width: 3; stroke-linecap: round; stroke-linejoin: round; marker-end: url(#arrow); }
+      .rough { stroke: #253041; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; opacity: 0.45; }
+      .pill { fill: #eef2ff; stroke: #5264d8; stroke-width: 2; }
+      .pillText { font: 700 15px ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; fill: #3646b3; }
+    </style>
+  </defs>
+
+  <rect class="bg" width="1200" height="520" rx="26"/>
+  <path class="rough" d="M38 61 C213 42 338 56 514 43 C708 31 874 52 1160 38"/>
+  <path class="rough" d="M52 468 C238 487 378 461 536 477 C717 494 919 474 1154 486"/>
+
+  <text class="small" x="64" y="69">MORPHEUS OPERATOR FLOW</text>
+  <text class="title" x="64" y="112">From vague issue to reviewable evidence</text>
+
+  <rect class="card3" x="64" y="165" width="180" height="135" rx="18"/>
+  <path class="rough" d="M79 183 C115 171 176 177 228 170"/>
+  <text class="label" x="91" y="216">Issue</text>
+  <text class="body" x="91" y="248">ready label</text>
+  <text class="body" x="91" y="273">from GitLab</text>
+
+  <path class="line" d="M254 232 C286 226 303 224 333 226"/>
+
+  <rect class="card" x="345" y="151" width="205" height="165" rx="18"/>
+  <path class="rough" d="M364 174 C416 161 476 169 530 157"/>
+  <text class="label" x="376" y="205">Contract</text>
+  <text class="body" x="376" y="237">current vs desired</text>
+  <text class="body" x="376" y="263">acceptance</text>
+  <text class="body" x="376" y="289">blockers</text>
+
+  <path class="line" d="M560 232 C589 231 616 230 648 230"/>
+
+  <rect class="card2" x="660" y="151" width="210" height="165" rx="18"/>
+  <path class="rough" d="M680 171 C730 158 796 168 850 157"/>
+  <text class="label" x="690" y="205">Sandbox</text>
+  <text class="body" x="690" y="237">agent runs in</text>
+  <text class="body" x="690" y="263">configured repo</text>
+  <text class="body" x="690" y="289">with explicit auth</text>
+
+  <path class="line" d="M880 232 C908 229 933 226 961 224"/>
+
+  <rect class="card4" x="975" y="132" width="175" height="118" rx="18"/>
+  <path class="rough" d="M991 153 C1038 142 1094 148 1134 138"/>
+  <text class="label" x="1004" y="182">Ledger</text>
+  <text class="body" x="1004" y="214">events + logs</text>
+  <text class="body" x="1004" y="238">transcripts</text>
+
+  <rect class="card4" x="975" y="286" width="175" height="118" rx="18"/>
+  <path class="rough" d="M992 307 C1042 296 1094 302 1134 292"/>
+  <text class="label" x="1004" y="336">Draft MR</text>
+  <text class="body" x="1004" y="368">curated proof</text>
+  <text class="body" x="1004" y="392">human merge</text>
+
+  <path class="line" d="M765 321 C806 369 885 386 960 371"/>
+  <path class="line" d="M764 151 C809 101 891 94 960 148"/>
+
+  <rect class="pill" x="398" y="368" width="405" height="46" rx="23"/>
+  <text class="pillText" x="429" y="397">If prep is weak, Morpheus blocks before implementation.</text>
+</svg>

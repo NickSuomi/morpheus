@@ -1,28 +1,65 @@
 # Morpheus
 
-![Morpheus dream/evidence map](assets/brand/morpheus-og-card.png)
+## Evidence Flow
+
+![Morpheus evidence flow](assets/brand/morpheus-evidence-flow.svg)
 
 **Dream with no limits. Run with evidence.**
 
 Morpheus is agent ops for operators running AI work on real repositories.
+It turns a ready issue into an Agent-Ready Contract, runs the agent in a
+configured target repo, records ledgered evidence, updates a Draft MR, and
+leaves merge authority with a human.
 
 > If it can't explain itself, it can't run.
-
-In a dream, the agent can move fast, branch freely, and touch every layer. In a
-real repository, that power needs shape: explicit intent, explicit auth, durable
-state, sandboxed execution, transcripts, logs, review artifacts, and a human
-merge decision. Morpheus is the layer between the dream and the repo.
 
 [![Release](https://img.shields.io/github/v/release/NickSuomi/morpheus?include_prereleases&label=release)](https://github.com/NickSuomi/morpheus/releases)
 [![Release Artifacts](https://github.com/NickSuomi/morpheus/actions/workflows/release-artifacts.yml/badge.svg)](https://github.com/NickSuomi/morpheus/actions/workflows/release-artifacts.yml)
 [![ALPHA](https://img.shields.io/badge/status-ALPHA-6b46c1)](docs/product/ALPHA.md)
 [![License](https://img.shields.io/badge/license-Apache--2.0-blue)](LICENSE)
 
+## Operator Golden Path
+
+Install Morpheus:
+
+```sh
+curl -fsSL https://github.com/NickSuomi/morpheus/releases/latest/download/install.sh | sh
+morpheus --version
+```
+
+Set up a target repo:
+
+```sh
+cd /path/to/target-repo
+morpheus setup
+morpheus doctor
+```
+
+Run the daemon:
+
+```sh
+morpheus daemon --once
+morpheus daemon
+```
+
+Then mark a GitLab issue with the configured ready label, usually
+`agent:ready`.
+
+Inspect work:
+
+```sh
+morpheus status
+morpheus slice <issue-id>
+morpheus runs
+morpheus run <run-id>
+morpheus logs <run-id>
+```
+
 ## Contents
 
-- [Why Morpheus Exists](#why-morpheus-exists)
-- [Operator Golden Path](#operator-golden-path)
 - [Evidence Flow](#evidence-flow)
+- [Operator Golden Path](#operator-golden-path)
+- [Why Morpheus Exists](#why-morpheus-exists)
 - [What Morpheus Controls](#what-morpheus-controls)
 - [What Morpheus Refuses To Do](#what-morpheus-refuses-to-do)
 - [Install](#install)
@@ -49,74 +86,6 @@ Morpheus makes agent work inspectable. It imports work, prepares an
 Agent-Ready Contract, runs the agent in a configured container path, records a
 ledgered run, updates a Draft MR with curated evidence, and leaves the merge to
 a human.
-
-## Operator Golden Path
-
-```sh
-curl -fsSL https://github.com/NickSuomi/morpheus/releases/latest/download/install.sh | sh
-morpheus --version
-
-cd /path/to/target-repo
-morpheus setup
-
-morpheus doctor
-morpheus daemon --once
-morpheus daemon
-```
-
-Then mark a GitLab issue with the configured ready label, usually
-`agent:ready`.
-
-Inspect the dream after it runs:
-
-```sh
-morpheus status
-morpheus slice <issue-id>
-morpheus runs
-morpheus run <run-id>
-morpheus logs <run-id>
-```
-
-## Evidence Flow
-
-```mermaid
-flowchart LR
-  issue["GitLab issue<br/>ready label"] --> sync["morpheus sync"]
-  sync --> beads["Beads<br/>agent:* state"]
-  beads --> contract["Agent-Ready<br/>Contract"]
-  contract --> gate{"blockedBy = None<br/>hitlDecisions = None?"}
-  gate -- no --> blocked["agent:blocked<br/>human decision"]
-  gate -- yes --> run["container-backed<br/>agent run"]
-  run --> ledger["SQLite run ledger<br/>events + transcripts"]
-  run --> mr["Draft MR<br/>curated evidence"]
-  ledger --> inspect["status / slice<br/>runs / logs"]
-  mr --> review["human review<br/>merge authority"]
-```
-
-```mermaid
-sequenceDiagram
-  participant G as GitLab issue
-  participant B as Beads
-  participant M as Morpheus
-  participant A as Agent container
-  participant L as Run ledger
-  participant R as Draft MR
-
-  G->>M: issue has ready label
-  M->>B: import or update local issue
-  M->>B: agent:ready -> agent:preparing
-  M->>A: prepare contract
-  A->>L: transcript + artifact
-  M->>B: agent:prepared
-  M->>R: create Draft MR
-  M->>A: implement scoped change
-  A->>L: evidence + transcript
-  M->>R: update implementation evidence
-  M->>A: review read-only
-  A->>L: findings + transcript
-  M->>R: update review verdict
-  M->>B: agent:review-candidate
-```
 
 ## What Morpheus Controls
 
