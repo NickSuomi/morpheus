@@ -27,3 +27,4 @@ packages/*/dist/
 .bv/
 
 .superpowers
+**/.DS_Store
