@@ -28,3 +28,4 @@ packages/*/dist/
 
 .superpowers
 **/.DS_Store
+.prototypes
