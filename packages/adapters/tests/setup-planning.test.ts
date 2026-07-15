@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { execFileSync } from "node:child_process";
-import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { applyMorpheusSetupPlan, detectMorpheusSetupInput } from "../src/index.js";
@@ -47,6 +47,7 @@ const existingConfig: MorpheusConfig = {
       effort: "low",
     },
     auth: {
+      kind: "api-key",
       envFile: ".morpheus/secrets/agent.env",
       requiredKeys: ["OPENAI_API_KEY"],
     },
@@ -144,7 +145,7 @@ describe("setup planning", () => {
       targetRepo: ".",
       gitlab: { project: "group/app", readyLabel: "agent:ready", targetBranch: "develop" },
       agentRunner: {
-        auth: { envFile: ".morpheus/secrets/agent.env", requiredKeys: ["OPENAI_API_KEY"] },
+        auth: { kind: "chatgpt" },
         container: {
           image: "morpheus-agent:local",
           profile: ".morpheus/container/Dockerfile",
@@ -164,9 +165,11 @@ describe("setup planning", () => {
         expect.objectContaining({ path: "morpheus.config.json", action: "create" }),
         expect.objectContaining({ path: ".morpheus/prompts/prepare.md", action: "create" }),
         expect.objectContaining({ path: ".morpheus/container/Dockerfile", action: "create" }),
-        expect.objectContaining({ path: ".morpheus/secrets/agent.env.example", action: "create" }),
         expect.objectContaining({ path: ".gitignore", action: "patch" }),
       ]),
+    );
+    expect(plan.fileMutations.map((mutation) => mutation.path)).not.toContain(
+      ".morpheus/secrets/agent.env",
     );
     expect(plan.nextSteps).toEqual(
       expect.arrayContaining([
@@ -174,6 +177,62 @@ describe("setup planning", () => {
         expect.objectContaining({ id: "doctor", command: "morpheus doctor" }),
         expect.objectContaining({ id: "agentAuth" }),
       ]),
+    );
+  });
+
+  it("plans target-local API-key auth only when explicitly selected", () => {
+    const plan = planMorpheusSetup({
+      currentWorkingDirectory: "/repos/app",
+      detected: {
+        targetPath: {
+          exists: true,
+          isDirectory: true,
+          isReadable: true,
+          isGitWorktree: true,
+        },
+        gitlabProject: "group/app",
+      },
+      existing: { files: [] },
+      answers: { authKind: "api-key" },
+    });
+
+    expect(plan.configMutation.nextConfig?.agentRunner.auth).toEqual({
+      kind: "api-key",
+      envFile: ".morpheus/secrets/agent.env",
+      requiredKeys: ["OPENAI_API_KEY"],
+    });
+    expect(plan.fileMutations).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ path: ".morpheus/secrets/agent.env", action: "create" }),
+        expect.objectContaining({
+          path: ".morpheus/secrets/agent.env.example",
+          action: "create",
+        }),
+      ]),
+    );
+  });
+
+  it("requires OPENAI_API_KEY for Codex API-key setup", () => {
+    const plan = planMorpheusSetup({
+      currentWorkingDirectory: "/repos/app",
+      detected: {
+        targetPath: {
+          exists: true,
+          isDirectory: true,
+          isReadable: true,
+          isGitWorktree: true,
+        },
+        gitlabProject: "group/app",
+      },
+      answers: {
+        authKind: "api-key",
+        requiredAuthKeys: ["EXTRA_TOKEN"],
+      },
+    });
+
+    expect(plan.configMutation.action).toBe("blocked");
+    expect(plan.errors).toContain(
+      "Required auth env keys must include OPENAI_API_KEY and use shell-style environment names.",
     );
   });
 
@@ -345,6 +404,7 @@ describe("setup planning", () => {
       existing: { files: [] },
       answers: {
         gitlabProject: "not-a-project",
+        authKind: "api-key",
         authEnvFile: ".env",
         laneConcurrency: { preparation: 0, implementation: 1, review: 1 },
       },
@@ -589,6 +649,7 @@ describe("setup planning", () => {
         gitlabProject: "group/app",
       },
       answers: {
+        authKind: "api-key",
         authEnvFile: "/tmp/agent.env",
         containerMounts: [{ hostPath: "../outside", containerPath: "workspace" }],
       },
@@ -600,6 +661,34 @@ describe("setup planning", () => {
         "Absolute auth env file paths require explicit operator confirmation.",
         "Container host mounts must stay inside the target repo and container paths must be absolute.",
       ]),
+    );
+  });
+
+  it.each([
+    "/tmp/morpheus-codex-home",
+    "/tmp/morpheus-codex-home/",
+    "/tmp/other/../morpheus-codex-home",
+    "/tmp/morpheus-codex-home/auth.json",
+  ])("rejects target mount %s that shadows the managed Codex auth home", (containerPath) => {
+    const plan = planMorpheusSetup({
+      currentWorkingDirectory: "/repos/app",
+      detected: {
+        targetPath: {
+          exists: true,
+          isDirectory: true,
+          isReadable: true,
+          isGitWorktree: true,
+        },
+        gitlabProject: "group/app",
+      },
+      answers: {
+        containerMounts: [{ hostPath: ".morpheus/cache", containerPath }],
+      },
+    });
+
+    expect(plan.configMutation.action).toBe("blocked");
+    expect(plan.errors).toContain(
+      "Container path /tmp/morpheus-codex-home is reserved for Morpheus-managed Codex auth.",
     );
   });
 
@@ -615,7 +704,7 @@ describe("setup planning", () => {
         },
         gitlabProject: "group/app",
       },
-      answers: { authEnvFile: "/tmp/agent.env" },
+      answers: { authKind: "api-key", authEnvFile: "/tmp/agent.env" },
     });
     const confirmed = planMorpheusSetup({
       currentWorkingDirectory: "/repos/app",
@@ -628,14 +717,21 @@ describe("setup planning", () => {
         },
         gitlabProject: "group/app",
       },
-      answers: { authEnvFile: "/tmp/agent.env", confirmAbsoluteAuthEnvFile: true },
+      answers: {
+        authKind: "api-key",
+        authEnvFile: "/tmp/agent.env",
+        confirmAbsoluteAuthEnvFile: true,
+      },
     });
 
     expect(blocked.configMutation.action).toBe("blocked");
     expect(confirmed.errors).not.toContain(
       "Absolute auth env file paths require explicit operator confirmation.",
     );
-    expect(confirmed.configMutation.nextConfig?.agentRunner.auth.envFile).toBe("/tmp/agent.env");
+    expect(confirmed.configMutation.nextConfig?.agentRunner.auth).toMatchObject({
+      kind: "api-key",
+      envFile: "/tmp/agent.env",
+    });
   });
 
   it("rejects global Codex auth paths even after absolute path confirmation", () => {
@@ -652,6 +748,7 @@ describe("setup planning", () => {
         gitlabProject: "group/app",
       },
       answers: {
+        authKind: "api-key",
         authEnvFile: globalCodexAuthPath,
         confirmAbsoluteAuthEnvFile: true,
       },
@@ -753,6 +850,7 @@ describe("setup planning", () => {
         gitlabProject: "group/app",
       },
       answers: {
+        authKind: "api-key",
         authEnvFile: globalCodexAuthPath,
         containerMounts: [],
         containerProfile: ".morpheus/container/Dockerfile.txt",
@@ -782,6 +880,7 @@ describe("setup planning", () => {
         gitlabProject: "group/app",
       },
       answers: {
+        authKind: "api-key",
         authEnvFile: ".morpheus/../agent.env",
         containerMounts: [{ hostPath: "work/..", containerPath: "/workspace" }],
       },
@@ -883,6 +982,7 @@ describe("setup planning", () => {
         files: [".morpheus/secrets/agent.env"],
         authEnvKeys: [],
       },
+      answers: { authKind: "api-key" },
     });
 
     expect(plan.nextSteps.map((step) => step.id)).not.toEqual(
@@ -909,7 +1009,7 @@ describe("setup planning", () => {
         files: [".morpheus/secrets/agent.env"],
         authEnvKeys: ["OPENAI_API_KEY"],
       },
-      answers: { runSync: true, runDaemonOnce: true },
+      answers: { authKind: "api-key", runSync: true, runDaemonOnce: true },
     });
 
     expect(plan.configMutation.action).toBe("blocked");
@@ -974,6 +1074,7 @@ describe("setup planning", () => {
         agentRunner: {
           ...existingConfig.agentRunner,
           auth: {
+            kind: "api-key",
             envFile: ".morpheus/private/custom-agent.env",
             requiredKeys: ["OPENAI_API_KEY"],
           },
@@ -1020,6 +1121,44 @@ describe("setup planning", () => {
           }),
         ]),
       );
+    });
+  });
+
+  it("verifies Codex ChatGPT status instead of trusting auth.json existence", () => {
+    withTempDir((dir) => {
+      const binDir = join(dir, "bin");
+      const morpheusHome = join(dir, "morpheus-home");
+      const authHome = join(morpheusHome, "auth", "codex");
+      mkdirSync(binDir, { recursive: true });
+      mkdirSync(authHome, { recursive: true });
+      writeFileSync(join(authHome, "auth.json"), "{}\n");
+      const codexPath = join(binDir, "codex");
+      const previousPath = process.env.PATH;
+      const previousMorpheusHome = process.env.MORPHEUS_HOME;
+
+      try {
+        process.env.PATH = `${binDir}:${previousPath ?? ""}`;
+        process.env.MORPHEUS_HOME = morpheusHome;
+        writeFileSync(codexPath, "#!/bin/sh\nprintf 'Not logged in to ChatGPT\\n'\n");
+        chmodSync(codexPath, 0o755);
+
+        expect(detectMorpheusSetupInput({ targetPath: dir }).detected?.codexAuthLoggedIn).toBe(
+          false,
+        );
+
+        writeFileSync(codexPath, "#!/bin/sh\nprintf 'Logged in using ChatGPT\\n'\n");
+        chmodSync(codexPath, 0o755);
+        expect(detectMorpheusSetupInput({ targetPath: dir }).detected?.codexAuthLoggedIn).toBe(
+          true,
+        );
+      } finally {
+        process.env.PATH = previousPath;
+        if (previousMorpheusHome === undefined) {
+          delete process.env.MORPHEUS_HOME;
+        } else {
+          process.env.MORPHEUS_HOME = previousMorpheusHome;
+        }
+      }
     });
   });
 

@@ -62,11 +62,23 @@ Morpheus-owned sandbox execution surface for agents. Target repository artifacts
 
 Container runtime reachable through Docker CLI/API semantics, such as Docker Desktop, OrbStack, Colima, or a remote Docker context. Morpheus should check runtime availability through Docker-compatible commands like `docker info` rather than assuming a specific macOS app.
 
-### Agent Auth File
+### Agent Authentication
 
-Explicit target/runtime environment file containing the token an agent may use, such as Codex API credentials. Default path is `.morpheus/secrets/agent.env`, with `.morpheus/secrets/agent.env.example` as the non-secret template. Morpheus must not silently use global host Codex authentication like `~/.codex` for agent runs. If the configured auth file is missing or lacks the required token, agent execution fails with an operator-auth error before work starts.
+Explicit provider access selected by the operator for agent runs. Codex supports either a ChatGPT Subscription Login or an API Key Auth File; Morpheus never silently borrows credentials owned by another tool.
 
-Agent auth file values are target-local secrets. Morpheus may document env var names and empty examples, but must not store real token values or private auth-home paths in git, Beads, run artifacts intended for sharing, or review artifacts.
+### ChatGPT Subscription Login
+
+Operator-authorized Codex access billed against an eligible ChatGPT plan rather than an OpenAI API key. The login belongs to Morpheus and may be reused across target repositories.
+Subscription-backed runs sharing one auth store are serialized within each
+Morpheus process; multiple processes sharing that store are unsupported in v1.
+
+### Morpheus Auth Store
+
+Private operator-level credential store owned by Morpheus and reusable across target repositories. Provider credentials enter it only through explicit login and never belong in target repositories, Beads, public artifacts, or review artifacts.
+
+### API Key Auth File
+
+Explicit target/runtime environment file containing API credentials an agent may use. Values are target-local secrets; Morpheus may document env var names and empty examples but must not store real values in git, Beads, shared run artifacts, or review artifacts.
 
 ### Blocking Health Check
 

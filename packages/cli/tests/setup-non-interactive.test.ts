@@ -29,6 +29,7 @@ describe("non-interactive setup options", () => {
       gitlabProject: "group/project",
       targetBranch: "main",
       gitlabReadyLabel: "agent:ready",
+      auth: "api-key",
       authEnvFile: ".morpheus/secrets/agent.env",
       requiredAuthKey: ["OPENAI_API_KEY", "ANTHROPIC_API_KEY"],
       containerImage: "morpheus-agent:ci",
@@ -42,6 +43,7 @@ describe("non-interactive setup options", () => {
       gitlabProject: "group/project",
       targetBranch: "main",
       readyLabel: "agent:ready",
+      authKind: "api-key",
       authEnvFile: ".morpheus/secrets/agent.env",
       requiredAuthKeys: ["OPENAI_API_KEY", "ANTHROPIC_API_KEY"],
       containerImage: "morpheus-agent:ci",
@@ -60,6 +62,19 @@ describe("non-interactive setup options", () => {
     const result = buildNonInteractiveSetupAnswers({ yes: true, dryRun: false });
 
     expect(result.gitlabProject).toBeUndefined();
+  });
+
+  it("maps ChatGPT auth selection without adding API-key fields", () => {
+    const result = buildNonInteractiveSetupAnswers({
+      yes: true,
+      dryRun: false,
+      auth: "chatgpt",
+      deviceAuth: true,
+    });
+
+    expect(result.authKind).toBe("chatgpt");
+    expect(result.authEnvFile).toBeUndefined();
+    expect(result.requiredAuthKeys).toBeUndefined();
   });
 
   it("lets setup defaults decide container build when --yes is used without build flags", () => {

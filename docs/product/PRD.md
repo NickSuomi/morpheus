@@ -61,6 +61,8 @@ Target repo owns:
 13. As an operator, I want `morpheus slice <issue-id>`, so that I can see the full issue story across preparation, implementation, review, children, MR, failures, and transcripts.
 14. As a developer of Morpheus, I want runtime side effects behind adapters, so that shell commands and vendor APIs do not leak across workflows.
 15. As a developer of Morpheus, I want the lane scheduler designed for future parallelism, so that v1 can run sequentially without baking in sequential assumptions.
+16. As an operator, I want to choose ChatGPT subscription login or an OpenAI API key for Codex agent runs, so that I can use the access model I already have.
+17. As an operator, I want `morpheus auth login`, `status`, and `logout`, so that Morpheus-owned subscription access has a complete and inspectable CLI lifecycle.
 
 ## Implementation Decisions
 
@@ -123,6 +125,15 @@ Target repo owns:
 - Morpheus never auto-merges in this PRD.
 - Issue closes only after human merge path.
 - Existing old-flow work gets manual migration only. No backward compatibility adapter required.
+- Each target selects exactly one tagged Codex auth source: `chatgpt` or `api-key`.
+- The previous untagged `agentRunner.auth` config is rejected without a compatibility path.
+- ChatGPT subscription auth belongs to a private operator-level Morpheus auth store and may be reused across target repositories.
+- Morpheus delegates ChatGPT browser/device login, token refresh, status, and logout to the installed Codex CLI using an isolated file-backed `CODEX_HOME`.
+- Morpheus never silently reads or imports another Codex installation's `~/.codex` credentials.
+- Subscription-backed agent containers receive the Morpheus Codex auth home as an internal read-write mount; credentials never enter target config or environment variables.
+- v1 permits one active subscription-backed run per Morpheus auth store within each Morpheus process; multiple processes sharing a store are unsupported. API-key-backed runs keep configured lane concurrency.
+- Interactive setup offers ChatGPT subscription or API key. Non-interactive setup never opens a browser implicitly.
+- `morpheus auth status`, `morpheus doctor`, logs, and review artifacts never expose credential values or private host auth paths.
 
 ## Testing Decisions
 
@@ -133,6 +144,7 @@ Target repo owns:
 - `RunLedger` tests cover run creation before sandbox start, sandbox/worktree/branch/MR recording, ordered event recording, failureKind recording, issue history linking, and CLI reconstruction.
 - `ReviewArtifact` tests cover pending Draft MR rendering, implementation evidence, reviewer findings, raw transcript exclusion, risk, and human checklist.
 - `LaneScheduler` tests cover state-to-lane selection, concurrency limits, priority/date/id sorting, conflict exclusion, and multiple issues in different lanes.
+- Auth tests cover the tagged config boundary, setup selection, explicit non-interactive device login, redacted login/status/logout behavior, subscription run serialization, internal auth mounts, API-key isolation, and doctor recovery guidance.
 
 ## Tracer Bullet Slices
 
@@ -195,6 +207,9 @@ Target repo owns:
 - GitLab issue comments as evidence store.
 - Human approval command like `/morpheus approve`.
 - Prune command implementation, except retention policy baseline.
+- Importing credentials from `~/.codex` or other tools.
+- Multiple ChatGPT subscription profiles or concurrent runs sharing one subscription auth store.
+- Homogeneous or mixed auth pools across ChatGPT subscription profiles and API keys.
 
 ## Further Notes
 

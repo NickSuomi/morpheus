@@ -14,7 +14,13 @@ export default defineConfig({
     },
   },
   test: {
-    exclude: [...configDefaults.exclude, "dist/**", "**/dist/**", "**/release-*/**"],
+    exclude: [
+      ...configDefaults.exclude,
+      ".worktrees/**",
+      "dist/**",
+      "**/dist/**",
+      "**/release-*/**",
+    ],
     globals: false,
     testTimeout: 10_000,
   },

@@ -64,6 +64,7 @@ morpheus logs <run-id>
 - [What Morpheus Refuses To Do](#what-morpheus-refuses-to-do)
 - [Install](#install)
 - [Set Up A Target Repo](#set-up-a-target-repo)
+- [Codex Authentication](#codex-authentication)
 - [Run And Inspect Work](#run-and-inspect-work)
 - [Health Model](#health-model)
 - [Morpheus Vs Adjacent Tools](#morpheus-vs-adjacent-tools)
@@ -114,8 +115,8 @@ The dream has rules.
 
 - Morpheus does not auto-merge.
 - Morpheus does not hide raw run evidence from the operator.
-- Morpheus does not silently use implicit or global host auth.
-- Morpheus does not silently use host Codex auth paths.
+- Morpheus does not silently borrow credentials from another Codex installation.
+- Morpheus does not place subscription tokens in target config, environment variables, or evidence.
 - Morpheus does not create `.sandcastle` target artifacts.
 - Morpheus does not treat GitLab issue comments as primary lifecycle state.
 - Morpheus does not run implementation when preparation produces weak intent,
@@ -160,24 +161,34 @@ morpheus config show
 ```
 
 Setup uses selector prompts for choices and readline-style prompts for text/path
-values. It can collect required agent auth secrets interactively, or accept
-explicit non-interactive secrets through `--auth-secret KEY=VALUE`. Secret
-values are written only to the configured target-local auth env file.
+values. It defaults to ChatGPT subscription auth and completes Codex login
+immediately. API-key auth remains available and stores explicitly provided
+secrets only in the configured target-local env file.
 
-One-command setup:
+Non-interactive API-key setup:
 
 ```sh
 morpheus setup --yes \
   --gitlab-project group/project \
+  --auth api-key \
   --auth-secret OPENAI_API_KEY="$OPENAI_API_KEY" \
   --build \
   --once
 ```
 
-Manual auth remains supported:
+Non-interactive subscription setup uses Codex device auth explicitly:
 
 ```sh
-morpheus setup --yes --gitlab-project group/project
+morpheus setup --yes \
+  --gitlab-project group/project \
+  --auth chatgpt \
+  --device-auth
+```
+
+Manual API-key auth remains supported:
+
+```sh
+morpheus setup --yes --gitlab-project group/project --auth api-key
 $EDITOR .morpheus/secrets/agent.env
 ```
 
@@ -187,6 +198,43 @@ Gate setup:
 morpheus doctor
 morpheus daemon --once
 ```
+
+## Codex Authentication
+
+Each target selects exactly one source:
+
+```json
+{ "auth": { "kind": "chatgpt" } }
+```
+
+or:
+
+```json
+{
+  "auth": {
+    "kind": "api-key",
+    "envFile": ".morpheus/secrets/agent.env",
+    "requiredKeys": ["OPENAI_API_KEY"]
+  }
+}
+```
+
+ChatGPT subscription lifecycle:
+
+```sh
+morpheus auth login codex
+morpheus auth login codex --device
+morpheus auth status
+morpheus auth status --json
+morpheus auth logout codex
+```
+
+Morpheus delegates login and refresh to the installed Codex CLI, but isolates
+credentials in `${MORPHEUS_HOME:-~/.morpheus}/auth/codex`. It never imports
+`~/.codex`. Subscription runs sharing that auth store are serialized within one
+Morpheus process in v1; running multiple Morpheus processes against the same
+store is unsupported. API-key runs retain configured lane concurrency. Prefer
+API-key auth for CI and unattended environments.
 
 ## Run And Inspect Work
 
@@ -246,16 +294,16 @@ Blocking examples:
 Morpheus sits between coding agents, CI, and review tools. It does not replace
 them; it adds the missing repo-agent lifecycle around them.
 
-| Reference | Promise | Where the promise breaks | What Morpheus adds | Morpheus limit |
-| --- | --- | --- | --- | --- |
-| [Trigger.dev](https://trigger.dev/docs) | Reliable background jobs with queues, retries, logs, traces, dashboards, and replay. | App jobs explain task execution, not whether an AI coding run had valid intent, isolated auth, repo state, transcripts, and review evidence. | Agent-Ready Contracts, Beads lifecycle state, sandboxed repo runs, local transcripts, and MR artifacts for agent work. | Not a general app job scheduler. |
-| [GitLab CI/CD](https://docs.gitlab.com/ci/pipelines/) | Deterministic pipelines with jobs, stages, dependency graphs, retries, cancel, and MR visibility. | CI proves commands passed or failed; it does not prepare ambiguous issues, supervise coding agents, or explain agent decisions before review. | A pre-CI agent lifecycle: prepare, implement, review, ledger, logs, and curated MR evidence before human merge. | CI remains the deterministic verification layer. |
-| [GitHub Copilot coding agent](https://docs.github.com/en/copilot/how-tos/use-copilot-agents/cloud-agent/start-copilot-sessions) | Start background coding sessions from GitHub, IDEs, CLI, Slack, Jira, Linear, and other entry points, then create PRs. | Delegation is easy, but weak issue intent, hidden runtime context, and scattered session evidence still leave maintainers reconstructing what happened. | Fail-closed preparation, explicit target config/auth, run ledger, sandbox transcript paths, and review artifacts. | Built for Beads/GitLab-oriented operator flows, not GitHub-native assignment. |
-| [Claude Code](https://code.claude.com/docs/en/overview) | Powerful terminal-first coding agent with CI automation, MCP, memory, hooks, skills, background agents, and SDKs. | A strong agent still needs external lifecycle control when multiple repo tasks must be prepared, isolated, audited, and reviewed consistently. | The wrapper around the agent: contract, lane, sandbox, ledger, artifact, review. | Not the agent personality or model runtime. |
-| [Roo Code](https://roocodeinc.github.io/Roo-Code/) and [Cline](https://docs.cline.bot/cline-overview) | Editor/terminal agents with filesystem access, terminal control, modes, approvals, SDKs, and task-board-style work. | IDE approval flows are good for active humans, but weaker for daemonized issue intake, durable run history, and MR-centered operator review. | Repo-local daemon flow with explicit state transitions, local evidence, and human merge authority. | Not an IDE sidebar or editor replacement. |
-| [OpenHands](https://docs.openhands.dev/overview/introduction) | Software-agent SDK plus CLI/local GUI for running agents locally or at cloud scale. | Broad agent platforms still leave each team to define issue readiness, review artifacts, target auth, and operator evidence policy. | A narrow, opinionated repo-ops path from issue state to inspectable MR evidence. | Not a general-purpose agent platform. |
-| [Paperclip](https://github.com/paperclipai/paperclip) | React/Node control plane for teams of AI agents with org charts, budgets, goals, governance, and dashboards. | Company metaphors and goal dashboards are broad; repo engineering still needs precise contracts, worktrees, verification, and merge review. | Concrete target-repo runs with contract gates, sandbox execution, ledgered artifacts, and MR handoff. | Not an AI company simulator. |
-| [CodeRabbit](https://docs.coderabbit.ai/) | AI code review, planning, PR comments, Slack agent workflows, and IDE/CLI review surfaces. | Review tools see proposed changes, but they do not own the full run lifecycle that produced those changes. | Run evidence before review: issue contract, implementation transcript, verification summary, review lane findings, and MR artifact. | Human merge authority remains outside Morpheus. |
+| Reference                                                                                                                       | Promise                                                                                                                | Where the promise breaks                                                                                                                                | What Morpheus adds                                                                                                                  | Morpheus limit                                                                |
+| ------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------- |
+| [Trigger.dev](https://trigger.dev/docs)                                                                                         | Reliable background jobs with queues, retries, logs, traces, dashboards, and replay.                                   | App jobs explain task execution, not whether an AI coding run had valid intent, isolated auth, repo state, transcripts, and review evidence.            | Agent-Ready Contracts, Beads lifecycle state, sandboxed repo runs, local transcripts, and MR artifacts for agent work.              | Not a general app job scheduler.                                              |
+| [GitLab CI/CD](https://docs.gitlab.com/ci/pipelines/)                                                                           | Deterministic pipelines with jobs, stages, dependency graphs, retries, cancel, and MR visibility.                      | CI proves commands passed or failed; it does not prepare ambiguous issues, supervise coding agents, or explain agent decisions before review.           | A pre-CI agent lifecycle: prepare, implement, review, ledger, logs, and curated MR evidence before human merge.                     | CI remains the deterministic verification layer.                              |
+| [GitHub Copilot coding agent](https://docs.github.com/en/copilot/how-tos/use-copilot-agents/cloud-agent/start-copilot-sessions) | Start background coding sessions from GitHub, IDEs, CLI, Slack, Jira, Linear, and other entry points, then create PRs. | Delegation is easy, but weak issue intent, hidden runtime context, and scattered session evidence still leave maintainers reconstructing what happened. | Fail-closed preparation, explicit target config/auth, run ledger, sandbox transcript paths, and review artifacts.                   | Built for Beads/GitLab-oriented operator flows, not GitHub-native assignment. |
+| [Claude Code](https://code.claude.com/docs/en/overview)                                                                         | Powerful terminal-first coding agent with CI automation, MCP, memory, hooks, skills, background agents, and SDKs.      | A strong agent still needs external lifecycle control when multiple repo tasks must be prepared, isolated, audited, and reviewed consistently.          | The wrapper around the agent: contract, lane, sandbox, ledger, artifact, review.                                                    | Not the agent personality or model runtime.                                   |
+| [Roo Code](https://roocodeinc.github.io/Roo-Code/) and [Cline](https://docs.cline.bot/cline-overview)                           | Editor/terminal agents with filesystem access, terminal control, modes, approvals, SDKs, and task-board-style work.    | IDE approval flows are good for active humans, but weaker for daemonized issue intake, durable run history, and MR-centered operator review.            | Repo-local daemon flow with explicit state transitions, local evidence, and human merge authority.                                  | Not an IDE sidebar or editor replacement.                                     |
+| [OpenHands](https://docs.openhands.dev/overview/introduction)                                                                   | Software-agent SDK plus CLI/local GUI for running agents locally or at cloud scale.                                    | Broad agent platforms still leave each team to define issue readiness, review artifacts, target auth, and operator evidence policy.                     | A narrow, opinionated repo-ops path from issue state to inspectable MR evidence.                                                    | Not a general-purpose agent platform.                                         |
+| [Paperclip](https://github.com/paperclipai/paperclip)                                                                           | React/Node control plane for teams of AI agents with org charts, budgets, goals, governance, and dashboards.           | Company metaphors and goal dashboards are broad; repo engineering still needs precise contracts, worktrees, verification, and merge review.             | Concrete target-repo runs with contract gates, sandbox execution, ledgered artifacts, and MR handoff.                               | Not an AI company simulator.                                                  |
+| [CodeRabbit](https://docs.coderabbit.ai/)                                                                                       | AI code review, planning, PR comments, Slack agent workflows, and IDE/CLI review surfaces.                             | Review tools see proposed changes, but they do not own the full run lifecycle that produced those changes.                                              | Run evidence before review: issue contract, implementation transcript, verification summary, review lane findings, and MR artifact. | Human merge authority remains outside Morpheus.                               |
 
 ## Repository Metadata
 

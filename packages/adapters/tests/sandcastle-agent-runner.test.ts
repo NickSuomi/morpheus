@@ -1,5 +1,5 @@
 import { execFileSync } from "node:child_process";
-import { mkdtempSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { deriveIssueState, deriveLane } from "@morpheus/core";
@@ -211,7 +211,6 @@ describe("SandcastleAgentRunner", () => {
             sandcastleAgentRunnerLayer({
               cwd: dir,
               logDirectory: join(dir, ".morpheus", "sandcastle-logs"),
-              authRequiredKeys: [],
             }).pipe(Layer.provide(Layer.succeed(ProcessRunner, processRunner))),
           ),
         ),
@@ -243,7 +242,6 @@ describe("SandcastleAgentRunner", () => {
     const runner = createSandcastleAgentRunner({
       cwd: dir,
       logDirectory: join(dir, ".morpheus", "sandcastle-logs"),
-      authRequiredKeys: [],
       containerConfig: {
         image: "morpheus-agent:local",
         profile: ".morpheus/container/Dockerfile",
@@ -575,13 +573,16 @@ describe("SandcastleAgentRunner", () => {
 
   it("mounts the prepared worktree for Docker-backed implementation runs", async () => {
     const dir = mkdtempSync(join(tmpdir(), "morpheus-sandcastle-"));
-    writeFileSync(join(dir, "agent.env"), "OPENAI_API_KEY=test-token\n");
+    writeFileSync(
+      join(dir, "agent.env"),
+      "OPENAI_API_KEY=test-token\nEXTRA_TOKEN=must-not-enter-container\n",
+    );
     const worktreePath = join(dir, "../.morpheus-worktree-run_123");
     const dockerOptions: unknown[] = [];
     const runner = createSandcastleAgentRunner({
       cwd: dir,
       logDirectory: join(dir, ".morpheus", "sandcastle-logs"),
-      authEnvFile: "agent.env",
+      auth: { kind: "api-key", envFile: "agent.env", requiredKeys: ["OPENAI_API_KEY"] },
       containerConfig: {
         image: "morpheus-agent:test",
         mounts: [{ hostPath: ".", containerPath: "/workspace" }],
@@ -684,7 +685,7 @@ describe("SandcastleAgentRunner", () => {
     expect(calls).toHaveLength(1);
     expect(calls[0]?.prompt).toContain("Return only JSON inside <morpheus_result>");
     expect(calls[0]?.prompt).toContain("Default Morpheus Agent Skills");
-    expect(calls[0]?.prompt).toContain(".morpheus/skills/matt-pocock-caveman/SKILL.md");
+    expect(calls[0]?.prompt).toContain(".morpheus/skills/matt-pocock-to-spec/SKILL.md");
     expect(calls[0]?.prompt).not.toContain("/Users/");
     expect(calls[0]?.prompt).toContain("Additional instructions:");
     expect(calls[0]?.prompt).toContain("custom prompt that cannot remove required gates");
@@ -704,43 +705,39 @@ describe("SandcastleAgentRunner", () => {
         directory: ".morpheus/skills",
         mappings: [
           {
-            name: "matt-pocock-caveman",
-            path: ".morpheus/skills/matt-pocock-caveman/SKILL.md",
+            name: "matt-pocock-to-spec",
+            path: ".morpheus/skills/matt-pocock-to-spec/SKILL.md",
           },
           {
-            name: "matt-pocock-to-prd",
-            path: ".morpheus/skills/matt-pocock-to-prd/SKILL.md",
-          },
-          {
-            name: "matt-pocock-grill-me",
-            path: ".morpheus/skills/matt-pocock-grill-me/SKILL.md",
+            name: "matt-pocock-grilling",
+            path: ".morpheus/skills/matt-pocock-grilling/SKILL.md",
           },
           {
             name: "matt-pocock-grill-with-docs",
             path: ".morpheus/skills/matt-pocock-grill-with-docs/SKILL.md",
           },
           {
-            name: "matt-pocock-to-issues",
-            path: ".morpheus/skills/matt-pocock-to-issues/SKILL.md",
+            name: "matt-pocock-to-tickets",
+            path: ".morpheus/skills/matt-pocock-to-tickets/SKILL.md",
           },
           {
             name: "matt-pocock-tdd",
             path: ".morpheus/skills/matt-pocock-tdd/SKILL.md",
           },
           {
-            name: "matt-pocock-diagnose",
-            path: ".morpheus/skills/matt-pocock-diagnose/SKILL.md",
+            name: "matt-pocock-diagnosing-bugs",
+            path: ".morpheus/skills/matt-pocock-diagnosing-bugs/SKILL.md",
           },
         ],
         stageMappings: {
           prepare: [
-            "matt-pocock-to-prd",
-            "matt-pocock-grill-me",
+            "matt-pocock-to-spec",
+            "matt-pocock-grilling",
             "matt-pocock-grill-with-docs",
-            "matt-pocock-to-issues",
+            "matt-pocock-to-tickets",
           ],
-          implement: ["matt-pocock-caveman", "matt-pocock-tdd", "matt-pocock-diagnose"],
-          review: ["matt-pocock-caveman", "matt-pocock-diagnose"],
+          implement: ["matt-pocock-tdd", "matt-pocock-diagnosing-bugs"],
+          review: ["matt-pocock-diagnosing-bugs"],
         },
       },
       agent: {
@@ -822,28 +819,22 @@ describe("SandcastleAgentRunner", () => {
 
     expect(preparePrompt).toContain("AFK-ready contract gate");
     expect(stageSkillBlock(preparePrompt ?? "", "prepare")).toContain(
-      ".morpheus/skills/matt-pocock-to-prd/SKILL.md",
+      ".morpheus/skills/matt-pocock-to-spec/SKILL.md",
     );
     expect(stageSkillBlock(preparePrompt ?? "", "prepare")).toContain(
-      ".morpheus/skills/matt-pocock-grill-me/SKILL.md",
+      ".morpheus/skills/matt-pocock-grilling/SKILL.md",
     );
     expect(stageSkillBlock(preparePrompt ?? "", "prepare")).toContain(
-      ".morpheus/skills/matt-pocock-to-issues/SKILL.md",
-    );
-    expect(stageSkillBlock(implementPrompt ?? "", "implement")).toContain(
-      ".morpheus/skills/matt-pocock-caveman/SKILL.md",
+      ".morpheus/skills/matt-pocock-to-tickets/SKILL.md",
     );
     expect(stageSkillBlock(implementPrompt ?? "", "implement")).toContain(
       ".morpheus/skills/matt-pocock-tdd/SKILL.md",
     );
     expect(stageSkillBlock(implementPrompt ?? "", "implement")).toContain(
-      ".morpheus/skills/matt-pocock-diagnose/SKILL.md",
+      ".morpheus/skills/matt-pocock-diagnosing-bugs/SKILL.md",
     );
     expect(stageSkillBlock(reviewPrompt ?? "", "review")).toContain(
-      ".morpheus/skills/matt-pocock-caveman/SKILL.md",
-    );
-    expect(stageSkillBlock(reviewPrompt ?? "", "review")).toContain(
-      ".morpheus/skills/matt-pocock-diagnose/SKILL.md",
+      ".morpheus/skills/matt-pocock-diagnosing-bugs/SKILL.md",
     );
     expect(reviewPrompt).toContain("Verify contract acceptance criteria");
     expect(reviewPrompt).toContain(
@@ -860,14 +851,14 @@ describe("SandcastleAgentRunner", () => {
         directory: ".morpheus/skills",
         mappings: [
           {
-            name: "matt-pocock-caveman",
-            path: ".morpheus/skills/matt-pocock-caveman/SKILL.md",
+            name: "matt-pocock-tdd",
+            path: ".morpheus/skills/matt-pocock-tdd/SKILL.md",
           },
         ],
         stageMappings: {
           prepare: ["missing-skill"],
-          implement: ["matt-pocock-caveman"],
-          review: ["matt-pocock-caveman"],
+          implement: ["matt-pocock-tdd"],
+          review: ["matt-pocock-tdd"],
         },
       },
       agent: {
@@ -904,14 +895,14 @@ describe("SandcastleAgentRunner", () => {
         directory: ".morpheus/skills",
         mappings: [
           {
-            name: "matt-pocock-caveman",
-            path: ".morpheus/skills/matt-pocock-caveman/SKILL.md",
+            name: "matt-pocock-tdd",
+            path: ".morpheus/skills/matt-pocock-tdd/SKILL.md",
           },
         ],
         stageMappings: {
           prepare: [],
-          implement: ["matt-pocock-caveman"],
-          review: ["matt-pocock-caveman"],
+          implement: ["matt-pocock-tdd"],
+          review: ["matt-pocock-tdd"],
         },
       },
       agent: {
@@ -946,11 +937,11 @@ describe("SandcastleAgentRunner", () => {
       logDirectory: join(dir, ".morpheus", "sandcastle-logs"),
       skills: {
         directory: ".morpheus/skills",
-        mappings: [{ name: "matt-pocock-caveman", path: "" }],
+        mappings: [{ name: "matt-pocock-tdd", path: "" }],
         stageMappings: {
-          prepare: ["matt-pocock-caveman"],
-          implement: ["matt-pocock-caveman"],
-          review: ["matt-pocock-caveman"],
+          prepare: ["matt-pocock-tdd"],
+          implement: ["matt-pocock-tdd"],
+          review: ["matt-pocock-tdd"],
         },
       },
       agent: {
@@ -974,20 +965,23 @@ describe("SandcastleAgentRunner", () => {
 
     expect(result._tag).toBe("Failure");
     expect(String(result)).toContain(
-      "Stage skill mapping references copied skill without path: prepare:matt-pocock-caveman",
+      "Stage skill mapping references copied skill without path: prepare:matt-pocock-tdd",
     );
   });
 
   it("constructs Codex provider and Docker sandbox from configured auth and container settings", async () => {
     const dir = mkdtempSync(join(tmpdir(), "morpheus-sandcastle-"));
-    writeFileSync(join(dir, "agent.env"), "OPENAI_API_KEY=test-token\n");
+    writeFileSync(
+      join(dir, "agent.env"),
+      "OPENAI_API_KEY=test-token\nEXTRA_TOKEN=must-not-enter-container\n",
+    );
     const commands: string[] = [];
     const stdins: Array<string | undefined> = [];
     const dockerOptions: unknown[] = [];
     const runner = createSandcastleAgentRunner({
       cwd: dir,
       logDirectory: join(dir, ".morpheus", "sandcastle-logs"),
-      authEnvFile: "agent.env",
+      auth: { kind: "api-key", envFile: "agent.env", requiredKeys: ["OPENAI_API_KEY"] },
       containerConfig: {
         image: "morpheus-agent:test",
         profile: ".morpheus/container/Dockerfile",
@@ -1051,13 +1045,150 @@ describe("SandcastleAgentRunner", () => {
     ]);
   });
 
+  it("mounts Morpheus-owned ChatGPT auth without API-key login or token env", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "morpheus-sandcastle-"));
+    const authHome = join(dir, "operator-auth", "codex");
+    mkdirSync(authHome, { recursive: true });
+    writeFileSync(join(authHome, "auth.json"), "{}\n");
+    const commands: string[] = [];
+    const dockerOptions: unknown[] = [];
+    const runner = createSandcastleAgentRunner({
+      cwd: dir,
+      logDirectory: join(dir, ".morpheus", "agent-logs"),
+      auth: { kind: "chatgpt" },
+      codexAuthHome: authHome,
+      containerConfig: {
+        image: "morpheus-agent:test",
+        mounts: [],
+      },
+      dockerFactory: (options) => {
+        dockerOptions.push(options);
+        return {
+          kind: "none",
+          exec: async () => ({ stdout: "", stderr: "", exitCode: 0 }),
+          close: async () => ({}),
+        } as never;
+      },
+      run: async (options) => {
+        commands.push(
+          options.agent.buildPrintCommand({
+            prompt: "prompt",
+            dangerouslySkipPermissions: true,
+          }).command,
+        );
+        return {
+          iterations: [],
+          stdout: `<morpheus_result>{"status":"blocked","reason":"x","transcript":"","artifact":{}}</morpheus_result>`,
+          commits: [],
+          branch: "agent/morph-bbp",
+        };
+      },
+    });
+
+    await Effect.runPromise(runner.prepareIssue({ issue: trackedIssue() }));
+
+    expect(commands[0]).toContain("codex exec");
+    expect(commands[0]).not.toContain("codex login --with-api-key");
+    expect(dockerOptions).toEqual([
+      expect.objectContaining({
+        mounts: [
+          {
+            hostPath: authHome,
+            sandboxPath: "/tmp/morpheus-codex-home",
+            readonly: false,
+          },
+        ],
+        env: {
+          CODEX_HOME: "/tmp/morpheus-codex-home",
+          HOME: "/tmp/morpheus-home",
+          XDG_CONFIG_HOME: "/tmp/morpheus-home/.config",
+        },
+      }),
+    ]);
+  });
+
+  it("redacts the host subscription auth path from runner failures", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "morpheus-sandcastle-"));
+    const authHome = join(dir, "operator-auth", "codex");
+    mkdirSync(authHome, { recursive: true });
+    writeFileSync(join(authHome, "auth.json"), "{}\n");
+    const runner = createSandcastleAgentRunner({
+      cwd: dir,
+      logDirectory: join(dir, ".morpheus", "agent-logs"),
+      auth: { kind: "chatgpt" },
+      codexAuthHome: authHome,
+      run: async () => {
+        throw new Error(`Cannot mount ${authHome}`);
+      },
+    });
+
+    const result = await Effect.runPromise(
+      Effect.either(runner.prepareIssue({ issue: trackedIssue() })),
+    );
+    expect(Either.isLeft(result)).toBe(true);
+    if (Either.isRight(result)) {
+      throw new Error("expected runner failure");
+    }
+    expect(result.left.message).not.toContain(authHome);
+    expect(result.left.publicMessage).not.toContain(authHome);
+    expect(result.left.message).toContain("<morpheus-codex-auth>");
+  });
+
+  it("serializes concurrent runs that share one ChatGPT auth store", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "morpheus-sandcastle-"));
+    const authHome = join(dir, "operator-auth", "codex");
+    mkdirSync(authHome, { recursive: true });
+    writeFileSync(join(authHome, "auth.json"), "{}\n");
+    let active = 0;
+    let maxActive = 0;
+    const runner = createSandcastleAgentRunner({
+      cwd: dir,
+      logDirectory: join(dir, ".morpheus", "agent-logs"),
+      auth: { kind: "chatgpt" },
+      codexAuthHome: authHome,
+      agent: {
+        name: "fake",
+        buildPrintCommand: () => ({ command: "fake" }),
+        parseStreamLine: () => [],
+      } as never,
+      sandbox: {
+        kind: "none",
+        exec: async () => ({ stdout: "", stderr: "", exitCode: 0 }),
+        close: async () => ({}),
+      } as never,
+      run: async () => {
+        active += 1;
+        maxActive = Math.max(maxActive, active);
+        await new Promise((resolveDelay) => setTimeout(resolveDelay, 10));
+        active -= 1;
+        return {
+          iterations: [],
+          stdout: `<morpheus_result>{"status":"blocked","reason":"x","transcript":"","artifact":{}}</morpheus_result>`,
+          commits: [],
+          branch: "agent/morph-bbp",
+        };
+      },
+    });
+
+    await Promise.all([
+      Effect.runPromise(runner.prepareIssue({ issue: trackedIssue() })),
+      Effect.runPromise(runner.prepareIssue({ issue: trackedIssue() })),
+    ]);
+
+    expect(maxActive).toBe(1);
+  });
+
   it("fails before running when configured auth env file is missing", async () => {
     const dir = mkdtempSync(join(tmpdir(), "morpheus-sandcastle-"));
     let runCalled = false;
     const runner = createSandcastleAgentRunner({
       cwd: dir,
       logDirectory: join(dir, ".morpheus", "sandcastle-logs"),
-      authEnvFile: ".morpheus/secrets/agent.env",
+      auth: {
+        kind: "api-key",
+        envFile: ".morpheus/secrets/agent.env",
+        requiredKeys: ["OPENAI_API_KEY"],
+      },
       run: async () => {
         runCalled = true;
         return {
@@ -1082,6 +1213,8 @@ describe("SandcastleAgentRunner", () => {
     expect(result.left.failureKind).toBe("operator_access");
     expect(result.left.message).toContain("Agent auth env file not found");
     expect(result.left.publicMessage).toContain("Morpheus agent runner auth failed");
+    expect(result.left.message).not.toContain(dir);
+    expect(result.left.publicMessage).not.toContain(dir);
     expect(result.left.publicMessage).not.toMatch(/sandcastle/i);
   });
 
@@ -1092,7 +1225,7 @@ describe("SandcastleAgentRunner", () => {
     const runner = createSandcastleAgentRunner({
       cwd: dir,
       logDirectory: join(dir, ".morpheus", "sandcastle-logs"),
-      authEnvFile: "agent.env",
+      auth: { kind: "api-key", envFile: "agent.env", requiredKeys: ["OPENAI_API_KEY"] },
       run: async () => {
         runCalled = true;
         return {
@@ -1118,7 +1251,7 @@ describe("SandcastleAgentRunner", () => {
     const runner = createSandcastleAgentRunner({
       cwd: dir,
       logDirectory: join(dir, ".morpheus", "sandcastle-logs"),
-      authEnvFile: "agent.env",
+      auth: { kind: "api-key", envFile: "agent.env", requiredKeys: ["OPENAI_API_KEY"] },
       run: async () => {
         runCalled = true;
         return {
@@ -1145,7 +1278,7 @@ describe("SandcastleAgentRunner", () => {
     const runner = createSandcastleAgentRunner({
       cwd: dir,
       logDirectory: join(dir, ".morpheus", "sandcastle-logs"),
-      authEnvFile: "agent.env",
+      auth: { kind: "api-key", envFile: "agent.env", requiredKeys: ["OPENAI_API_KEY"] },
       run: async () => {
         throw new Error("Sandcastle prepare phase exploded");
       },

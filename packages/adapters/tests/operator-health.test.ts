@@ -56,8 +56,28 @@ const runWithAuthHealth = <A, E>(
       Effect.provide(
         operatorHealthLayer({
           cwd,
-          authEnvFile: ".morpheus/secrets/agent.env",
-          authRequiredKeys: ["OPENAI_API_KEY"],
+          auth: {
+            kind: "api-key",
+            envFile: ".morpheus/secrets/agent.env",
+            requiredKeys: ["OPENAI_API_KEY"],
+          },
+        }).pipe(Layer.provide(processRunnerLayer)),
+      ),
+    ),
+  );
+
+const runWithChatGPTHealth = <A, E>(
+  processRunnerLayer: Layer.Layer<ProcessRunner>,
+  codexAuthHome: string,
+  program: Effect.Effect<A, E, OperatorHealth>,
+) =>
+  Effect.runPromise(
+    program.pipe(
+      Effect.provide(
+        operatorHealthLayer({
+          cwd: "/target",
+          auth: { kind: "chatgpt" },
+          codexAuthHome,
         }).pipe(Layer.provide(processRunnerLayer)),
       ),
     ),
@@ -246,8 +266,78 @@ describe("OperatorHealth", () => {
     expect(checks).toContainEqual({
       name: "config",
       status: "fail",
-      detail: expect.stringContaining("Agent auth env file not found:"),
+      detail: "Agent auth env file not found",
     });
+    expect(JSON.stringify(checks)).not.toContain(dir);
+  });
+
+  it("checks Morpheus-owned ChatGPT login without exposing auth paths", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "morpheus-operator-health-"));
+    writeFileSync(join(dir, "auth.json"), "{}\n");
+    const processRunner = fakeProcessRunner([
+      ok(),
+      ok(),
+      ok(),
+      ok(),
+      ok(),
+      ok(),
+      ok(),
+      ok(),
+      { stdout: "Logged in using ChatGPT", stderr: "", exitCode: 0 },
+    ]);
+
+    const checks = await runWithChatGPTHealth(
+      processRunner.layer,
+      dir,
+      Effect.gen(function* () {
+        const health = yield* OperatorHealth;
+        return yield* health.check();
+      }),
+    );
+
+    expect(checks).toContainEqual({
+      name: "config",
+      status: "ok",
+      detail: "Codex ChatGPT login ready",
+    });
+    expect(processRunner.calls).toContainEqual({
+      command: "codex",
+      args: ["login", "status"],
+    });
+    expect(JSON.stringify(checks)).not.toContain(dir);
+  });
+
+  it("redacts unknown Codex status failures in doctor output", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "morpheus-operator-health-"));
+    writeFileSync(join(dir, "auth.json"), "{}\n");
+    const processRunner = fakeProcessRunner([
+      ok(),
+      ok(),
+      ok(),
+      ok(),
+      ok(),
+      ok(),
+      ok(),
+      ok(),
+      { stdout: "", stderr: `permission denied: ${dir}`, exitCode: 1 },
+    ]);
+
+    const checks = await runWithChatGPTHealth(
+      processRunner.layer,
+      dir,
+      Effect.gen(function* () {
+        const health = yield* OperatorHealth;
+        return yield* health.check();
+      }),
+    );
+
+    expect(checks).toContainEqual({
+      name: "config",
+      status: "fail",
+      detail:
+        "Codex ChatGPT login unavailable. Run morpheus auth login codex, then rerun morpheus doctor.",
+    });
+    expect(JSON.stringify(checks)).not.toContain(dir);
   });
 
   it("fails health when configured agent auth env has no variables", async () => {
@@ -268,8 +358,9 @@ describe("OperatorHealth", () => {
     expect(checks).toContainEqual({
       name: "config",
       status: "fail",
-      detail: expect.stringContaining("Agent auth env file has no variables:"),
+      detail: "Agent auth env file has no variables",
     });
+    expect(JSON.stringify(checks)).not.toContain(dir);
   });
 
   it("validates configured agent auth env without printing secret values", async () => {

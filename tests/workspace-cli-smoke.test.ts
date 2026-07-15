@@ -74,6 +74,7 @@ const validAgentRunnerConfig = {
     effort: "xhigh",
   },
   auth: {
+    kind: "api-key",
     envFile: ".morpheus/secrets/agent.env",
     requiredKeys: ["OPENAI_API_KEY"],
   },
@@ -92,43 +93,39 @@ const validAgentRunnerConfig = {
     directory: ".morpheus/skills",
     mappings: [
       {
-        name: "matt-pocock-caveman",
-        path: ".morpheus/skills/matt-pocock-caveman/SKILL.md",
+        name: "matt-pocock-to-spec",
+        path: ".morpheus/skills/matt-pocock-to-spec/SKILL.md",
       },
       {
-        name: "matt-pocock-to-prd",
-        path: ".morpheus/skills/matt-pocock-to-prd/SKILL.md",
-      },
-      {
-        name: "matt-pocock-grill-me",
-        path: ".morpheus/skills/matt-pocock-grill-me/SKILL.md",
+        name: "matt-pocock-grilling",
+        path: ".morpheus/skills/matt-pocock-grilling/SKILL.md",
       },
       {
         name: "matt-pocock-grill-with-docs",
         path: ".morpheus/skills/matt-pocock-grill-with-docs/SKILL.md",
       },
       {
-        name: "matt-pocock-to-issues",
-        path: ".morpheus/skills/matt-pocock-to-issues/SKILL.md",
+        name: "matt-pocock-to-tickets",
+        path: ".morpheus/skills/matt-pocock-to-tickets/SKILL.md",
       },
       {
         name: "matt-pocock-tdd",
         path: ".morpheus/skills/matt-pocock-tdd/SKILL.md",
       },
       {
-        name: "matt-pocock-diagnose",
-        path: ".morpheus/skills/matt-pocock-diagnose/SKILL.md",
+        name: "matt-pocock-diagnosing-bugs",
+        path: ".morpheus/skills/matt-pocock-diagnosing-bugs/SKILL.md",
       },
     ],
     stageMappings: {
       prepare: [
-        "matt-pocock-to-prd",
-        "matt-pocock-grill-me",
+        "matt-pocock-to-spec",
+        "matt-pocock-grilling",
         "matt-pocock-grill-with-docs",
-        "matt-pocock-to-issues",
+        "matt-pocock-to-tickets",
       ],
-      implement: ["matt-pocock-caveman", "matt-pocock-tdd", "matt-pocock-diagnose"],
-      review: ["matt-pocock-caveman", "matt-pocock-diagnose"],
+      implement: ["matt-pocock-tdd", "matt-pocock-diagnosing-bugs"],
+      review: ["matt-pocock-diagnosing-bugs"],
     },
   },
 } as const;
@@ -199,6 +196,109 @@ describe("morpheus cli", () => {
     ).version;
 
     expect(output.trim().split("\n").at(-1)).toBe(expectedVersion);
+  }, 20_000);
+
+  it("manages Morpheus-owned Codex auth through login, status, and logout", () => {
+    const dir = mkdtempSync(join(tmpdir(), "morpheus-cli-auth-"));
+    try {
+      const binDir = join(dir, "bin");
+      mkdirSync(binDir);
+      const codexPath = join(binDir, "codex");
+      writeFileSync(
+        codexPath,
+        `#!/bin/sh
+if [ "$1" = "login" ] && [ "$2" = "status" ]; then
+  if [ -f "$CODEX_HOME/auth.json" ]; then
+    printf 'Logged in using ChatGPT\n'
+    exit 0
+  fi
+  printf 'Not logged in\n'
+  exit 1
+fi
+if [ "$1" = "login" ]; then
+  mkdir -p "$CODEX_HOME"
+  printf '{}\n' > "$CODEX_HOME/auth.json"
+  exit 0
+fi
+if [ "$1" = "logout" ]; then
+  rm -f "$CODEX_HOME/auth.json"
+  exit 0
+fi
+exit 1
+`,
+      );
+      chmodSync(codexPath, 0o755);
+      const env = {
+        MORPHEUS_HOME: dir,
+        PATH: `${binDir}:${process.env.PATH ?? ""}`,
+      };
+
+      const login = runPnpm(
+        ["--filter", "@morpheus/cli", "morpheus", "auth", "login", "codex"],
+        env,
+      );
+      const status = runPnpm(
+        ["--filter", "@morpheus/cli", "morpheus", "auth", "status", "--json"],
+        env,
+      );
+      const logout = runPnpm(
+        ["--filter", "@morpheus/cli", "morpheus", "auth", "logout", "codex"],
+        env,
+      );
+
+      expect(login).toContain("Codex ChatGPT login: ready");
+      expect(JSON.parse(status.trim())).toEqual({
+        provider: "codex",
+        status: "logged-in",
+        mode: "chatgpt",
+      });
+      expect(logout).toContain("Codex ChatGPT login: not configured");
+      expect(existsSync(join(dir, "auth", "codex", "auth.json"))).toBe(false);
+    } finally {
+      rmSync(dir, { force: true, recursive: true });
+    }
+  }, 20_000);
+
+  it("requires one explicit non-interactive auth source and rejects mixed auth flags", () => {
+    const dir = mkdtempSync(join(tmpdir(), "morpheus-cli-auth-selection-"));
+    try {
+      const base = [
+        "--filter",
+        "@morpheus/cli",
+        "morpheus",
+        "setup",
+        "--yes",
+        "--target",
+        dir,
+        "--gitlab-project",
+        "group/project",
+        "--no-build",
+      ] as const;
+
+      const missing = runPnpmFailure(base);
+      expect(`${missing.stdout}\n${missing.stderr}`).toContain(
+        "Non-interactive setup requires --auth chatgpt or --auth api-key.",
+      );
+
+      const mixedSubscription = runPnpmFailure([
+        ...base,
+        "--auth",
+        "chatgpt",
+        "--device-auth",
+        "--auth-secret",
+        "OPENAI_API_KEY=not-a-real-key",
+      ]);
+      expect(`${mixedSubscription.stdout}\n${mixedSubscription.stderr}`).toContain(
+        "ChatGPT setup does not accept API-key options",
+      );
+
+      const mixedApiKey = runPnpmFailure([...base, "--auth", "api-key", "--device-auth"]);
+      expect(`${mixedApiKey.stdout}\n${mixedApiKey.stderr}`).toContain(
+        "API-key setup does not accept --device-auth.",
+      );
+    } finally {
+      rmSync(dir, { force: true, recursive: true });
+    }
   }, 20_000);
 
   it("keeps deamon alias and prints friendly invalid-command errors", () => {
@@ -424,18 +524,21 @@ describe("morpheus cli", () => {
         '"targetBranch": "main"',
       );
       expect(readFileSync(join(dir, "morpheus.config.json"), "utf8")).toContain(
+        '"kind": "chatgpt"',
+      );
+      expect(readFileSync(join(dir, "morpheus.config.json"), "utf8")).toContain(
         '"directory": ".morpheus/skills"',
       );
       expect(readFileSync(join(dir, "morpheus.config.json"), "utf8")).toContain(
-        '"name": "matt-pocock-caveman"',
+        '"name": "matt-pocock-to-spec"',
       );
       expect(existsSync(join(dir, ".morpheus/prompts/prepare.md"))).toBe(true);
       expect(existsSync(join(dir, ".morpheus/prompts/implement.md"))).toBe(true);
       expect(existsSync(join(dir, ".morpheus/prompts/review.md"))).toBe(true);
-      expect(existsSync(join(dir, ".morpheus/skills/matt-pocock-caveman/SKILL.md"))).toBe(true);
+      expect(existsSync(join(dir, ".morpheus/skills/matt-pocock-to-spec/SKILL.md"))).toBe(true);
       expect(
-        readFileSync(join(dir, ".morpheus/skills/matt-pocock-caveman/SKILL.md"), "utf8"),
-      ).toContain("Ultra-compressed communication mode");
+        readFileSync(join(dir, ".morpheus/skills/matt-pocock-to-spec/SKILL.md"), "utf8"),
+      ).toContain("produces a spec");
       expect(existsSync(join(dir, ".morpheus/container/Dockerfile"))).toBe(true);
       expect(existsSync(join(dir, ".morpheus/container/README.md"))).toBe(true);
       expect(readFileSync(join(dir, ".gitignore"), "utf8")).toContain(".morpheus/runs/");
@@ -473,6 +576,8 @@ describe("morpheus cli", () => {
           dir,
           "--gitlab-project",
           "group/project",
+          "--auth",
+          "api-key",
           "--no-build",
         ],
         { PATH: `${binDir}:${process.env.PATH ?? ""}` },

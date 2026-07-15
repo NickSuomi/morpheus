@@ -46,7 +46,8 @@ describe("private data scanner", () => {
   it("accepts anonymized public fixture names", () => {
     withRepo(
       {
-        "README.md": "Morpheus uses fixtures/alpha-target-repo and gitlab.example.com in docs.\n",
+        "README.md":
+          "Morpheus uses fixtures/alpha-target-repo, gitlab.example.com, and public gitlab.com docs.\n",
       },
       (dir) => {
         expect(() => runScan(dir)).not.toThrow();
