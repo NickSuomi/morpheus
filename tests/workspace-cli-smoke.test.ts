@@ -259,6 +259,73 @@ exit 1
     }
   }, 20_000);
 
+  it("reuses an existing ChatGPT login during non-interactive setup", () => {
+    const dir = mkdtempSync(join(tmpdir(), "morpheus-cli-existing-chatgpt-"));
+    try {
+      execFileSync("git", ["init", "-b", "main"], { cwd: dir, stdio: "ignore" });
+      const binDir = join(dir, "bin");
+      const morpheusHome = join(dir, "home");
+      const authHome = join(morpheusHome, "auth", "codex");
+      const codexLog = join(dir, "codex-calls.log");
+      mkdirSync(binDir);
+      mkdirSync(authHome, { recursive: true });
+      writeFileSync(join(authHome, "auth.json"), "{}\n");
+
+      const shims: Record<string, string> = {
+        bd: "#!/bin/sh\nprintf '[]\\n'\n",
+        glab: '#!/bin/sh\nif [ "$1" = auth ] && [ "$2" = status ]; then printf \'Logged in\\n\'; fi\nexit 0\n',
+        docker: "#!/bin/sh\nexit 0\n",
+        codex: `#!/bin/sh
+printf '%s\\n' "$*" >> "$MORPHEUS_TEST_CODEX_LOG"
+if [ "$1" = "login" ] && [ "$2" = "status" ]; then
+  printf 'Logged in using ChatGPT\\n' >&2
+  exit 0
+fi
+printf 'unexpected Codex invocation: %s\\n' "$*" >&2
+exit 1
+`,
+      };
+      for (const [command, script] of Object.entries(shims)) {
+        const path = join(binDir, command);
+        writeFileSync(path, script);
+        chmodSync(path, 0o755);
+      }
+
+      const output = runPnpm(
+        [
+          "--filter",
+          "@morpheus/cli",
+          "morpheus",
+          "setup",
+          "--yes",
+          "--target",
+          dir,
+          "--gitlab-project",
+          "group/project",
+          "--auth",
+          "chatgpt",
+          "--no-build",
+          "--no-sync",
+        ],
+        {
+          MORPHEUS_HOME: morpheusHome,
+          MORPHEUS_TEST_CODEX_LOG: codexLog,
+          PATH: `${binDir}:${process.env.PATH ?? ""}`,
+        },
+      );
+
+      expect(output).toContain("OK config: Codex ChatGPT login ready");
+      expect(output).not.toContain("device code");
+      expect(readFileSync(codexLog, "utf8").trim().split("\n")).toEqual([
+        "login status",
+        "login status",
+        "login status",
+      ]);
+    } finally {
+      rmSync(dir, { force: true, recursive: true });
+    }
+  }, 20_000);
+
   it("requires one explicit non-interactive auth source and rejects mixed auth flags", () => {
     const dir = mkdtempSync(join(tmpdir(), "morpheus-cli-auth-selection-"));
     try {

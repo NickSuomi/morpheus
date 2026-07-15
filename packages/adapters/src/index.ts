@@ -1,4 +1,4 @@
-import { execFile, execFileSync, spawn } from "node:child_process";
+import { execFile, execFileSync, spawn, spawnSync } from "node:child_process";
 import { chmodSync, existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, isAbsolute, join, resolve } from "node:path";
@@ -107,6 +107,27 @@ const setupRunText = (
   } catch {
     return undefined;
   }
+};
+
+const setupRunCombinedText = (
+  cwd: string,
+  command: string,
+  args: readonly string[],
+  env: Readonly<Record<string, string>> = {},
+): string | undefined => {
+  const result = spawnSync(command, [...args], {
+    cwd,
+    encoding: "utf8",
+    env: { ...process.env, ...env },
+    stdio: ["ignore", "pipe", "pipe"],
+    timeout: 5_000,
+  });
+
+  if (result.error !== undefined || result.status !== 0) {
+    return undefined;
+  }
+
+  return `${result.stdout}\n${result.stderr}`.trim();
 };
 
 const setupExistingFiles = (target: string, config?: MorpheusConfig): readonly string[] => {
@@ -2529,7 +2550,9 @@ export const detectMorpheusSetupInput = (
       : ".morpheus/secrets/agent.env";
   const codexAuthHome = resolveCodexAuthHome();
   const codexAuthStatus = existsSync(join(codexAuthHome, "auth.json"))
-    ? setupRunText(target, "codex", ["login", "status"], { CODEX_HOME: codexAuthHome })
+    ? setupRunCombinedText(target, "codex", ["login", "status"], {
+        CODEX_HOME: codexAuthHome,
+      })
     : undefined;
 
   return {

@@ -1139,14 +1139,14 @@ describe("setup planning", () => {
       try {
         process.env.PATH = `${binDir}:${previousPath ?? ""}`;
         process.env.MORPHEUS_HOME = morpheusHome;
-        writeFileSync(codexPath, "#!/bin/sh\nprintf 'Not logged in to ChatGPT\\n'\n");
+        writeFileSync(codexPath, "#!/bin/sh\nprintf 'Not logged in to ChatGPT\\n' >&2\n");
         chmodSync(codexPath, 0o755);
 
         expect(detectMorpheusSetupInput({ targetPath: dir }).detected?.codexAuthLoggedIn).toBe(
           false,
         );
 
-        writeFileSync(codexPath, "#!/bin/sh\nprintf 'Logged in using ChatGPT\\n'\n");
+        writeFileSync(codexPath, "#!/bin/sh\nprintf 'Logged in using ChatGPT\\n' >&2\n");
         chmodSync(codexPath, 0o755);
         expect(detectMorpheusSetupInput({ targetPath: dir }).detected?.codexAuthLoggedIn).toBe(
           true,
