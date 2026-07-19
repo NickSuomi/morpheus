@@ -143,6 +143,8 @@ export type PreparedReviewWorkspace = {
   readonly workspacePath: string;
   readonly worktreePath?: string;
   readonly branch?: string;
+  readonly targetBranch?: string;
+  readonly remote?: string;
   readonly permissions: "read-only";
 };
 
@@ -1689,16 +1691,40 @@ const normalizeReviewFindingSummary = (finding: Record<string, unknown>): unknow
     return finding.summary;
   }
 
-  if (typeof finding.message !== "string" || finding.message.trim().length === 0) {
+  const message =
+    typeof finding.message === "string" && finding.message.trim().length > 0
+      ? finding.message
+      : undefined;
+  const title =
+    typeof finding.title === "string" && finding.title.trim().length > 0
+      ? finding.title
+      : undefined;
+  const details =
+    typeof finding.details === "string" && finding.details.trim().length > 0
+      ? finding.details
+      : undefined;
+  const body =
+    message ??
+    (title !== undefined && details !== undefined ? `${title}: ${details}` : (title ?? details));
+
+  if (body === undefined) {
     return finding.summary;
   }
 
-  const location =
+  const file =
     typeof finding.file === "string" && finding.file.trim().length > 0
-      ? `${finding.file}${typeof finding.line === "number" ? `:${finding.line}` : ""}: `
+      ? finding.file
+      : Array.isArray(finding.files) &&
+          typeof finding.files[0] === "string" &&
+          finding.files[0].trim().length > 0
+        ? finding.files[0]
+        : undefined;
+  const location =
+    file !== undefined
+      ? `${file}${typeof finding.line === "number" ? `:${finding.line}` : ""}: `
       : "";
 
-  return `${location}${finding.message}`;
+  return `${location}${body}`;
 };
 
 const normalizeReviewFindings = (findings: unknown): unknown => {
@@ -5748,7 +5774,10 @@ const starterPrompts = {
     "",
     "Review the implementation against the Agent-Ready Contract.",
     "Stay read-only. Use concise review and diagnosis behavior. Report correctness bugs, regressions, missing verification, and risk.",
+    "Inspect the Worktree/MR tip only; never infer implementation state from the host Workspace/base checkout.",
+    "Start by proving the review root HEAD and diff against the configured remote target branch. If checkout files are sparse or absent, use git show HEAD:<path> and git diff <remote>/<target>...HEAD; do not substitute the base checkout.",
     "Verify the implementation satisfies contract acceptance criteria, AFK gates, verification plan, out-of-scope boundaries, and evidence claims.",
+    'Every finding must use this exact item shape: {"severity":"info|warning|error","summary":"..."}.',
     'Return only one exact verdict shape: passed {"status":"passed","findings":[],"transcript":"...","artifact":{}}; blocked {"status":"blocked","reason":"...","findings":[],"transcript":"...","artifact":{}}; failed {"status":"failed","failureKind":"verification_error","message":"...","findings":[],"transcript":"...","artifact":{}}.',
     "For failed review results, `failureKind` is required and must be one of: operator_access, runtime_error, agent_contract_error, verification_error, state_conflict, unknown.",
     "",

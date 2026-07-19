@@ -1382,6 +1382,10 @@ describe("SandcastleAgentRunner", () => {
     const runner = createSandcastleAgentRunner({
       cwd: dir,
       logDirectory: join(dir, ".morpheus", "sandcastle-logs"),
+      containerConfig: {
+        image: "morpheus-agent:test",
+        mounts: [{ hostPath: ".", containerPath: "/workspace", readOnly: true }],
+      },
       agent: {
         name: "fake",
         env: {},
@@ -1427,7 +1431,10 @@ describe("SandcastleAgentRunner", () => {
         },
         workspace: {
           workspacePath: "/workspace/morph-bbp-review",
+          worktreePath: "/worktree/morph-bbp",
           branch: "agent/morph-bbp",
+          targetBranch: "main",
+          remote: "origin",
           permissions: "read-only",
         },
         mergeRequest: {
@@ -1443,9 +1450,17 @@ describe("SandcastleAgentRunner", () => {
       }) ?? Effect.die("missing reviewIssue"),
     );
 
-    expect(calls[0].cwd).toBe("/workspace/morph-bbp-review");
+    expect(calls[0].cwd).toBe("/worktree/morph-bbp");
     expect(calls[0].name).toBe("morpheus-review-morph-bbp");
     expect(calls[0].prompt).toContain("Permissions: read-only");
+    expect(calls[0].prompt).toContain(
+      "Inspect the Worktree/MR tip only; never infer implementation state from the host Workspace/base checkout.",
+    );
+    expect(calls[0].prompt).toContain("git -C /worktree/morph-bbp diff --stat origin/main...HEAD");
+    expect(calls[0].prompt).toContain('{"severity":"info|warning|error","summary":"..."}');
+    expect(calls[0].prompt).toContain(
+      "check these configured container roots before proceeding: /workspace",
+    );
     expect(calls[0].prompt).toContain("Implementation evidence:");
     expect(calls[0].prompt).toContain("Adapter added");
     expect(calls[0].prompt).toContain("Verification evidence:");

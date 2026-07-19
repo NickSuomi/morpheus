@@ -839,6 +839,12 @@ describe("Morpheus config", () => {
       expect(readFileSync(join(dir, ".morpheus/prompts/review.md"), "utf8")).toContain(
         '"message":"..."',
       );
+      expect(readFileSync(join(dir, ".morpheus/prompts/review.md"), "utf8")).toContain(
+        '{"severity":"info|warning|error","summary":"..."}',
+      );
+      expect(readFileSync(join(dir, ".morpheus/prompts/review.md"), "utf8")).toContain(
+        "Inspect the Worktree/MR tip only",
+      );
       for (const skillName of bundledSkillNames) {
         const generated = readFileSync(
           join(dir, ".morpheus/skills", skillName, "SKILL.md"),

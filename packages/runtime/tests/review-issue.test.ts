@@ -301,7 +301,13 @@ const fakeMergeRequests = (
 };
 
 const fakeAgentRunner = (
-  scenario: "passed" | "blocked" | "failed" | "legacy-finding" | "malformed",
+  scenario:
+    | "passed"
+    | "blocked"
+    | "failed"
+    | "legacy-finding"
+    | "title-details-finding"
+    | "malformed",
 ) => {
   const inputs: ReviewAgentInput[] = [];
   const calls: string[] = [];
@@ -333,6 +339,23 @@ const fakeAgentRunner = (
               file: "/workspace/src/App.vue",
               line: 132,
               message: "Refresh token path bypasses the browser support guard.",
+            },
+          ],
+          transcript: "failed",
+          artifact: {},
+        });
+      }
+      if (scenario === "title-details-finding") {
+        return Effect.succeed({
+          status: "failed",
+          failureKind: "verification_error",
+          message: "Review found an acceptance gap.",
+          findings: [
+            {
+              severity: "high",
+              title: "Changed behavior is not covered",
+              details: "The acceptance path lacks regression evidence.",
+              files: ["src/review-target.ts"],
             },
           ],
           transcript: "failed",
@@ -397,7 +420,13 @@ const expectNoInternalAdapterDetail = (output: string) => {
 };
 
 const runReview = async (
-  scenario: "passed" | "blocked" | "failed" | "legacy-finding" | "malformed",
+  scenario:
+    | "passed"
+    | "blocked"
+    | "failed"
+    | "legacy-finding"
+    | "title-details-finding"
+    | "malformed",
 ) =>
   withImplementationArtifact(async (artifactPath) => {
     const tracker = fakeIssueTracker({ sourceIid: 1234 });
@@ -698,6 +727,18 @@ describe("reviewIssue", () => {
     expect(ledger.events).toContain("ReviewFailed");
     expect(mergeRequests.descriptions[0]).toContain(
       "- [error] /workspace/src/App.vue:132: Refresh token path bypasses the browser support guard.",
+    );
+    expect(mergeRequests.descriptions[0]).toContain("Review verdict: failed");
+  });
+
+  it("normalizes title/details review findings before updating the MR", async () => {
+    const { result, tracker, ledger, mergeRequests } = await runReview("title-details-finding");
+
+    expect(result).toMatchObject({ status: "failed", failureKind: "verification_error" });
+    expect(tracker.labels).toEqual(["agent:failed"]);
+    expect(ledger.events).toContain("ReviewFailed");
+    expect(mergeRequests.descriptions[0]).toContain(
+      "- [error] src/review-target.ts: Changed behavior is not covered: The acceptance path lacks regression evidence.",
     );
     expect(mergeRequests.descriptions[0]).toContain("Review verdict: failed");
   });

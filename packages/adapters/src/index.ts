@@ -1624,7 +1624,11 @@ const stageSkillInstructionsForPrompt = (
   ].join("\n");
 };
 
-const builtInPrompt = (input: SandcastlePhaseInput, skills: AgentSkillConfig): string => {
+const builtInPrompt = (
+  input: SandcastlePhaseInput,
+  skills: AgentSkillConfig,
+  containerRoots: readonly string[] = [],
+): string => {
   const { phase, issue } = input;
   const base = [
     `You are a Morpheus ${phase} agent.`,
@@ -1634,6 +1638,11 @@ const builtInPrompt = (input: SandcastlePhaseInput, skills: AgentSkillConfig): s
     defaultAgentSkillInstructions,
     stageSkillInstructionsForPrompt(phase, skills),
     "If a listed repo path or skill path does not exist inside the container, run `pwd` and use the current checkout root; resolve relative `.morpheus/...` skill paths from that root.",
+    ...(containerRoots.length === 0
+      ? []
+      : [
+          `If copied skills are absent from the Worktree, check these configured container roots before proceeding: ${containerRoots.join(", ")}. Resolve .morpheus/skills/... beneath those roots.`,
+        ]),
     phase === "implement"
       ? "Do not close Beads issues. Commit implementation changes on the implementation branch before returning implemented. Do not push. Do not run glab. Morpheus or the host operator publishes the branch/MR outside the sandbox."
       : "Do not commit. Do not close Beads issues.",
@@ -1676,6 +1685,8 @@ const builtInPrompt = (input: SandcastlePhaseInput, skills: AgentSkillConfig): s
     `Workspace: ${input.workspace.workspacePath}`,
     `Worktree: ${input.workspace.worktreePath ?? "None"}`,
     `Branch: ${input.workspace.branch ?? "None"}`,
+    `Target branch: ${input.workspace.targetBranch ?? "unknown"}`,
+    `Remote: ${input.workspace.remote ?? "origin"}`,
     `Permissions: ${input.workspace.permissions}`,
     `Merge request: ${input.mergeRequest.reference}`,
     `Merge request URL: ${input.mergeRequest.url ?? "None"}`,
@@ -1683,7 +1694,11 @@ const builtInPrompt = (input: SandcastlePhaseInput, skills: AgentSkillConfig): s
     `Implementation evidence: ${JSON.stringify(input.implementationEvidence)}`,
     `Verification evidence: ${JSON.stringify(input.verificationEvidence)}`,
     "Stay read-only. Use concise review and diagnosis behavior.",
+    "Inspect the Worktree/MR tip only; never infer implementation state from the host Workspace/base checkout.",
+    `Start with \`git -C ${input.workspace.worktreePath ?? input.workspace.workspacePath} rev-parse HEAD\` and \`git -C ${input.workspace.worktreePath ?? input.workspace.workspacePath} diff --stat ${input.workspace.remote ?? "origin"}/${input.workspace.targetBranch ?? "<target-branch>"}...HEAD\`.`,
+    "If checkout files are sparse or absent, inspect the same review root with `git show HEAD:<path>` and `git diff <remote>/<target>...HEAD -- <path>`; never substitute the host Workspace.",
     "Verify contract acceptance criteria, AFK gates, verification plan, out-of-scope boundaries, and evidence claims.",
+    'Every finding must use this exact item shape: {"severity":"info|warning|error","summary":"..."}.',
     'JSON shapes: passed {"status":"passed","findings":[],"transcript":"...","artifact":{}}; blocked {"status":"blocked","reason":"...","findings":[],"transcript":"...","artifact":{}}; failed {"status":"failed","failureKind":"verification_error","message":"...","findings":[],"transcript":"...","artifact":{}}.',
     "For failed review results, `failureKind` is required and must be one of: operator_access, runtime_error, agent_contract_error, verification_error, state_conflict, unknown.",
   ].join("\n");
@@ -1694,11 +1709,12 @@ const resolvePromptText = (
   promptPaths: Partial<Record<SandcastlePhase, string>> = {},
   skills: AgentSkillConfig = defaultSkillConfig,
   cwd: string,
+  containerRoots: readonly string[] = [],
 ): string => {
   const { phase } = input;
   const configuredPath = promptPaths[phase];
   if (configuredPath === undefined) {
-    return builtInPrompt(input, skills);
+    return builtInPrompt(input, skills, containerRoots);
   }
 
   const promptPath = resolve(cwd, configuredPath);
@@ -1707,7 +1723,7 @@ const resolvePromptText = (
   }
 
   return [
-    builtInPrompt(input, skills),
+    builtInPrompt(input, skills, containerRoots),
     "Additional instructions:",
     readFileSync(promptPath, "utf8"),
   ].join("\n\n");
@@ -2075,7 +2091,13 @@ const runSandcastlePhase = (
               },
             }),
           cwd,
-          prompt: resolvePromptText(input, options.promptPaths, options.skills, options.cwd),
+          prompt: resolvePromptText(
+            input,
+            options.promptPaths,
+            options.skills,
+            options.cwd,
+            containerConfig.mounts.map((mount) => mount.containerPath),
+          ),
           logging: {
             type: "file",
             path: join(options.logDirectory, `${issue.id}-${phase}.log`),
@@ -3064,6 +3086,8 @@ export const createGitWorkspaceRuntime = ({
       workspacePath: implementationRun.workspacePath ?? implementationRun.worktreePath ?? ".",
       worktreePath: implementationRun.worktreePath,
       branch: implementationRun.branch,
+      targetBranch: configuredTargetBranch,
+      remote: "origin",
       permissions: "read-only",
     }),
 });
