@@ -34,7 +34,7 @@ morpheus --version
 Pinned installs use the same script with an explicit release version:
 
 ```sh
-curl -fsSL https://github.com/NickSuomi/morpheus/releases/latest/download/install.sh | MORPHEUS_VERSION=0.1.28 sh
+curl -fsSL https://github.com/NickSuomi/morpheus/releases/latest/download/install.sh | MORPHEUS_VERSION=0.1.30 sh
 ```
 
 The installer must:
@@ -53,7 +53,8 @@ The installer must:
 - multi-choice prompts toggle with Space and confirm with Enter;
 - text, path, model, and pasted values use readline-style input;
 - ChatGPT subscription auth is the default and immediately delegates login to Codex;
-- API-key values may be entered interactively or passed with `--auth-secret KEY=VALUE`;
+- API-key values may be entered through the hidden interactive prompt;
+- non-interactive API-key setup creates the local env file for direct or secret-manager population;
 - secret values are not rendered in setup preview, config summaries, logs, or review artifacts;
 - subscription credentials use the Morpheus-owned auth store and never enter the target repo;
 - API-key setup creates or points to an explicit target-local env file and can write required keys there;

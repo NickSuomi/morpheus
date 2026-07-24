@@ -497,7 +497,6 @@ const setupAuth = Options.text("auth").pipe(Options.optional);
 const setupDeviceAuth = Options.boolean("device-auth");
 const setupAuthEnvFile = Options.text("auth-env-file").pipe(Options.optional);
 const setupRequiredAuthKey = Options.text("required-auth-key").pipe(Options.optional);
-const setupAuthSecret = Options.text("auth-secret").pipe(Options.optional);
 const setupContainerImage = Options.text("container-image").pipe(Options.optional);
 const setupContainerProfile = Options.text("container-profile").pipe(Options.optional);
 const setupVerificationCommand = Options.text("verification-command").pipe(Options.optional);
@@ -821,40 +820,6 @@ const parseSetupAuthKind = (value: string | undefined): AgentAuthKindAnswer | un
 
 type AuthSecretAssignments = ReadonlyMap<string, string>;
 
-const envKeyPattern = /^[A-Za-z_][A-Za-z0-9_]*$/;
-
-const parseAuthSecretAssignments = (value: string | undefined): AuthSecretAssignments => {
-  if (value === undefined || value.trim().length === 0) {
-    return new Map();
-  }
-
-  const assignments = new Map<string, string>();
-  const entries = value
-    .split(/\r?\n|,(?=[A-Za-z_][A-Za-z0-9_]*=)/)
-    .map((entry) => entry.trim())
-    .filter((entry) => entry.length > 0);
-
-  for (const entry of entries) {
-    const separator = entry.indexOf("=");
-    if (separator <= 0) {
-      throw new Error("Auth secret must use KEY=VALUE format.");
-    }
-
-    const key = entry.slice(0, separator).trim();
-    const secret = entry.slice(separator + 1);
-    if (!envKeyPattern.test(key)) {
-      throw new Error(`Invalid auth secret key: ${key}`);
-    }
-    if (secret.length === 0) {
-      throw new Error(`Auth secret value is empty for ${key}.`);
-    }
-
-    assignments.set(key, secret);
-  }
-
-  return assignments;
-};
-
 const setupConfigFromPlan = (plan: SetupPlan): MorpheusConfig | undefined =>
   plan.configMutation.action === "blocked" ? undefined : plan.configMutation.nextConfig;
 
@@ -991,11 +956,10 @@ const runNonInteractiveSetup = async (
   const apiKeyOnlyOptionProvided =
     options.authEnvFile !== undefined ||
     options.requiredAuthKey !== undefined ||
-    options.requiredAuthKeys !== undefined ||
-    options.authSecret !== undefined;
+    options.requiredAuthKeys !== undefined;
   if (selectedAuth === "chatgpt" && apiKeyOnlyOptionProvided) {
     throw new Error(
-      "ChatGPT setup does not accept API-key options; remove --auth-env-file, --required-auth-key, and --auth-secret.",
+      "ChatGPT setup does not accept API-key options; remove --auth-env-file and --required-auth-key.",
     );
   }
   if (selectedAuth === "api-key" && options.deviceAuth === true) {
@@ -1028,18 +992,11 @@ const runNonInteractiveSetup = async (
   );
 
   const setupConfig = setupConfigFromPlan(plan);
-  if (setupConfig !== undefined) {
-    if (setupConfig.agentRunner.auth.kind === "chatgpt") {
-      if (initialInput.detected?.codexAuthLoggedIn !== true) {
-        console.log(await Effect.runPromise(loginCodexAuth(true)));
-      }
-    } else {
-      writeSetupAuthSecrets(
-        initialTarget,
-        setupConfig,
-        parseAuthSecretAssignments(options.authSecret),
-      );
-    }
+  if (
+    setupConfig?.agentRunner.auth.kind === "chatgpt" &&
+    initialInput.detected?.codexAuthLoggedIn !== true
+  ) {
+    console.log(await Effect.runPromise(loginCodexAuth(true)));
   }
 
   if (setupPlanWantsContainerBuild(plan)) {
@@ -1102,7 +1059,6 @@ const setup = Command.make(
     deviceAuth: setupDeviceAuth,
     authEnvFile: setupAuthEnvFile,
     requiredAuthKey: setupRequiredAuthKey,
-    authSecret: setupAuthSecret,
     containerImage: setupContainerImage,
     containerProfile: setupContainerProfile,
     verificationCommand: setupVerificationCommand,
@@ -1124,7 +1080,6 @@ const setup = Command.make(
     deviceAuth,
     authEnvFile,
     requiredAuthKey,
-    authSecret,
     containerImage,
     containerProfile,
     verificationCommand,
@@ -1148,7 +1103,6 @@ const setup = Command.make(
         deviceAuth ||
         optionString(authEnvFile) !== undefined ||
         optionString(requiredAuthKey) !== undefined ||
-        optionString(authSecret) !== undefined ||
         optionString(containerImage) !== undefined ||
         optionString(containerProfile) !== undefined ||
         optionString(verificationCommand) !== undefined ||
@@ -1173,7 +1127,6 @@ const setup = Command.make(
           deviceAuth: deviceAuth || fileInput.deviceAuth,
           authEnvFile: optionString(authEnvFile) ?? fileInput.authEnvFile,
           requiredAuthKey: commaList(optionString(requiredAuthKey)) ?? fileInput.requiredAuthKey,
-          authSecret: optionString(authSecret) ?? fileInput.authSecret,
           containerImage: optionString(containerImage) ?? fileInput.containerImage,
           containerProfile: optionString(containerProfile) ?? fileInput.containerProfile,
           verificationCommand:

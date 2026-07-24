@@ -21,7 +21,7 @@ const withJsonFile = <T>(contents: string, fn: (path: string) => T) => {
 };
 
 describe("non-interactive setup options", () => {
-  it("maps scriptable flags to setup answers without leaking secret values", () => {
+  it("maps scriptable flags to setup answers without accepting secret values", () => {
     const result = buildNonInteractiveSetupAnswers({
       yes: true,
       dryRun: false,
@@ -36,7 +36,6 @@ describe("non-interactive setup options", () => {
       containerProfile: ".morpheus/container/Dockerfile",
       verificationCommand: ["pnpm test", "pnpm typecheck"],
       pollIntervalSeconds: 15,
-      authSecret: "OPENAI_API_KEY=real-token",
     });
 
     expect(result).toEqual({
@@ -55,7 +54,6 @@ describe("non-interactive setup options", () => {
       runDoctor: true,
       runSync: false,
     });
-    expect("authSecret" in result).toBe(false);
   });
 
   it("lets setup planning validate missing project input", () => {
