@@ -14,6 +14,9 @@ export type NonInteractiveSetupInput = {
   readonly gitlabProject?: string;
   readonly targetBranch?: string;
   readonly gitlabReadyLabel?: string;
+  readonly auth?: SetupAnswers["authKind"];
+  readonly authKind?: SetupAnswers["authKind"];
+  readonly deviceAuth?: boolean;
   readonly authEnvFile?: string;
   readonly requiredAuthKey?: readonly string[];
   readonly containerImage?: string;
@@ -56,6 +59,9 @@ export const buildNonInteractiveSetupAnswers = (input: NonInteractiveSetupInput)
     ...(input.gitlabProject === undefined ? {} : { gitlabProject: input.gitlabProject }),
     ...(input.targetBranch === undefined ? {} : { targetBranch: input.targetBranch }),
     ...(input.gitlabReadyLabel === undefined ? {} : { readyLabel: input.gitlabReadyLabel }),
+    ...(input.auth === undefined && input.authKind === undefined
+      ? {}
+      : { authKind: input.auth ?? input.authKind }),
     ...(input.authEnvFile === undefined ? {} : { authEnvFile: input.authEnvFile }),
     ...(normalizeList(input.requiredAuthKey, input.requiredAuthKeys) === undefined
       ? {}

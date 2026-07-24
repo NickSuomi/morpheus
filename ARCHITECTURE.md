@@ -167,7 +167,17 @@ Initial shape:
   },
   "daemon": { "pollIntervalSeconds": 30 },
   "mergeRequests": { "kind": "gitlab-glab" },
-  "agentRunner": { "kind": "container" },
+  "agentRunner": {
+    "kind": "container",
+    "agent": { "provider": "codex", "model": "gpt-5.2-codex", "effort": "high" },
+    "auth": { "kind": "chatgpt" },
+    "container": {
+      "image": "morpheus-agent:local",
+      "profile": ".morpheus/container/Dockerfile",
+      "mounts": [],
+      "setupHooks": []
+    }
+  },
   "ledger": { "path": ".morpheus/ledger.sqlite" },
   "lanes": {
     "preparation": { "concurrency": 1 },
@@ -207,6 +217,47 @@ run.
 ticks.
 
 Commands touching target repo require valid config before side effects begin.
+
+### Agent Authentication
+
+`agentRunner.auth` is a closed, tagged union. A target selects exactly one
+source:
+
+```json
+{ "kind": "chatgpt" }
+```
+
+or:
+
+```json
+{
+  "kind": "api-key",
+  "envFile": ".morpheus/secrets/agent.env",
+  "requiredKeys": ["OPENAI_API_KEY"]
+}
+```
+
+`chatgpt` auth is operator-level state stored under
+`${MORPHEUS_HOME:-~/.morpheus}/auth/codex`. The Codex CLI owns browser/device
+login, refresh, status, and logout inside that isolated home. Morpheus forces
+file-backed credential storage and never reads `~/.codex` implicitly.
+
+Subscription-backed containers mount that auth home read-write at the internal
+path `/tmp/morpheus-codex-home`. The mount and `CODEX_HOME` value are
+Morpheus-owned runtime details, not target-configurable fields. OAuth credential
+values never enter the target config, environment variables, run ledger, or
+review artifacts.
+
+One process-wide lease protects the v1 subscription auth store, so only one
+subscription-backed run may execute at a time within a Morpheus process. The
+lease spans container execution and any credential refresh performed there.
+Running multiple Morpheus processes against one auth home is unsupported in v1.
+API-key-backed runs do not acquire this lease and retain lane concurrency.
+
+The runtime owns the `AgentAuth` behavior boundary used by setup, auth commands,
+doctor, and `AgentRunner`. The production adapter owns Codex process execution,
+auth-home filesystem permissions, container mount translation, and redaction.
+Failures map to typed `operator_access` errors with a concrete recovery command.
 
 ## Run Ledger
 
@@ -312,6 +363,11 @@ Runtime depends on `AgentRunner` port.
 `FakeAgentRunner` remains a test/support adapter for deterministic runtime coverage.
 
 Public vocabulary remains Morpheus. Sandcastle appears only in adapter implementation naming.
+
+For `chatgpt` auth, `SandcastleAgentRunner` acquires the subscription auth lease,
+checks the Morpheus-owned Codex login, and adds the internal auth-home mount. For
+`api-key` auth, it reads only the configured target-local env file and performs
+the existing in-container API-key login. Neither mode falls back to the other.
 
 ## Review Artifact
 

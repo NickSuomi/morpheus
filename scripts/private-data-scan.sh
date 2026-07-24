@@ -30,7 +30,7 @@ ghp_[A-Za-z0-9_]{20,}
 github_pat_[A-Za-z0-9_]{20,}
 sk-[A-Za-z0-9_-]{20,}
 xox[baprs]-[A-Za-z0-9-]{20,}
-https?://gitlab\.(?!(example|example\.com)(/|:|$))[A-Za-z0-9.-]+
+https?://gitlab\.(?!(com|example|example\.com)(/|:|$))[A-Za-z0-9.-]+
 /(Users|home)/[^[:space:]"'\'']+/(sandbox|work|src|repos|Projects|Code)/[^[:space:]"'\'']+
 \.codex/(auth|credentials|session|token)[^[:space:]"'\'']*
 PATTERNS

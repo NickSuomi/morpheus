@@ -12,7 +12,7 @@ Product principle: **If it can't explain itself, it can't run.**
 2. `cd` into a target repository.
 3. Run `morpheus setup`.
 4. Answer guided setup prompts.
-5. Let setup write/verify target Morpheus files, collect explicit target-local auth, and build the configured container image only when requested.
+5. Select ChatGPT subscription or API-key auth, complete its explicit setup, and build the configured container image only when requested.
 6. Run doctor with zero `FAIL` results.
 7. Run `morpheus daemon --once` successfully.
 8. Start `morpheus daemon` when ready.
@@ -52,9 +52,11 @@ The installer must:
 - choices and multi-choice prompts use selector UI;
 - multi-choice prompts toggle with Space and confirm with Enter;
 - text, path, model, and pasted values use readline-style input;
-- secret values may be entered interactively or passed with `--auth-secret KEY=VALUE`;
+- ChatGPT subscription auth is the default and immediately delegates login to Codex;
+- API-key values may be entered interactively or passed with `--auth-secret KEY=VALUE`;
 - secret values are not rendered in setup preview, config summaries, logs, or review artifacts;
-- setup creates or points to an explicit target-local env file and can write required keys there;
+- subscription credentials use the Morpheus-owned auth store and never enter the target repo;
+- API-key setup creates or points to an explicit target-local env file and can write required keys there;
 - setup builds the configured Morpheus container image only when requested.
 
 Richer prompt copy, validation, and recovery may continue as UX hardening, but
@@ -90,13 +92,14 @@ After successful setup, the target repository has:
 - generated `.morpheus/prompts/*` templates;
 - generated `.morpheus/skills/*` bundle mappings where applicable;
 - `.morpheus/container/*` profile files;
-- `.morpheus/secrets/agent.env.example`;
-- `.gitignore` entries for local Morpheus runtime state and the real secret env file path;
-- configured GitLab project, target branch, ready label, agent model/effort, auth keys, container image/profile, verification commands, daemon interval, and lane concurrency.
+- `.morpheus/secrets/agent.env.example` for API-key targets;
+- `.gitignore` entries for local Morpheus runtime state and any real API-key env file path;
+- configured GitLab project, target branch, ready label, agent model/effort, tagged auth source, container image/profile, verification commands, daemon interval, and lane concurrency.
 
-Setup must not create `.sandcastle` artifacts or private host auth paths. Setup may
-create/fill the configured real auth env file only when the operator explicitly
-provides secrets during setup.
+Setup must not create `.sandcastle` artifacts or import another Codex
+installation's auth path. Subscription setup uses the private operator-level
+Morpheus auth store. API-key setup may create/fill the configured real auth env
+file only when the operator explicitly provides secrets.
 
 ## Intentional Lowercase Slugs
 
@@ -120,7 +123,6 @@ the related Beads blockers are closed:
 
 - Homebrew distribution.
 - Source-build installation on the operator machine.
-- Collecting secret values in setup.
 - Auto-merging GitLab merge requests.
 - Hiding lifecycle state from the operator.
 - Storing private target signoff evidence in Morpheus git.

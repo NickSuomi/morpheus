@@ -6,7 +6,7 @@ describe("vitest config", () => {
     const testConfig = "test" in config ? config.test : undefined;
 
     expect(testConfig?.exclude).toEqual(
-      expect.arrayContaining(["dist/**", "**/dist/**", "**/release-*/**"]),
+      expect.arrayContaining([".worktrees/**", "dist/**", "**/dist/**", "**/release-*/**"]),
     );
   });
 });

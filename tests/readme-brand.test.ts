@@ -13,18 +13,20 @@ describe("README brand contract", () => {
     expect(readme).toContain("If it can't explain itself, it can't run.");
   });
 
-  it("keeps the public operator path easy to scan", () => {
-    expect(readme).toContain("## Operator Golden Path");
-    expect(readme).toContain("## Evidence Flow");
-    expect(readme).toContain("## What Morpheus Refuses To Do");
-    expect(readme).toContain("## Morpheus Vs Adjacent Tools");
-    expect(readme).toContain("## Repository Metadata");
+  it("keeps the public operator path short and easy to scan", () => {
+    expect(readme).toContain("## Quick Start");
+    expect(readme).toContain("## Codex Authentication");
+    expect(readme).toContain("## Operate");
+    expect(readme).toContain("## Requirements");
+    expect(readme).not.toContain("## Morpheus Vs Adjacent Tools");
+    expect(readme).not.toContain("## Repository Metadata");
+    expect(readme.split("\n").length).toBeLessThan(200);
   });
 
-  it("opens with a committed evidence-flow visual and no demo media", () => {
+  it("includes the committed evidence-flow visual and no demo media", () => {
     const imageRefs = [...readme.matchAll(/!\[[^\]]*\]\(([^)]+)\)/g)].map((match) => match[1]);
 
-    expect(imageRefs[0]).toBe("assets/brand/morpheus-evidence-flow.svg");
+    expect(imageRefs).toContain("assets/brand/morpheus-evidence-flow.svg");
     expect(imageRefs.some((ref) => ref.endsWith(".gif") || ref.endsWith(".mp4"))).toBe(false);
 
     for (const ref of imageRefs) {

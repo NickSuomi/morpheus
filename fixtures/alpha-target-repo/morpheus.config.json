@@ -22,6 +22,7 @@
       "effort": "xhigh"
     },
     "auth": {
+      "kind": "api-key",
       "envFile": ".morpheus/secrets/alpha-smoke.env",
       "requiredKeys": ["OPENAI_API_KEY"]
     },

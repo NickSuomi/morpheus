@@ -1,5 +1,6 @@
-import { execFile, execFileSync } from "node:child_process";
-import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import { execFile, execFileSync, spawn, spawnSync } from "node:child_process";
+import { chmodSync, existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import { homedir } from "node:os";
 import { dirname, isAbsolute, join, resolve } from "node:path";
 import { codex, run as sandcastleRun } from "@ai-hero/sandcastle";
 import type { AgentProvider, RunOptions, RunResult } from "@ai-hero/sandcastle";
@@ -13,6 +14,8 @@ import {
 } from "@morpheus/core";
 import type { AgentState, AgentStateTransitionPlan } from "@morpheus/core";
 import {
+  AgentAuth,
+  AgentAuthError,
   AgentRunner,
   AgentRunnerError,
   decodeAgentReadyContract,
@@ -38,6 +41,7 @@ import {
   defaultAgentSkillInstructions,
   defaultAgentStageSkillMappings,
   defaultGitLabStopLabel,
+  codexContainerAuthHome,
   detectTargetCapabilities,
   gitignoreEntries,
   loadMorpheusConfig,
@@ -58,6 +62,7 @@ import type {
   MergeRequestGateStatus,
   MergeRequestReference,
   MorpheusConfig,
+  AgentAuthService,
   ProcessResult,
   ProcessRunnerService,
   ReviewAgentInput,
@@ -89,17 +94,40 @@ const setupRunText = (
   cwd: string,
   command: string,
   args: readonly string[],
+  env: Readonly<Record<string, string>> = {},
 ): string | undefined => {
   try {
     return execFileSync(command, [...args], {
       cwd,
       encoding: "utf8",
+      env: { ...process.env, ...env },
       stdio: ["ignore", "pipe", "ignore"],
       timeout: 5_000,
     }).trim();
   } catch {
     return undefined;
   }
+};
+
+const setupRunCombinedText = (
+  cwd: string,
+  command: string,
+  args: readonly string[],
+  env: Readonly<Record<string, string>> = {},
+): string | undefined => {
+  const result = spawnSync(command, [...args], {
+    cwd,
+    encoding: "utf8",
+    env: { ...process.env, ...env },
+    stdio: ["ignore", "pipe", "pipe"],
+    timeout: 5_000,
+  });
+
+  if (result.error !== undefined || result.status !== 0) {
+    return undefined;
+  }
+
+  return `${result.stdout}\n${result.stderr}`.trim();
 };
 
 const setupExistingFiles = (target: string, config?: MorpheusConfig): readonly string[] => {
@@ -115,7 +143,10 @@ const setupExistingFiles = (target: string, config?: MorpheusConfig): readonly s
     ".gitignore",
     ...(config === undefined
       ? []
-      : [config.agentRunner.auth.envFile, config.agentRunner.container.profile]),
+      : [
+          ...(config.agentRunner.auth.kind === "api-key" ? [config.agentRunner.auth.envFile] : []),
+          config.agentRunner.container.profile,
+        ]),
   ];
 
   return [...new Set(paths)].filter((path) =>
@@ -214,8 +245,8 @@ type OperatorHealthOptions = {
   readonly processRunner: ProcessRunnerService;
   readonly cwd?: string;
   readonly gitlabProject?: string;
-  readonly authEnvFile?: string;
-  readonly authRequiredKeys?: readonly string[];
+  readonly auth?: MorpheusConfig["agentRunner"]["auth"];
+  readonly codexAuthHome?: string;
   readonly toolchainProbes?: readonly ToolchainProbeConfig[];
   readonly containerImage?: string;
   readonly containerProfile?: string;
@@ -958,13 +989,52 @@ const importedIssueChanged = (issue: ImportedGitLabIssue, source: GitLabIssueInp
 export const createNodeProcessRunner = ({
   cwd,
 }: NodeProcessRunnerOptions): ProcessRunnerService => ({
-  run: (command, args) =>
+  run: (command, args, options) =>
     Effect.async<ProcessResult, ProcessRunnerError>((resume) => {
+      const commandCwd = options?.cwd ?? cwd;
+      const env = { ...process.env, ...options?.env };
+
+      if (options?.interactive === true) {
+        const child = spawn(command, [...args], {
+          cwd: commandCwd,
+          env,
+          stdio: "inherit",
+        });
+        let settled = false;
+        child.once("error", (error) => {
+          settled = true;
+          resume(
+            Effect.fail(
+              new ProcessRunnerError({
+                command,
+                args: [...args],
+                message: errorMessage(error),
+              }),
+            ),
+          );
+        });
+        child.once("close", (exitCode) => {
+          if (settled) {
+            return;
+          }
+          settled = true;
+          resume(
+            Effect.succeed({
+              stdout: "",
+              stderr: "",
+              exitCode: exitCode ?? 1,
+            }),
+          );
+        });
+        return;
+      }
+
       execFile(
         command,
         [...args],
         {
-          cwd,
+          cwd: commandCwd,
+          env,
           encoding: "utf8",
           maxBuffer: 10 * 1024 * 1024,
         },
@@ -998,6 +1068,179 @@ export const createNodeProcessRunner = ({
 export const nodeProcessRunnerLayer = (
   options: NodeProcessRunnerOptions,
 ): Layer.Layer<ProcessRunner> => Layer.succeed(ProcessRunner, createNodeProcessRunner(options));
+
+type CodexAgentAuthOptions = {
+  readonly processRunner: ProcessRunnerService;
+  readonly morpheusHome?: string;
+  readonly authHome?: string;
+};
+
+export const resolveCodexAuthHome = (
+  env: Readonly<Record<string, string | undefined>> = process.env,
+  operatorHome = homedir(),
+): string => resolve(env.MORPHEUS_HOME ?? join(operatorHome, ".morpheus"), "auth", "codex");
+
+const prepareCodexAuthHome = (authHome: string): void => {
+  mkdirSync(authHome, { recursive: true, mode: 0o700 });
+  chmodSync(authHome, 0o700);
+
+  const configPath = join(authHome, "config.toml");
+  const setting = 'cli_auth_credentials_store = "file"';
+  const existing = existsSync(configPath) ? readFileSync(configPath, "utf8") : "";
+  const next = /^cli_auth_credentials_store\s*=.*$/m.test(existing)
+    ? existing.replace(/^cli_auth_credentials_store\s*=.*$/m, setting)
+    : `${existing}${existing.length === 0 || existing.endsWith("\n") ? "" : "\n"}${setting}\n`;
+
+  if (next !== existing) {
+    writeFileSync(configPath, next, { mode: 0o600 });
+  }
+  chmodSync(configPath, 0o600);
+
+  const credentialPath = join(authHome, "auth.json");
+  if (existsSync(credentialPath)) {
+    chmodSync(credentialPath, 0o600);
+  }
+};
+
+const codexAuthStatusFromResult = (
+  result: ProcessResult,
+): "logged-in" | "logged-out" | "unknown" => {
+  const output = `${result.stdout}\n${result.stderr}`.toLowerCase();
+  if (output.includes("not logged in")) {
+    return "logged-out";
+  }
+  if (result.exitCode === 0 && output.includes("chatgpt")) {
+    return "logged-in";
+  }
+  return "unknown";
+};
+
+const codexAgentAuthError = (operation: string, message: string): AgentAuthError =>
+  new AgentAuthError({
+    operation,
+    failureKind: "operator_access",
+    message,
+  });
+
+export const createCodexAgentAuth = ({
+  processRunner,
+  morpheusHome,
+  authHome: configuredAuthHome,
+}: CodexAgentAuthOptions): AgentAuthService => {
+  const authHome =
+    configuredAuthHome ??
+    (morpheusHome === undefined ? resolveCodexAuthHome() : resolve(morpheusHome, "auth", "codex"));
+  const env = { CODEX_HOME: authHome } as const;
+
+  const statusCodex = (): Effect.Effect<
+    {
+      readonly provider: "codex";
+      readonly status: "logged-in" | "logged-out";
+      readonly mode?: "chatgpt";
+    },
+    AgentAuthError
+  > =>
+    Effect.gen(function* () {
+      if (!existsSync(join(authHome, "auth.json"))) {
+        return { provider: "codex" as const, status: "logged-out" as const };
+      }
+      const result = yield* processRunner
+        .run("codex", ["login", "status"], { env })
+        .pipe(
+          Effect.mapError(() =>
+            codexAgentAuthError(
+              "codex.status",
+              "Codex CLI unavailable. Install Codex and rerun morpheus auth status.",
+            ),
+          ),
+        );
+      const status = codexAuthStatusFromResult(result);
+      if (status === "logged-in") {
+        return { provider: "codex" as const, status, mode: "chatgpt" as const };
+      }
+      if (status === "logged-out") {
+        return { provider: "codex" as const, status };
+      }
+      return yield* codexAgentAuthError(
+        "codex.status",
+        "Codex ChatGPT login status could not be determined. Rerun morpheus auth login codex.",
+      );
+    });
+
+  return {
+    loginCodex: ({ device }) =>
+      Effect.gen(function* () {
+        yield* Effect.try({
+          try: () => prepareCodexAuthHome(authHome),
+          catch: () =>
+            codexAgentAuthError("codex.auth-home", "Cannot prepare Morpheus auth store."),
+        });
+        const result = yield* processRunner
+          .run("codex", device ? ["login", "--device-auth"] : ["login"], {
+            env,
+            interactive: true,
+          })
+          .pipe(
+            Effect.mapError(() =>
+              codexAgentAuthError(
+                "codex.login",
+                "Codex CLI unavailable. Install Codex and rerun morpheus auth login codex.",
+              ),
+            ),
+          );
+        if (result.exitCode !== 0) {
+          return yield* codexAgentAuthError("codex.login", "Codex ChatGPT login did not complete.");
+        }
+
+        const status = yield* statusCodex();
+        if (status.status !== "logged-in") {
+          return yield* codexAgentAuthError(
+            "codex.login.verify",
+            "Codex ChatGPT login could not be verified.",
+          );
+        }
+
+        yield* Effect.try({
+          try: () => chmodSync(join(authHome, "auth.json"), 0o600),
+          catch: () =>
+            codexAgentAuthError("codex.credentials", "Cannot secure Morpheus Codex credentials."),
+        });
+
+        return status;
+      }),
+    statusCodex,
+    logoutCodex: () =>
+      Effect.gen(function* () {
+        if (!existsSync(join(authHome, "auth.json"))) {
+          return { provider: "codex" as const, status: "logged-out" as const };
+        }
+        const result = yield* processRunner
+          .run("codex", ["logout"], { env })
+          .pipe(
+            Effect.mapError(() =>
+              codexAgentAuthError(
+                "codex.logout",
+                "Codex CLI unavailable. Install Codex and rerun morpheus auth logout codex.",
+              ),
+            ),
+          );
+        if (result.exitCode !== 0) {
+          return yield* codexAgentAuthError("codex.logout", "Codex logout did not complete.");
+        }
+        return { provider: "codex" as const, status: "logged-out" as const };
+      }),
+  };
+};
+
+export const codexAgentAuthLayer = (
+  options: { readonly morpheusHome?: string } = {},
+): Layer.Layer<AgentAuth, never, ProcessRunner> =>
+  Layer.effect(
+    AgentAuth,
+    Effect.map(ProcessRunner, (processRunner) =>
+      createCodexAgentAuth({ processRunner, morpheusHome: options.morpheusHome }),
+    ),
+  );
 
 export type FakeAgentRunnerScenario =
   | "prepared"
@@ -1088,8 +1331,8 @@ export type SandcastleAgentRunnerOptions = {
   readonly logDirectory: string;
   readonly processRunner?: ProcessRunnerService;
   readonly agentConfig?: ContainerAgentConfig;
-  readonly authEnvFile?: string;
-  readonly authRequiredKeys?: readonly string[];
+  readonly auth?: MorpheusConfig["agentRunner"]["auth"];
+  readonly codexAuthHome?: string;
   readonly containerConfig?: ContainerRuntimeConfig;
   readonly run?: SandcastleRun;
   readonly dockerFactory?: DockerFactory;
@@ -1323,20 +1566,16 @@ const defaultSkillConfig: AgentSkillConfig = {
   directory: ".morpheus/skills",
   mappings: [
     {
-      name: "matt-pocock-caveman",
-      path: ".morpheus/skills/matt-pocock-caveman/SKILL.md",
+      name: "matt-pocock-to-spec",
+      path: ".morpheus/skills/matt-pocock-to-spec/SKILL.md",
     },
     {
-      name: "matt-pocock-to-prd",
-      path: ".morpheus/skills/matt-pocock-to-prd/SKILL.md",
+      name: "matt-pocock-grilling",
+      path: ".morpheus/skills/matt-pocock-grilling/SKILL.md",
     },
     {
-      name: "matt-pocock-grill-me",
-      path: ".morpheus/skills/matt-pocock-grill-me/SKILL.md",
-    },
-    {
-      name: "matt-pocock-to-issues",
-      path: ".morpheus/skills/matt-pocock-to-issues/SKILL.md",
+      name: "matt-pocock-to-tickets",
+      path: ".morpheus/skills/matt-pocock-to-tickets/SKILL.md",
     },
     {
       name: "matt-pocock-grill-with-docs",
@@ -1347,8 +1586,8 @@ const defaultSkillConfig: AgentSkillConfig = {
       path: ".morpheus/skills/matt-pocock-tdd/SKILL.md",
     },
     {
-      name: "matt-pocock-diagnose",
-      path: ".morpheus/skills/matt-pocock-diagnose/SKILL.md",
+      name: "matt-pocock-diagnosing-bugs",
+      path: ".morpheus/skills/matt-pocock-diagnosing-bugs/SKILL.md",
     },
   ],
   stageMappings: defaultStageMappingsForPrompt,
@@ -1385,7 +1624,11 @@ const stageSkillInstructionsForPrompt = (
   ].join("\n");
 };
 
-const builtInPrompt = (input: SandcastlePhaseInput, skills: AgentSkillConfig): string => {
+const builtInPrompt = (
+  input: SandcastlePhaseInput,
+  skills: AgentSkillConfig,
+  containerRoots: readonly string[] = [],
+): string => {
   const { phase, issue } = input;
   const base = [
     `You are a Morpheus ${phase} agent.`,
@@ -1395,6 +1638,11 @@ const builtInPrompt = (input: SandcastlePhaseInput, skills: AgentSkillConfig): s
     defaultAgentSkillInstructions,
     stageSkillInstructionsForPrompt(phase, skills),
     "If a listed repo path or skill path does not exist inside the container, run `pwd` and use the current checkout root; resolve relative `.morpheus/...` skill paths from that root.",
+    ...(containerRoots.length === 0
+      ? []
+      : [
+          `If copied skills are absent from the Worktree, check these configured container roots before proceeding: ${containerRoots.join(", ")}. Resolve .morpheus/skills/... beneath those roots.`,
+        ]),
     phase === "implement"
       ? "Do not close Beads issues. Commit implementation changes on the implementation branch before returning implemented. Do not push. Do not run glab. Morpheus or the host operator publishes the branch/MR outside the sandbox."
       : "Do not commit. Do not close Beads issues.",
@@ -1427,7 +1675,7 @@ const builtInPrompt = (input: SandcastlePhaseInput, skills: AgentSkillConfig): s
       "Before returning implemented, inspect obvious repo merge gates such as `.gitlab-ci.yml` and `scripts/**/check_*`; if the target requires a metadata-only version/build bump for every MR, include the minimal required bump and report it as gate evidence.",
       "Before returning implemented, run git add for changed files and git commit on the Branch above. A successful implementation must leave at least one commit on that branch. Do not push from the sandbox.",
       "Before returning implemented, verify `git diff --stat TARGET...HEAD` is non-empty and that your implementation commits are on the Branch above.",
-      "Use caveman for concise communication, TDD for behavior-first implementation where practical, and diagnose before changing unclear code.",
+      "Use TDD for behavior-first implementation where practical, and diagnose before changing unclear code.",
       'JSON shape: {"status":"implemented","implementationEvidence":[{"summary":"...","files":[]}],"verificationEvidence":[{"command":"...","status":"passed"}],"transcript":"...","artifact":{}} or failed variant.',
     ].join("\n");
   }
@@ -1437,6 +1685,8 @@ const builtInPrompt = (input: SandcastlePhaseInput, skills: AgentSkillConfig): s
     `Workspace: ${input.workspace.workspacePath}`,
     `Worktree: ${input.workspace.worktreePath ?? "None"}`,
     `Branch: ${input.workspace.branch ?? "None"}`,
+    `Target branch: ${input.workspace.targetBranch ?? "unknown"}`,
+    `Remote: ${input.workspace.remote ?? "origin"}`,
     `Permissions: ${input.workspace.permissions}`,
     `Merge request: ${input.mergeRequest.reference}`,
     `Merge request URL: ${input.mergeRequest.url ?? "None"}`,
@@ -1444,7 +1694,11 @@ const builtInPrompt = (input: SandcastlePhaseInput, skills: AgentSkillConfig): s
     `Implementation evidence: ${JSON.stringify(input.implementationEvidence)}`,
     `Verification evidence: ${JSON.stringify(input.verificationEvidence)}`,
     "Stay read-only. Use concise review and diagnosis behavior.",
+    "Inspect the Worktree/MR tip only; never infer implementation state from the host Workspace/base checkout.",
+    `Start with \`git -C ${input.workspace.worktreePath ?? input.workspace.workspacePath} rev-parse HEAD\` and \`git -C ${input.workspace.worktreePath ?? input.workspace.workspacePath} diff --stat ${input.workspace.remote ?? "origin"}/${input.workspace.targetBranch ?? "<target-branch>"}...HEAD\`.`,
+    "If checkout files are sparse or absent, inspect the same review root with `git show HEAD:<path>` and `git diff <remote>/<target>...HEAD -- <path>`; never substitute the host Workspace.",
     "Verify contract acceptance criteria, AFK gates, verification plan, out-of-scope boundaries, and evidence claims.",
+    'Every finding must use this exact item shape: {"severity":"info|warning|error","summary":"..."}.',
     'JSON shapes: passed {"status":"passed","findings":[],"transcript":"...","artifact":{}}; blocked {"status":"blocked","reason":"...","findings":[],"transcript":"...","artifact":{}}; failed {"status":"failed","failureKind":"verification_error","message":"...","findings":[],"transcript":"...","artifact":{}}.',
     "For failed review results, `failureKind` is required and must be one of: operator_access, runtime_error, agent_contract_error, verification_error, state_conflict, unknown.",
   ].join("\n");
@@ -1455,11 +1709,12 @@ const resolvePromptText = (
   promptPaths: Partial<Record<SandcastlePhase, string>> = {},
   skills: AgentSkillConfig = defaultSkillConfig,
   cwd: string,
+  containerRoots: readonly string[] = [],
 ): string => {
   const { phase } = input;
   const configuredPath = promptPaths[phase];
   if (configuredPath === undefined) {
-    return builtInPrompt(input, skills);
+    return builtInPrompt(input, skills, containerRoots);
   }
 
   const promptPath = resolve(cwd, configuredPath);
@@ -1468,7 +1723,7 @@ const resolvePromptText = (
   }
 
   return [
-    builtInPrompt(input, skills),
+    builtInPrompt(input, skills, containerRoots),
     "Additional instructions:",
     readFileSync(promptPath, "utf8"),
   ].join("\n\n");
@@ -1596,31 +1851,46 @@ const readAuthEnv = (
 
   const path = resolve(cwd, authEnvFile);
   if (!existsSync(path)) {
-    throw new Error(`Agent auth env file not found: ${path}`);
+    throw new Error("Agent auth env file not found");
   }
 
-  const env = parseEnvFile(readFileSync(path, "utf8"));
+  let contents: string;
+  try {
+    contents = readFileSync(path, "utf8");
+  } catch {
+    throw new Error("Agent auth env file is not readable");
+  }
+  const env = parseEnvFile(contents);
   if (Object.keys(env).length === 0) {
-    throw new Error(`Agent auth env file has no variables: ${path}`);
+    throw new Error("Agent auth env file has no variables");
+  }
+  if (env.CODEX_HOME !== undefined) {
+    throw new Error("Codex agent auth env file must not set CODEX_HOME; use OPENAI_API_KEY only");
   }
 
   const missingKeys = requiredKeys.filter((key) => env[key] === undefined);
   if (missingKeys.length > 0) {
-    throw new Error(
-      `Agent auth env file missing required keys: ${missingKeys.join(", ")}: ${path}`,
-    );
+    throw new Error(`Agent auth env file missing required keys: ${missingKeys.join(", ")}`);
   }
 
-  return env;
+  return Object.fromEntries(requiredKeys.map((key) => [key, env[key] as string]));
 };
 
-const defaultAuthRequiredKeys = (agentConfig: ContainerAgentConfig): readonly string[] =>
-  agentConfig.provider === "codex" ? ["OPENAI_API_KEY"] : [];
+const authConfigForOptions = (
+  options: Pick<SandcastleAgentRunnerOptions, "auth">,
+): MorpheusConfig["agentRunner"]["auth"] | undefined => options.auth;
 
-const authRequiredKeysForOptions = (
-  agentConfig: ContainerAgentConfig,
-  options: Pick<SandcastleAgentRunnerOptions, "authRequiredKeys">,
-): readonly string[] => options.authRequiredKeys ?? defaultAuthRequiredKeys(agentConfig);
+const subscriptionAuthHomeForOptions = (
+  options: Pick<SandcastleAgentRunnerOptions, "codexAuthHome">,
+): string => options.codexAuthHome ?? resolveCodexAuthHome();
+
+const requireSubscriptionAuthFile = (authHome: string): void => {
+  if (!existsSync(join(authHome, "auth.json"))) {
+    throw new Error(
+      "Morpheus Codex ChatGPT login is not configured. Run morpheus auth login codex.",
+    );
+  }
+};
 
 const shellQuote = (value: string): string => `'${value.replaceAll("'", `'"'"'`)}'`;
 
@@ -1640,6 +1910,31 @@ const codexWithApiKeyLogin = (
       };
     },
   };
+};
+
+const subscriptionAuthLeases = new Map<string, Promise<void>>();
+
+const withSubscriptionAuthLease = async <A>(
+  authHome: string,
+  use: () => Promise<A>,
+): Promise<A> => {
+  const previous = subscriptionAuthLeases.get(authHome) ?? Promise.resolve();
+  let release = (): void => undefined;
+  const gate = new Promise<void>((resolveGate) => {
+    release = resolveGate;
+  });
+  const tail = previous.then(() => gate);
+  subscriptionAuthLeases.set(authHome, tail);
+
+  await previous;
+  try {
+    return await use();
+  } finally {
+    release();
+    if (subscriptionAuthLeases.get(authHome) === tail) {
+      subscriptionAuthLeases.delete(authHome);
+    }
+  }
 };
 
 const checkDockerCompatibleRuntime = (
@@ -1732,15 +2027,13 @@ const runSandcastlePhase = (
         model: "gpt-5.4-mini",
         effort: "xhigh" as const,
       };
-      const authEnv = readAuthEnv(
-        options.cwd,
-        authRequiredKeysForOptions(agentConfig, options),
-        options.authEnvFile,
-      );
-      if (agentConfig.provider === "codex" && authEnv.CODEX_HOME !== undefined) {
-        throw new Error(
-          "Codex agent auth env file must not set CODEX_HOME; use OPENAI_API_KEY only",
-        );
+      const auth = authConfigForOptions(options);
+      const authEnv =
+        auth?.kind === "api-key" ? readAuthEnv(options.cwd, auth.requiredKeys, auth.envFile) : {};
+      const subscriptionAuthHome =
+        auth?.kind === "chatgpt" ? subscriptionAuthHomeForOptions(options) : undefined;
+      if (subscriptionAuthHome !== undefined) {
+        requireSubscriptionAuthFile(subscriptionAuthHome);
       }
       const containerConfig = options.containerConfig ?? {
         image: "morpheus-agent:local",
@@ -1763,36 +2056,60 @@ const runSandcastlePhase = (
               },
             ]
           : [];
-      const result = await runner({
-        agent:
-          options.agent ?? codexWithApiKeyLogin(agentConfig.model, { effort: agentConfig.effort }),
-        sandbox:
-          options.sandbox ??
-          (options.dockerFactory ?? docker)({
-            imageName: containerConfig.image,
-            containerUid: 0,
-            containerGid: 0,
-            ...(containerConfig.profile === undefined
-              ? {}
-              : { dockerfilePath: resolve(options.cwd, containerConfig.profile) }),
-            mounts: [...configuredMounts, ...worktreeMount],
-            env: {
-              ...authEnv,
-              HOME: "/tmp/morpheus-home",
-              CODEX_HOME: "/tmp/morpheus-codex-home",
-              XDG_CONFIG_HOME: "/tmp/morpheus-home/.config",
-            },
-          }),
-        cwd,
-        prompt: resolvePromptText(input, options.promptPaths, options.skills, options.cwd),
-        logging: {
-          type: "file",
-          path: join(options.logDirectory, `${issue.id}-${phase}.log`),
-        },
-        name: `morpheus-${phase}-${issue.id}`,
-        maxIterations: 1,
-        idleTimeoutSeconds: agentConfig.idleTimeoutSeconds ?? 1800,
-      });
+      const subscriptionMount =
+        subscriptionAuthHome === undefined
+          ? []
+          : [
+              {
+                hostPath: subscriptionAuthHome,
+                sandboxPath: codexContainerAuthHome,
+                readonly: false,
+              },
+            ];
+      const execute = () =>
+        runner({
+          agent:
+            options.agent ??
+            (auth?.kind === "api-key"
+              ? codexWithApiKeyLogin(agentConfig.model, { effort: agentConfig.effort })
+              : codex(agentConfig.model, { effort: agentConfig.effort })),
+          sandbox:
+            options.sandbox ??
+            (options.dockerFactory ?? docker)({
+              imageName: containerConfig.image,
+              containerUid: 0,
+              containerGid: 0,
+              ...(containerConfig.profile === undefined
+                ? {}
+                : { dockerfilePath: resolve(options.cwd, containerConfig.profile) }),
+              mounts: [...configuredMounts, ...worktreeMount, ...subscriptionMount],
+              env: {
+                ...authEnv,
+                HOME: "/tmp/morpheus-home",
+                CODEX_HOME: codexContainerAuthHome,
+                XDG_CONFIG_HOME: "/tmp/morpheus-home/.config",
+              },
+            }),
+          cwd,
+          prompt: resolvePromptText(
+            input,
+            options.promptPaths,
+            options.skills,
+            options.cwd,
+            containerConfig.mounts.map((mount) => mount.containerPath),
+          ),
+          logging: {
+            type: "file",
+            path: join(options.logDirectory, `${issue.id}-${phase}.log`),
+          },
+          name: `morpheus-${phase}-${issue.id}`,
+          maxIterations: 1,
+          idleTimeoutSeconds: agentConfig.idleTimeoutSeconds ?? 1800,
+        });
+      const result =
+        subscriptionAuthHome === undefined
+          ? await execute()
+          : await withSubscriptionAuthLease(subscriptionAuthHome, execute);
       const output = extractTaggedJson(result.stdout);
       const reportedCommits = normalizeCommitIds(result.commits);
       const commits =
@@ -1813,8 +2130,15 @@ const runSandcastlePhase = (
       };
     },
     catch: (error) => {
-      const message = errorMessage(error);
-      const isAuthError = message.startsWith("Agent auth env file");
+      const rawMessage = errorMessage(error);
+      const message =
+        options.auth?.kind === "chatgpt"
+          ? rawMessage.replaceAll(subscriptionAuthHomeForOptions(options), "<morpheus-codex-auth>")
+          : rawMessage;
+      const isAuthError =
+        message.startsWith("Agent auth env file") ||
+        message.startsWith("Codex agent auth env file") ||
+        message.startsWith("Morpheus Codex ChatGPT");
       return new AgentRunnerError({
         operation: `sandcastle.${input.phase}`,
         failureKind: isAuthError ? "operator_access" : "runtime_error",
@@ -1840,16 +2164,12 @@ export const createSandcastleAgentRunner = (
     Effect.gen(function* () {
       yield* Effect.try({
         try: () => {
-          const agentConfig = options.agentConfig ?? {
-            provider: "codex" as const,
-            model: "gpt-5.4-mini",
-            effort: "xhigh" as const,
-          };
-          readAuthEnv(
-            options.cwd,
-            authRequiredKeysForOptions(agentConfig, options),
-            options.authEnvFile,
-          );
+          const auth = authConfigForOptions(options);
+          if (auth?.kind === "api-key") {
+            readAuthEnv(options.cwd, auth.requiredKeys, auth.envFile);
+          } else if (auth?.kind === "chatgpt" && options.processRunner === undefined) {
+            requireSubscriptionAuthFile(subscriptionAuthHomeForOptions(options));
+          }
         },
         catch: (error) =>
           new AgentRunnerError({
@@ -1859,6 +2179,36 @@ export const createSandcastleAgentRunner = (
             publicMessage: agentRunnerAuthPublicMessage(errorMessage(error)),
           }),
       });
+
+      const auth = authConfigForOptions(options);
+      if (auth?.kind === "chatgpt" && options.processRunner !== undefined) {
+        const status = yield* createCodexAgentAuth({
+          processRunner: options.processRunner,
+          authHome: subscriptionAuthHomeForOptions(options),
+        })
+          .statusCodex()
+          .pipe(
+            Effect.mapError(
+              (error) =>
+                new AgentRunnerError({
+                  operation: "sandcastle.auth",
+                  failureKind: "operator_access",
+                  message: error.message,
+                  publicMessage:
+                    "Morpheus Codex ChatGPT login is unavailable. Run morpheus auth login codex.",
+                }),
+            ),
+          );
+        if (status.status !== "logged-in") {
+          return yield* new AgentRunnerError({
+            operation: "sandcastle.auth",
+            failureKind: "operator_access",
+            message: "Morpheus Codex ChatGPT login is not configured.",
+            publicMessage:
+              "Morpheus Codex ChatGPT login is not configured. Run morpheus auth login codex.",
+          });
+        }
+      }
 
       if (options.processRunner !== undefined) {
         yield* checkDockerCompatibleRuntime(options.processRunner);
@@ -1926,28 +2276,63 @@ const dockerOperatorAction = (detail: string): string =>
 const dockerCompatibleRuntimeOkDetail =
   "Docker-compatible runtime reachable via docker info (Docker Desktop, OrbStack, Colima, or remote Docker context)";
 
-const checkAgentAuth = (options: OperatorHealthOptions): OperatorHealthCheck => {
-  if (options.authEnvFile === undefined || options.cwd === undefined) {
-    return {
+const checkAgentAuth = (
+  options: OperatorHealthOptions,
+): Effect.Effect<OperatorHealthCheck, never> => {
+  const auth = options.auth;
+
+  if (auth?.kind === "chatgpt") {
+    return createCodexAgentAuth({
+      processRunner: options.processRunner,
+      authHome: options.codexAuthHome ?? resolveCodexAuthHome(),
+    })
+      .statusCodex()
+      .pipe(
+        Effect.match({
+          onFailure: () => ({
+            name: "config" as const,
+            status: "fail" as const,
+            detail:
+              "Codex ChatGPT login unavailable. Run morpheus auth login codex, then rerun morpheus doctor.",
+          }),
+          onSuccess: (status) =>
+            status.status === "logged-in"
+              ? {
+                  name: "config" as const,
+                  status: "ok" as const,
+                  detail: "Codex ChatGPT login ready",
+                }
+              : {
+                  name: "config" as const,
+                  status: "fail" as const,
+                  detail:
+                    "Codex ChatGPT login not configured. Run morpheus auth login codex, then rerun morpheus doctor.",
+                },
+        }),
+      );
+  }
+
+  if (auth === undefined || options.cwd === undefined) {
+    return Effect.succeed({
       name: "config",
       status: "ok",
       detail: "config loaded",
-    };
+    });
   }
 
   try {
-    readAuthEnv(options.cwd, options.authRequiredKeys ?? ["OPENAI_API_KEY"], options.authEnvFile);
-    return {
+    readAuthEnv(options.cwd, auth.requiredKeys, auth.envFile);
+    return Effect.succeed({
       name: "config",
       status: "ok",
-      detail: `agent auth env file contains required keys: ${options.authRequiredKeys?.join(", ") ?? "OPENAI_API_KEY"}`,
-    };
+      detail: `agent auth env file contains required keys: ${auth.requiredKeys.join(", ")}`,
+    });
   } catch (error) {
-    return {
+    return Effect.succeed({
       name: "config",
       status: "fail",
       detail: errorMessage(error),
-    };
+    });
   }
 };
 
@@ -2045,8 +2430,8 @@ export const createOperatorHealth = ({
   processRunner,
   cwd,
   gitlabProject,
-  authEnvFile,
-  authRequiredKeys,
+  auth,
+  codexAuthHome,
   toolchainProbes = [],
   containerImage,
   containerProfile,
@@ -2114,7 +2499,12 @@ export const createOperatorHealth = ({
           ["worktree", "list", "--porcelain"],
           "worktrees readable",
         ),
-        Effect.succeed(checkAgentAuth({ processRunner, cwd, authEnvFile, authRequiredKeys })),
+        checkAgentAuth({
+          processRunner,
+          cwd,
+          auth,
+          codexAuthHome,
+        }),
       ]);
       const containerImageCheck = yield* checkContainerImage(processRunner, {
         containerImage,
@@ -2176,7 +2566,16 @@ export const detectMorpheusSetupInput = (
     setupRunText(target, "git", ["rev-parse", "--is-inside-work-tree"]) === "true";
   const configResult = loadMorpheusConfig({ configPath: join(target, "morpheus.config.json") });
   const config = configResult.status === "loaded" ? configResult.config : undefined;
-  const authEnvFile = config?.agentRunner.auth.envFile ?? ".morpheus/secrets/agent.env";
+  const authEnvFile =
+    config?.agentRunner.auth.kind === "api-key"
+      ? config.agentRunner.auth.envFile
+      : ".morpheus/secrets/agent.env";
+  const codexAuthHome = resolveCodexAuthHome();
+  const codexAuthStatus = existsSync(join(codexAuthHome, "auth.json"))
+    ? setupRunCombinedText(target, "codex", ["login", "status"], {
+        CODEX_HOME: codexAuthHome,
+      })
+    : undefined;
 
   return {
     targetPath: target,
@@ -2194,6 +2593,10 @@ export const detectMorpheusSetupInput = (
       dockerAvailable: targetDirectory && setupRunText(target, "docker", ["info"]) !== undefined,
       verificationCommands: targetDirectory ? setupVerificationCommands(target) : [],
       doctor: options.doctor,
+      codexAuthLoggedIn:
+        codexAuthStatus !== undefined &&
+        codexAuthStatus.toLowerCase().includes("chatgpt") &&
+        !codexAuthStatus.toLowerCase().includes("not logged in"),
     },
     existing: {
       config,
@@ -2233,7 +2636,10 @@ export const applyMorpheusSetupPlan = (plan: SetupPlan): void => {
       continue;
     }
 
-    if (mutation.path === config.agentRunner.auth.envFile) {
+    if (
+      config.agentRunner.auth.kind === "api-key" &&
+      mutation.path === config.agentRunner.auth.envFile
+    ) {
       const fullPath = isAbsolute(mutation.path) ? mutation.path : join(target, mutation.path);
       mkdirSync(dirname(fullPath), { recursive: true });
       writeFileSync(fullPath, setupSecretFileTemplate(config.agentRunner.auth.requiredKeys), {
@@ -2680,6 +3086,8 @@ export const createGitWorkspaceRuntime = ({
       workspacePath: implementationRun.workspacePath ?? implementationRun.worktreePath ?? ".",
       worktreePath: implementationRun.worktreePath,
       branch: implementationRun.branch,
+      targetBranch: configuredTargetBranch,
+      remote: "origin",
       permissions: "read-only",
     }),
 });

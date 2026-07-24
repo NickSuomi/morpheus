@@ -14,13 +14,12 @@ import { describe, expect, it } from "vitest";
 import { initMorpheusRepo, loadMorpheusConfig } from "../src/index.js";
 
 const bundledSkillNames = [
-  "matt-pocock-caveman",
-  "matt-pocock-to-prd",
-  "matt-pocock-grill-me",
-  "matt-pocock-to-issues",
+  "matt-pocock-to-spec",
+  "matt-pocock-grilling",
+  "matt-pocock-to-tickets",
   "matt-pocock-grill-with-docs",
   "matt-pocock-tdd",
-  "matt-pocock-diagnose",
+  "matt-pocock-diagnosing-bugs",
 ] as const;
 
 const bundledSkillMappings = bundledSkillNames.map((name) => ({
@@ -44,7 +43,6 @@ const expectedInitFiles = [
   ".morpheus/prompts/implement.md",
   ".morpheus/prompts/prepare.md",
   ".morpheus/prompts/review.md",
-  ".morpheus/secrets/agent.env.example",
   ...bundledSkillNames.map((name) => `.morpheus/skills/${name}/SKILL.md`),
   "morpheus.config.json",
 ].sort();
@@ -68,6 +66,7 @@ const validConfig = {
       idleTimeoutSeconds: 1800,
     },
     auth: {
+      kind: "api-key",
       envFile: ".morpheus/secrets/agent.env",
       requiredKeys: ["OPENAI_API_KEY"],
     },
@@ -87,13 +86,13 @@ const validConfig = {
       mappings: bundledSkillMappings,
       stageMappings: {
         prepare: [
-          "matt-pocock-to-prd",
-          "matt-pocock-grill-me",
+          "matt-pocock-to-spec",
+          "matt-pocock-grilling",
           "matt-pocock-grill-with-docs",
-          "matt-pocock-to-issues",
+          "matt-pocock-to-tickets",
         ],
-        implement: ["matt-pocock-caveman", "matt-pocock-tdd", "matt-pocock-diagnose"],
-        review: ["matt-pocock-caveman", "matt-pocock-diagnose"],
+        implement: ["matt-pocock-tdd", "matt-pocock-diagnosing-bugs"],
+        review: ["matt-pocock-diagnosing-bugs"],
       },
     },
   },
@@ -279,6 +278,7 @@ describe("Morpheus config", () => {
             idleTimeoutSeconds: 2400,
           },
           auth: {
+            kind: "api-key",
             envFile: ".morpheus/secrets/custom-agent.env",
             requiredKeys: ["OPENAI_API_KEY", "EXTRA_TOKEN"],
           },
@@ -328,6 +328,103 @@ describe("Morpheus config", () => {
         status: "loaded",
         path: configPath,
         config,
+      });
+    });
+  });
+
+  it("accepts ChatGPT subscription auth without target-local secret fields", () => {
+    withTempDir((dir) => {
+      const config = {
+        ...validConfig,
+        agentRunner: {
+          ...validConfig.agentRunner,
+          auth: { kind: "chatgpt" },
+        },
+      } as const;
+      const configPath = writeConfig(dir, config);
+
+      expect(loadMorpheusConfig({ configPath })).toEqual({
+        status: "loaded",
+        path: configPath,
+        config,
+      });
+    });
+  });
+
+  it.each([
+    ["mixed ChatGPT and API-key fields", { kind: "chatgpt", envFile: "agent.env" }],
+    ["empty API-key env file", { kind: "api-key", envFile: "", requiredKeys: ["OPENAI_API_KEY"] }],
+    ["empty API-key required keys", { kind: "api-key", envFile: "agent.env", requiredKeys: [] }],
+    [
+      "missing OpenAI API key",
+      { kind: "api-key", envFile: "agent.env", requiredKeys: ["EXTRA_TOKEN"] },
+    ],
+    [
+      "invalid API-key environment name",
+      { kind: "api-key", envFile: "agent.env", requiredKeys: ["NOT-VALID"] },
+    ],
+  ])("rejects invalid tagged auth: %s", (_name, auth) => {
+    withTempDir((dir) => {
+      const configPath = writeConfig(dir, {
+        ...validConfig,
+        agentRunner: { ...validConfig.agentRunner, auth },
+      });
+
+      expect(loadMorpheusConfig({ configPath })).toMatchObject({
+        status: "error",
+        error: { kind: "schema_validation", path: configPath },
+      });
+    });
+  });
+
+  it.each([
+    "/tmp/morpheus-codex-home",
+    "/tmp/morpheus-codex-home/",
+    "/tmp/other/../morpheus-codex-home",
+    "/tmp/morpheus-codex-home/auth.json",
+  ])("rejects target mount %s that shadows the managed Codex auth home", (containerPath) => {
+    withTempDir((dir) => {
+      const configPath = writeConfig(dir, {
+        ...validConfig,
+        agentRunner: {
+          ...validConfig.agentRunner,
+          container: {
+            ...validConfig.agentRunner.container,
+            mounts: [
+              { hostPath: ".", containerPath: "/workspace" },
+              { hostPath: ".morpheus/cache", containerPath },
+            ],
+          },
+        },
+      });
+
+      expect(loadMorpheusConfig({ configPath })).toMatchObject({
+        status: "error",
+        error: {
+          kind: "schema_validation",
+          message:
+            "container path /tmp/morpheus-codex-home is reserved for Morpheus-managed Codex auth",
+        },
+      });
+    });
+  });
+
+  it("rejects the previous untagged auth config", () => {
+    withTempDir((dir) => {
+      const configPath = writeConfig(dir, {
+        ...validConfig,
+        agentRunner: {
+          ...validConfig.agentRunner,
+          auth: {
+            envFile: ".morpheus/secrets/agent.env",
+            requiredKeys: ["OPENAI_API_KEY"],
+          },
+        },
+      });
+
+      expect(loadMorpheusConfig({ configPath })).toMatchObject({
+        status: "error",
+        error: { kind: "schema_validation", path: configPath },
       });
     });
   });
@@ -675,10 +772,7 @@ describe("Morpheus config", () => {
               model: "gpt-5.4-mini",
               effort: "xhigh",
             },
-            auth: {
-              envFile: ".morpheus/secrets/agent.env",
-              requiredKeys: ["OPENAI_API_KEY"],
-            },
+            auth: { kind: "chatgpt" },
             container: {
               image: "morpheus-agent:local",
               profile: ".morpheus/container/Dockerfile",
@@ -695,13 +789,13 @@ describe("Morpheus config", () => {
               mappings: bundledSkillMappings,
               stageMappings: {
                 prepare: [
-                  "matt-pocock-to-prd",
-                  "matt-pocock-grill-me",
+                  "matt-pocock-to-spec",
+                  "matt-pocock-grilling",
                   "matt-pocock-grill-with-docs",
-                  "matt-pocock-to-issues",
+                  "matt-pocock-to-tickets",
                 ],
-                implement: ["matt-pocock-caveman", "matt-pocock-tdd", "matt-pocock-diagnose"],
-                review: ["matt-pocock-caveman", "matt-pocock-diagnose"],
+                implement: ["matt-pocock-tdd", "matt-pocock-diagnosing-bugs"],
+                review: ["matt-pocock-diagnosing-bugs"],
               },
             },
           },
@@ -719,7 +813,7 @@ describe("Morpheus config", () => {
         "Default Morpheus Agent Skills",
       );
       expect(readFileSync(join(dir, ".morpheus/prompts/prepare.md"), "utf8")).toContain(
-        ".morpheus/skills/matt-pocock-caveman/SKILL.md",
+        ".morpheus/skills/matt-pocock-to-spec/SKILL.md",
       );
       expect(readFileSync(join(dir, ".morpheus/prompts/prepare.md"), "utf8")).not.toContain(
         "/Users/",
@@ -737,13 +831,19 @@ describe("Morpheus config", () => {
         "Stay read-only.",
       );
       expect(readFileSync(join(dir, ".morpheus/prompts/review.md"), "utf8")).toContain(
-        ".morpheus/skills/matt-pocock-diagnose/SKILL.md",
+        ".morpheus/skills/matt-pocock-diagnosing-bugs/SKILL.md",
       );
       expect(readFileSync(join(dir, ".morpheus/prompts/review.md"), "utf8")).toContain(
         '"failureKind":"verification_error"',
       );
       expect(readFileSync(join(dir, ".morpheus/prompts/review.md"), "utf8")).toContain(
         '"message":"..."',
+      );
+      expect(readFileSync(join(dir, ".morpheus/prompts/review.md"), "utf8")).toContain(
+        '{"severity":"info|warning|error","summary":"..."}',
+      );
+      expect(readFileSync(join(dir, ".morpheus/prompts/review.md"), "utf8")).toContain(
+        "Inspect the Worktree/MR tip only",
       );
       for (const skillName of bundledSkillNames) {
         const generated = readFileSync(
@@ -757,7 +857,7 @@ describe("Morpheus config", () => {
 
         expect(generated).toBe(vendored);
         expect(generated).toContain("---");
-        expect(generated.length).toBeGreaterThan(500);
+        expect(generated.length).toBeGreaterThan(200);
       }
       const dockerfile = readFileSync(join(dir, ".morpheus/container/Dockerfile"), "utf8");
       expect(dockerfile).toContain("FROM node:22-bookworm-slim");
@@ -783,9 +883,7 @@ describe("Morpheus config", () => {
       expect(readFileSync(join(dir, ".gitignore"), "utf8")).toContain(
         ".morpheus/secrets/agent.env",
       );
-      expect(readFileSync(join(dir, ".morpheus/secrets/agent.env.example"), "utf8")).toContain(
-        "OPENAI_API_KEY=",
-      );
+      expect(existsSync(join(dir, ".morpheus/secrets/agent.env.example"))).toBe(false);
       expect(
         result.status === "initialized"
           ? result.created.map((path) => path.slice(dir.length + 1)).sort()
@@ -906,8 +1004,8 @@ describe("Morpheus config", () => {
 
   it("does not overwrite edited target skill files without force", () => {
     withTempDir((dir) => {
-      const skillPath = join(dir, ".morpheus/skills/matt-pocock-caveman/SKILL.md");
-      mkdirSync(join(dir, ".morpheus/skills/matt-pocock-caveman"), { recursive: true });
+      const skillPath = join(dir, ".morpheus/skills/matt-pocock-to-spec/SKILL.md");
+      mkdirSync(join(dir, ".morpheus/skills/matt-pocock-to-spec"), { recursive: true });
       writeFileSync(skillPath, "edited skill");
 
       const result = initMorpheusRepo({
@@ -932,10 +1030,10 @@ describe("Morpheus config", () => {
       const promptPath = join(dir, ".morpheus/prompts/prepare.md");
       const dockerfilePath = join(dir, ".morpheus/container/Dockerfile");
       const readmePath = join(dir, ".morpheus/container/README.md");
-      const skillPath = join(dir, ".morpheus/skills/matt-pocock-caveman/SKILL.md");
+      const skillPath = join(dir, ".morpheus/skills/matt-pocock-to-spec/SKILL.md");
       mkdirSync(join(dir, ".morpheus/prompts"), { recursive: true });
       mkdirSync(join(dir, ".morpheus/container"), { recursive: true });
-      mkdirSync(join(dir, ".morpheus/skills/matt-pocock-caveman"), { recursive: true });
+      mkdirSync(join(dir, ".morpheus/skills/matt-pocock-to-spec"), { recursive: true });
       writeFileSync(promptPath, "old prompt");
       writeFileSync(dockerfilePath, "old dockerfile");
       writeFileSync(readmePath, "old readme");
@@ -973,7 +1071,7 @@ describe("Morpheus config", () => {
       expect(readFileSync(dockerfilePath, "utf8")).toContain("Morpheus container profile");
       expect(readFileSync(readmePath, "utf8")).toContain("Docker-compatible runtime");
       expect(readFileSync(skillPath, "utf8")).toBe(
-        readFileSync(join(packageRoot, "bundled-skills/matt-pocock-caveman/SKILL.md"), "utf8"),
+        readFileSync(join(packageRoot, "bundled-skills/matt-pocock-to-spec/SKILL.md"), "utf8"),
       );
       expect(relativeFiles(dir)).toEqual(expectedInitFiles);
       expect(existsSync(join(dir, ".sandcastle"))).toBe(false);

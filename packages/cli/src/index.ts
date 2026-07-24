@@ -8,6 +8,7 @@ import { createInterface } from "node:readline/promises";
 import { Writable } from "node:stream";
 import {
   beadsIssueTrackerLayer,
+  codexAgentAuthLayer,
   gitWorkspaceRuntimeLayer,
   glabIssueSourceLayer,
   glabMergeRequestClientLayer,
@@ -18,6 +19,7 @@ import {
   sqliteRunLedgerLayer,
 } from "@morpheus/adapters";
 import {
+  AgentAuth,
   AgentRunner,
   applyMorpheusSetupPlan,
   detectMorpheusSetupInput,
@@ -38,6 +40,7 @@ import {
   prepareIssueForCli,
   pruneRunsForCli,
   reviewIssueForCli,
+  renderAgentAuthStatus,
   runDaemonLoopForCli,
   runDaemonOnceForCli,
   RunLedger,
@@ -170,8 +173,7 @@ const operatorLayerFromConfig = (
       operatorHealthLayer({
         cwd: config.targetRepo,
         gitlabProject: config.gitlab.project,
-        authEnvFile: config.agentRunner.auth.envFile,
-        authRequiredKeys: config.agentRunner.auth.requiredKeys,
+        auth: config.agentRunner.auth,
         toolchainProbes: config.verification.toolchainProbes,
         containerImage: config.agentRunner.container.image,
         containerProfile: config.agentRunner.container.profile,
@@ -216,8 +218,7 @@ const agentRunnerOptionsFromConfig = (config: LoadedCliConfig) => ({
   logDirectory: agentLogDirectory(config.configDirectory),
   agentConfig: config.agentRunner.agent,
   idleTimeoutSeconds: config.agentRunner.agent.idleTimeoutSeconds,
-  authEnvFile: config.agentRunner.auth.envFile,
-  authRequiredKeys: config.agentRunner.auth.requiredKeys,
+  auth: config.agentRunner.auth,
   containerConfig: {
     image: config.agentRunner.container.image,
     profile: config.agentRunner.container.profile,
@@ -419,12 +420,81 @@ const config = Command.make("config", {}, () => Console.log("Morpheus config com
   Command.withSubcommands([configShow]),
 );
 
+const authProvider = Args.text({ name: "provider" });
+const authDevice = Options.boolean("device");
+const authJson = Options.boolean("json");
+
+const ensureCodexProvider = (provider: string): Effect.Effect<void, Error> =>
+  provider === "codex"
+    ? Effect.void
+    : Effect.fail(new Error(`Unsupported auth provider: ${provider}. Expected codex.`));
+
+const provideAgentAuth = <A, E>(program: Effect.Effect<A, E, AgentAuth>): Effect.Effect<A, E> =>
+  Effect.provide(
+    program,
+    codexAgentAuthLayer().pipe(
+      Layer.provide(
+        nodeProcessRunnerLayer({
+          cwd: process.cwd(),
+        }),
+      ),
+    ),
+  );
+
+const loginCodexAuth = (device: boolean): Effect.Effect<string, unknown> =>
+  provideAgentAuth(
+    Effect.gen(function* () {
+      const agentAuth = yield* AgentAuth;
+      return renderAgentAuthStatus(yield* agentAuth.loginCodex({ device }));
+    }),
+  );
+
+const authLogin = Command.make(
+  "login",
+  { provider: authProvider, device: authDevice },
+  ({ provider, device }) =>
+    ensureCodexProvider(provider).pipe(
+      Effect.zipRight(loginCodexAuth(device)),
+      Effect.flatMap((output) => Console.log(output)),
+    ),
+).pipe(Command.withDescription("Log Morpheus into Codex with ChatGPT"));
+
+const authStatus = Command.make("status", { json: authJson }, ({ json }) =>
+  provideAgentAuth(
+    Effect.gen(function* () {
+      const agentAuth = yield* AgentAuth;
+      return renderAgentAuthStatus(yield* agentAuth.statusCodex(), json);
+    }),
+  ).pipe(Effect.flatMap((output) => Console.log(output))),
+).pipe(Command.withDescription("Show redacted Morpheus Codex auth status"));
+
+const authLogout = Command.make("logout", { provider: authProvider }, ({ provider }) =>
+  ensureCodexProvider(provider).pipe(
+    Effect.zipRight(
+      provideAgentAuth(
+        Effect.gen(function* () {
+          const agentAuth = yield* AgentAuth;
+          return renderAgentAuthStatus(yield* agentAuth.logoutCodex());
+        }),
+      ),
+    ),
+    Effect.flatMap((output) => Console.log(output)),
+  ),
+).pipe(Command.withDescription("Log Morpheus out of Codex"));
+
+const auth = Command.make("auth", {}, () => Console.log("Morpheus auth commands")).pipe(
+  Command.withDescription("Manage Morpheus-owned provider authentication"),
+  Command.withSubcommands([authLogin, authStatus, authLogout]),
+);
+
 const setupTarget = Options.text("target").pipe(Options.optional);
 const setupYes = Options.boolean("yes");
 const setupDryRun = Options.boolean("dry-run");
 const setupGitlabProject = Options.text("gitlab-project").pipe(Options.optional);
 const setupTargetBranch = Options.text("target-branch").pipe(Options.optional);
 const setupGitlabReadyLabel = Options.text("gitlab-ready-label").pipe(Options.optional);
+const setupAuth = Options.text("auth").pipe(Options.optional);
+const setupDeviceAuth = Options.boolean("device-auth");
 const setupAuthEnvFile = Options.text("auth-env-file").pipe(Options.optional);
 const setupRequiredAuthKey = Options.text("required-auth-key").pipe(Options.optional);
 const setupAuthSecret = Options.text("auth-secret").pipe(Options.optional);
@@ -532,6 +602,13 @@ const authKeySelectorOptions = (values: readonly string[]): readonly SelectorOpt
     .map((value) => ({ label: value, value }));
 };
 
+type AgentAuthKindAnswer = MorpheusConfig["agentRunner"]["auth"]["kind"];
+
+const agentAuthKindOptions = [
+  { label: "ChatGPT subscription", value: "chatgpt" },
+  { label: "OpenAI API key", value: "api-key" },
+] satisfies readonly SelectorOption<AgentAuthKindAnswer>[];
+
 const needsSetupAnswer = (prompt: SetupPlan["prompts"][number] | undefined): boolean =>
   prompt?.validation.status === "invalid" ||
   (typeof prompt?.value === "string" && prompt.value.length === 0) ||
@@ -586,24 +663,32 @@ const collectSetupAnswers = async (
     })) as SetupAnswers["agentEffort"];
   }
 
+  const authKind = prompts.get("authKind");
+  answers.authKind = (await selectorPrompt(rl, {
+    kind: "single",
+    label: "Codex authentication",
+    options: agentAuthKindOptions,
+    defaultValue: (plan.mode === "create"
+      ? "chatgpt"
+      : (authKind?.value ?? "chatgpt")) as AgentAuthKindAnswer,
+  })) as AgentAuthKindAnswer;
+
   const authEnvFile = prompts.get("authEnvFile");
-  if (needsSetupAnswer(authEnvFile)) {
+  if (answers.authKind === "api-key") {
     answers.authEnvFile = await promptValue(
       rl,
       "Agent auth env file path",
       authEnvFile?.value ?? ".morpheus/secrets/agent.env",
     );
-  }
-  if (String(answers.authEnvFile).startsWith("/")) {
-    answers.confirmAbsoluteAuthEnvFile = await yesNo(
-      rl,
-      "Confirm absolute agent auth env file path",
-      false,
-    );
-  }
+    if (answers.authEnvFile.startsWith("/")) {
+      answers.confirmAbsoluteAuthEnvFile = await yesNo(
+        rl,
+        "Confirm absolute agent auth env file path",
+        false,
+      );
+    }
 
-  const requiredAuthKeys = prompts.get("requiredAuthKeys");
-  if (needsSetupAnswer(requiredAuthKeys)) {
+    const requiredAuthKeys = prompts.get("requiredAuthKeys");
     const defaultKeys = Array.isArray(requiredAuthKeys?.value)
       ? requiredAuthKeys.value.map(String)
       : ["OPENAI_API_KEY"];
@@ -613,10 +698,8 @@ const collectSetupAnswers = async (
       options: authKeySelectorOptions(defaultKeys),
       defaultValue: defaultKeys,
     })) as readonly string[];
-  }
 
-  const createSecretFile = prompts.get("createSecretFile");
-  if (createSecretFile?.value === true || createSecretFile?.validation.status === "invalid") {
+    const createSecretFile = prompts.get("createSecretFile");
     answers.createSecretFile = await yesNo(
       rl,
       "Create missing secret file now with empty keys",
@@ -726,6 +809,16 @@ const optionString = (value: Option.Option<string>): string | undefined =>
 const commaList = (value: string | undefined): readonly string[] | undefined =>
   value === undefined ? undefined : parseList(value);
 
+const parseSetupAuthKind = (value: string | undefined): AgentAuthKindAnswer | undefined => {
+  if (value === undefined) {
+    return undefined;
+  }
+  if (value === "chatgpt" || value === "api-key") {
+    return value;
+  }
+  throw new Error(`Invalid --auth value: ${value}. Expected chatgpt or api-key.`);
+};
+
 type AuthSecretAssignments = ReadonlyMap<string, string>;
 
 const envKeyPattern = /^[A-Za-z_][A-Za-z0-9_]*$/;
@@ -765,10 +858,10 @@ const parseAuthSecretAssignments = (value: string | undefined): AuthSecretAssign
 const setupConfigFromPlan = (plan: SetupPlan): MorpheusConfig | undefined =>
   plan.configMutation.action === "blocked" ? undefined : plan.configMutation.nextConfig;
 
-const setupAuthEnvPath = (targetPath: string, config: MorpheusConfig): string =>
-  isAbsolute(config.agentRunner.auth.envFile)
-    ? config.agentRunner.auth.envFile
-    : join(targetPath, config.agentRunner.auth.envFile);
+type ApiKeyAuth = Extract<MorpheusConfig["agentRunner"]["auth"], { readonly kind: "api-key" }>;
+
+const setupAuthEnvPath = (targetPath: string, auth: ApiKeyAuth): string =>
+  isAbsolute(auth.envFile) ? auth.envFile : join(targetPath, auth.envFile);
 
 const writeSetupAuthSecrets = (
   targetPath: string,
@@ -779,7 +872,12 @@ const writeSetupAuthSecrets = (
     return;
   }
 
-  const missingKeys = config.agentRunner.auth.requiredKeys.filter(
+  const auth = config.agentRunner.auth;
+  if (auth.kind !== "api-key") {
+    throw new Error("Auth secret values are only valid with --auth api-key.");
+  }
+
+  const missingKeys = auth.requiredKeys.filter(
     (key) => !assignments.has(key) || assignments.get(key)?.length === 0,
   );
   if (missingKeys.length > 0) {
@@ -787,10 +885,10 @@ const writeSetupAuthSecrets = (
   }
 
   const orderedKeys = [
-    ...config.agentRunner.auth.requiredKeys,
-    ...[...assignments.keys()].filter((key) => !config.agentRunner.auth.requiredKeys.includes(key)),
+    ...auth.requiredKeys,
+    ...[...assignments.keys()].filter((key) => !auth.requiredKeys.includes(key)),
   ];
-  const authPath = setupAuthEnvPath(targetPath, config);
+  const authPath = setupAuthEnvPath(targetPath, auth);
   mkdirSync(dirname(authPath), { recursive: true });
   writeFileSync(
     authPath,
@@ -802,7 +900,7 @@ const writeSetupAuthSecrets = (
     { mode: 0o600 },
   );
   chmodSync(authPath, 0o600);
-  console.log(`Agent auth file written: ${config.agentRunner.auth.envFile}`);
+  console.log(`Agent auth file written: ${auth.envFile}`);
 };
 
 const secretQuestion = async (
@@ -837,6 +935,9 @@ const collectInteractiveAuthSecrets = async (
   targetPath: string,
   config: MorpheusConfig,
 ): Promise<AuthSecretAssignments> => {
+  if (config.agentRunner.auth.kind !== "api-key") {
+    return new Map();
+  }
   const afterApplyInput = await detectSetupInputForTarget(targetPath);
   if (setupAuthReady(afterApplyInput)) {
     return new Map();
@@ -880,7 +981,34 @@ const runNonInteractiveSetup = async (
   const targetPath = options.target ?? ".";
   const initialTarget = resolve(process.cwd(), targetPath);
   const initialInput = await detectSetupInputForTarget(initialTarget);
-  const answers = buildNonInteractiveSetupAnswers(options);
+  const selectedAuth = options.auth ?? options.authKind;
+  if (selectedAuth === undefined) {
+    throw new Error("Non-interactive setup requires --auth chatgpt or --auth api-key.");
+  }
+  if (selectedAuth !== "chatgpt" && selectedAuth !== "api-key") {
+    throw new Error(`Invalid auth selection: ${String(selectedAuth)}.`);
+  }
+  const apiKeyOnlyOptionProvided =
+    options.authEnvFile !== undefined ||
+    options.requiredAuthKey !== undefined ||
+    options.requiredAuthKeys !== undefined ||
+    options.authSecret !== undefined;
+  if (selectedAuth === "chatgpt" && apiKeyOnlyOptionProvided) {
+    throw new Error(
+      "ChatGPT setup does not accept API-key options; remove --auth-env-file, --required-auth-key, and --auth-secret.",
+    );
+  }
+  if (selectedAuth === "api-key" && options.deviceAuth === true) {
+    throw new Error("API-key setup does not accept --device-auth.");
+  }
+  if (
+    selectedAuth === "chatgpt" &&
+    initialInput.detected?.codexAuthLoggedIn !== true &&
+    options.deviceAuth !== true
+  ) {
+    throw new Error("Non-interactive ChatGPT setup requires --device-auth.");
+  }
+  const answers = buildNonInteractiveSetupAnswers({ ...options, auth: selectedAuth });
   const plan = planMorpheusSetup({ ...initialInput, answers });
   console.log(formatMorpheusSetupPreview(plan));
 
@@ -901,11 +1029,17 @@ const runNonInteractiveSetup = async (
 
   const setupConfig = setupConfigFromPlan(plan);
   if (setupConfig !== undefined) {
-    writeSetupAuthSecrets(
-      initialTarget,
-      setupConfig,
-      parseAuthSecretAssignments(options.authSecret),
-    );
+    if (setupConfig.agentRunner.auth.kind === "chatgpt") {
+      if (initialInput.detected?.codexAuthLoggedIn !== true) {
+        console.log(await Effect.runPromise(loginCodexAuth(true)));
+      }
+    } else {
+      writeSetupAuthSecrets(
+        initialTarget,
+        setupConfig,
+        parseAuthSecretAssignments(options.authSecret),
+      );
+    }
   }
 
   if (setupPlanWantsContainerBuild(plan)) {
@@ -964,6 +1098,8 @@ const setup = Command.make(
     gitlabProject: setupGitlabProject,
     targetBranch: setupTargetBranch,
     gitlabReadyLabel: setupGitlabReadyLabel,
+    auth: setupAuth,
+    deviceAuth: setupDeviceAuth,
     authEnvFile: setupAuthEnvFile,
     requiredAuthKey: setupRequiredAuthKey,
     authSecret: setupAuthSecret,
@@ -984,6 +1120,8 @@ const setup = Command.make(
     gitlabProject,
     targetBranch,
     gitlabReadyLabel,
+    auth,
+    deviceAuth,
     authEnvFile,
     requiredAuthKey,
     authSecret,
@@ -1006,6 +1144,8 @@ const setup = Command.make(
         optionString(gitlabProject) !== undefined ||
         optionString(targetBranch) !== undefined ||
         optionString(gitlabReadyLabel) !== undefined ||
+        optionString(auth) !== undefined ||
+        deviceAuth ||
         optionString(authEnvFile) !== undefined ||
         optionString(requiredAuthKey) !== undefined ||
         optionString(authSecret) !== undefined ||
@@ -1029,6 +1169,8 @@ const setup = Command.make(
           gitlabProject: optionString(gitlabProject) ?? fileInput.gitlabProject,
           targetBranch: optionString(targetBranch) ?? fileInput.targetBranch,
           gitlabReadyLabel: optionString(gitlabReadyLabel) ?? fileInput.gitlabReadyLabel,
+          auth: parseSetupAuthKind(optionString(auth)) ?? fileInput.auth ?? fileInput.authKind,
+          deviceAuth: deviceAuth || fileInput.deviceAuth,
           authEnvFile: optionString(authEnvFile) ?? fileInput.authEnvFile,
           requiredAuthKey: commaList(optionString(requiredAuthKey)) ?? fileInput.requiredAuthKey,
           authSecret: optionString(authSecret) ?? fileInput.authSecret,
@@ -1087,11 +1229,15 @@ const setup = Command.make(
 
         const setupConfig = setupConfigFromPlan(plan);
         if (writeChanges && setupConfig !== undefined) {
-          writeSetupAuthSecrets(
-            initialTarget,
-            setupConfig,
-            await collectInteractiveAuthSecrets(rl, initialTarget, setupConfig),
-          );
+          if (setupConfig.agentRunner.auth.kind === "chatgpt") {
+            console.log(await Effect.runPromise(loginCodexAuth(false)));
+          } else {
+            writeSetupAuthSecrets(
+              initialTarget,
+              setupConfig,
+              await collectInteractiveAuthSecrets(rl, initialTarget, setupConfig),
+            );
+          }
         }
 
         if (writeChanges && (await yesNo(rl, "Build container image now", false))) {
@@ -1365,6 +1511,7 @@ const command = Command.make("morpheus", {}, () =>
   Command.withDescription("Morpheus local agent orchestration"),
   Command.withSubcommands([
     config,
+    auth,
     setup,
     init,
     runs,

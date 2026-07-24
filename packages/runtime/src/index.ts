@@ -1,5 +1,5 @@
 import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
-import { join, resolve } from "node:path";
+import { join, posix, resolve } from "node:path";
 import * as Schema from "@effect/schema/Schema";
 import {
   agentStates,
@@ -34,10 +34,18 @@ export const runtimeInfo: RuntimeInfo = {
   name: "MorpheusRuntime",
 };
 
+export const codexContainerAuthHome = "/tmp/morpheus-codex-home";
+
 export type ProcessResult = {
   readonly stdout: string;
   readonly stderr: string;
   readonly exitCode: number;
+};
+
+export type ProcessRunOptions = {
+  readonly cwd?: string;
+  readonly env?: Readonly<Record<string, string>>;
+  readonly interactive?: boolean;
 };
 
 export class ProcessRunnerError extends EffectSchema.TaggedError<ProcessRunnerError>(
@@ -54,11 +62,47 @@ export class ProcessRunner extends Context.Tag("@morpheus/runtime/ProcessRunner"
     readonly run: (
       command: string,
       args: readonly string[],
+      options?: ProcessRunOptions,
     ) => Effect.Effect<ProcessResult, ProcessRunnerError>;
   }
 >() {}
 
 export type ProcessRunnerService = Context.Tag.Service<typeof ProcessRunner>;
+
+export type AgentAuthStatus = {
+  readonly provider: "codex";
+  readonly status: "logged-in" | "logged-out";
+  readonly mode?: "chatgpt";
+};
+
+export class AgentAuthError extends EffectSchema.TaggedError<AgentAuthError>("AgentAuthError")(
+  "AgentAuthError",
+  {
+    operation: EffectSchema.String,
+    failureKind: EffectSchema.Literal("operator_access"),
+    message: EffectSchema.String,
+  },
+) {}
+
+export class AgentAuth extends Context.Tag("@morpheus/runtime/AgentAuth")<
+  AgentAuth,
+  {
+    readonly loginCodex: (input: {
+      readonly device: boolean;
+    }) => Effect.Effect<AgentAuthStatus, AgentAuthError>;
+    readonly statusCodex: () => Effect.Effect<AgentAuthStatus, AgentAuthError>;
+    readonly logoutCodex: () => Effect.Effect<AgentAuthStatus, AgentAuthError>;
+  }
+>() {}
+
+export type AgentAuthService = Context.Tag.Service<typeof AgentAuth>;
+
+export const renderAgentAuthStatus = (status: AgentAuthStatus, json = false): string =>
+  json
+    ? JSON.stringify(status)
+    : status.status === "logged-in"
+      ? "Codex ChatGPT login: ready"
+      : "Codex ChatGPT login: not configured";
 
 export class SetupEnvironmentError extends EffectSchema.TaggedError<SetupEnvironmentError>(
   "SetupEnvironmentError",
@@ -99,6 +143,8 @@ export type PreparedReviewWorkspace = {
   readonly workspacePath: string;
   readonly worktreePath?: string;
   readonly branch?: string;
+  readonly targetBranch?: string;
+  readonly remote?: string;
   readonly permissions: "read-only";
 };
 
@@ -1645,16 +1691,40 @@ const normalizeReviewFindingSummary = (finding: Record<string, unknown>): unknow
     return finding.summary;
   }
 
-  if (typeof finding.message !== "string" || finding.message.trim().length === 0) {
+  const message =
+    typeof finding.message === "string" && finding.message.trim().length > 0
+      ? finding.message
+      : undefined;
+  const title =
+    typeof finding.title === "string" && finding.title.trim().length > 0
+      ? finding.title
+      : undefined;
+  const details =
+    typeof finding.details === "string" && finding.details.trim().length > 0
+      ? finding.details
+      : undefined;
+  const body =
+    message ??
+    (title !== undefined && details !== undefined ? `${title}: ${details}` : (title ?? details));
+
+  if (body === undefined) {
     return finding.summary;
   }
 
-  const location =
+  const file =
     typeof finding.file === "string" && finding.file.trim().length > 0
-      ? `${finding.file}${typeof finding.line === "number" ? `:${finding.line}` : ""}: `
+      ? finding.file
+      : Array.isArray(finding.files) &&
+          typeof finding.files[0] === "string" &&
+          finding.files[0].trim().length > 0
+        ? finding.files[0]
+        : undefined;
+  const location =
+    file !== undefined
+      ? `${file}${typeof finding.line === "number" ? `:${finding.line}` : ""}: `
       : "";
 
-  return `${location}${finding.message}`;
+  return `${location}${body}`;
 };
 
 const normalizeReviewFindings = (findings: unknown): unknown => {
@@ -4090,6 +4160,17 @@ const ToolchainProbeSchema = Schema.Struct({
   scope: Schema.optional(Schema.Literal("host", "container")),
 });
 
+const AgentAuthSchema = Schema.Union(
+  Schema.Struct({
+    kind: Schema.Literal("chatgpt"),
+  }),
+  Schema.Struct({
+    kind: Schema.Literal("api-key"),
+    envFile: Schema.String,
+    requiredKeys: Schema.Array(Schema.NonEmptyString),
+  }),
+);
+
 const gitlabProjectPathPattern = /^[A-Za-z0-9_.-]+(?:\/[A-Za-z0-9_.-]+)+$/;
 
 const isGitLabProjectPath = (project: string): boolean =>
@@ -4125,10 +4206,7 @@ export const MorpheusConfigSchema = Schema.Struct({
       effort: Schema.Literal("low", "medium", "high", "xhigh"),
       idleTimeoutSeconds: Schema.optional(PositiveIntegerSchema),
     }),
-    auth: Schema.Struct({
-      envFile: Schema.String,
-      requiredKeys: Schema.Array(Schema.NonEmptyString),
-    }),
+    auth: AgentAuthSchema,
     container: Schema.Struct({
       image: Schema.String,
       profile: Schema.String,
@@ -4276,16 +4354,31 @@ export const loadMorpheusConfig = (options: ConfigLoadOptions = {}): ConfigLoadR
     };
   }
 
+  const rawAgentAuthError = validateRawAgentAuthShape(parsed);
+  if (rawAgentAuthError !== undefined) {
+    return {
+      status: "error",
+      error: {
+        kind: "schema_validation",
+        path,
+        message: rawAgentAuthError,
+      },
+    };
+  }
+
   try {
     const config = Schema.decodeUnknownSync(MorpheusConfigSchema)(parsed);
-    const skillMappingError = validateSkillStageMappings(config);
-    if (skillMappingError !== undefined) {
+    const semanticValidationError =
+      validateAgentAuthConfig(config) ??
+      validateSkillStageMappings(config) ??
+      validateReservedContainerMounts(config);
+    if (semanticValidationError !== undefined) {
       return {
         status: "error",
         error: {
           kind: "schema_validation",
           path,
-          message: skillMappingError,
+          message: semanticValidationError,
         },
       };
     }
@@ -4307,6 +4400,36 @@ export const loadMorpheusConfig = (options: ConfigLoadOptions = {}): ConfigLoadR
   }
 };
 
+const validateRawAgentAuthShape = (parsed: unknown): string | undefined => {
+  if (!isRecord(parsed) || !isRecord(parsed.agentRunner) || !isRecord(parsed.agentRunner.auth)) {
+    return undefined;
+  }
+
+  const auth = parsed.agentRunner.auth;
+  return auth.kind === "chatgpt" && ("envFile" in auth || "requiredKeys" in auth)
+    ? "chatgpt auth must not include API-key fields"
+    : undefined;
+};
+
+const envKeyPattern = /^[A-Za-z_][A-Za-z0-9_]*$/;
+
+const validateAgentAuthConfig = (config: MorpheusConfig): string | undefined => {
+  const auth = config.agentRunner.auth;
+  if (auth.kind === "chatgpt") {
+    return undefined;
+  }
+  if (auth.envFile.trim().length === 0) {
+    return "api-key auth envFile must not be empty";
+  }
+  if (auth.requiredKeys.length === 0 || auth.requiredKeys.some((key) => !envKeyPattern.test(key))) {
+    return "api-key auth requiredKeys must contain shell-style environment names";
+  }
+  if (!auth.requiredKeys.includes("OPENAI_API_KEY")) {
+    return "api-key auth requiredKeys must include OPENAI_API_KEY";
+  }
+  return undefined;
+};
+
 const validateSkillStageMappings = (config: MorpheusConfig): string | undefined => {
   const copiedSkillNames = new Set(config.agentRunner.skills.mappings.map((skill) => skill.name));
   const missing = Object.entries(config.agentRunner.skills.stageMappings).flatMap(
@@ -4319,6 +4442,20 @@ const validateSkillStageMappings = (config: MorpheusConfig): string | undefined 
     : `stage skill mappings reference unknown copied skills: ${missing.join(", ")}`;
 };
 
+const collidesWithCodexAuthHome = (containerPath: string): boolean => {
+  const normalized = posix.normalize(containerPath);
+  return (
+    normalized === codexContainerAuthHome || normalized.startsWith(`${codexContainerAuthHome}/`)
+  );
+};
+
+const validateReservedContainerMounts = (config: MorpheusConfig): string | undefined =>
+  config.agentRunner.container.mounts.some((mount) =>
+    collidesWithCodexAuthHome(mount.containerPath),
+  )
+    ? `container path ${codexContainerAuthHome} is reserved for Morpheus-managed Codex auth`
+    : undefined;
+
 const defaultPromptPaths = {
   prepare: ".morpheus/prompts/prepare.md",
   implement: ".morpheus/prompts/implement.md",
@@ -4328,13 +4465,12 @@ const defaultPromptPaths = {
 const defaultSkillsDirectory = ".morpheus/skills";
 
 const bundledAgentSkills = [
-  "matt-pocock-caveman",
-  "matt-pocock-to-prd",
-  "matt-pocock-grill-me",
-  "matt-pocock-to-issues",
+  "matt-pocock-to-spec",
+  "matt-pocock-grilling",
+  "matt-pocock-to-tickets",
   "matt-pocock-grill-with-docs",
   "matt-pocock-tdd",
-  "matt-pocock-diagnose",
+  "matt-pocock-diagnosing-bugs",
 ] as const;
 
 const bundledAgentSkillMappings = bundledAgentSkills.map((name) => ({
@@ -4360,13 +4496,13 @@ export const normalizeGitLabProjectInput = (project: string): string => {
 
 export const defaultAgentStageSkillMappings = {
   prepare: [
-    "matt-pocock-to-prd",
-    "matt-pocock-grill-me",
+    "matt-pocock-to-spec",
+    "matt-pocock-grilling",
     "matt-pocock-grill-with-docs",
-    "matt-pocock-to-issues",
+    "matt-pocock-to-tickets",
   ],
-  implement: ["matt-pocock-caveman", "matt-pocock-tdd", "matt-pocock-diagnose"],
-  review: ["matt-pocock-caveman", "matt-pocock-diagnose"],
+  implement: ["matt-pocock-tdd", "matt-pocock-diagnosing-bugs"],
+  review: ["matt-pocock-diagnosing-bugs"],
 } as const;
 
 const readBundledAgentSkill = (name: (typeof bundledAgentSkills)[number]): string =>
@@ -4393,10 +4529,7 @@ const makeInitialConfig = (
       effort: "xhigh",
       idleTimeoutSeconds: 1800,
     },
-    auth: {
-      envFile: ".morpheus/secrets/agent.env",
-      requiredKeys: ["OPENAI_API_KEY"],
-    },
+    auth: { kind: "chatgpt" },
     container: {
       image: "morpheus-agent:local",
       profile: ".morpheus/container/Dockerfile",
@@ -4455,6 +4588,7 @@ export type SetupPromptId =
   | "agentProvider"
   | "agentModel"
   | "agentEffort"
+  | "authKind"
   | "authEnvFile"
   | "requiredAuthKeys"
   | "createSecretFile"
@@ -4551,6 +4685,7 @@ export type SetupPlanningInput = {
       readonly gitlabOk: boolean;
       readonly hasFail: boolean;
     };
+    readonly codexAuthLoggedIn?: boolean;
   };
   readonly existing?: {
     readonly config?: MorpheusConfig;
@@ -4564,6 +4699,7 @@ export type SetupPlanningInput = {
     readonly readyLabel?: string;
     readonly agentModel?: string;
     readonly agentEffort?: MorpheusConfig["agentRunner"]["agent"]["effort"];
+    readonly authKind?: MorpheusConfig["agentRunner"]["auth"]["kind"];
     readonly authEnvFile?: string;
     readonly confirmAbsoluteAuthEnvFile?: boolean;
     readonly requiredAuthKeys?: readonly string[];
@@ -4723,6 +4859,12 @@ const containerMountsValidation = (
     return invalid("At least one container workspace mount is required.");
   }
 
+  if (mounts.some((mount) => collidesWithCodexAuthHome(mount.containerPath))) {
+    return invalid(
+      `Container path ${codexContainerAuthHome} is reserved for Morpheus-managed Codex auth.`,
+    );
+  }
+
   return mounts.every(
     (mount) =>
       mount.hostPath.trim().length > 0 &&
@@ -4737,9 +4879,11 @@ const containerMountsValidation = (
 };
 
 const envKeysValidation = (keys: readonly string[]): SetupValidation =>
-  keys.length > 0 && keys.every((key) => /^[A-Za-z_][A-Za-z0-9_]*$/.test(key))
+  keys.length > 0 && keys.includes("OPENAI_API_KEY") && keys.every((key) => envKeyPattern.test(key))
     ? valid()
-    : invalid("Required auth env keys must be shell-style environment names.");
+    : invalid(
+        "Required auth env keys must include OPENAI_API_KEY and use shell-style environment names.",
+      );
 
 const laneConcurrencyValidation = (
   concurrency: NonNullable<SetupPlanningInput["answers"]>["laneConcurrency"],
@@ -4781,8 +4925,7 @@ const templateFileMutation = (
 
 const setupNextSteps = (
   readyLabel: string,
-  authEnvFile: string,
-  requiredAuthKeys: readonly string[],
+  auth: MorpheusConfig["agentRunner"]["auth"],
   containerImage: string,
   containerProfile: string,
   agentAuthReady: boolean,
@@ -4804,7 +4947,7 @@ const setupNextSteps = (
     ? ([
         {
           id: "agentAuth",
-          command: setupAuthHandoffMessage(authEnvFile, requiredAuthKeys),
+          command: setupAuthHandoffMessage(auth),
           gate: "manual",
         },
       ] satisfies readonly SetupNextStep[])
@@ -4848,11 +4991,10 @@ const setupNextSteps = (
     : []),
 ];
 
-const setupAuthHandoffMessage = (
-  authEnvFile: string,
-  requiredAuthKeys: readonly string[],
-): string =>
-  `Provide agent auth in ${authEnvFile} with non-empty required keys: ${requiredAuthKeys.join(", ")}. Use --auth-secret KEY=$KEY during setup or edit the file manually.`;
+const setupAuthHandoffMessage = (auth: MorpheusConfig["agentRunner"]["auth"]): string =>
+  auth.kind === "chatgpt"
+    ? "Run morpheus auth login codex to configure Morpheus-owned ChatGPT access."
+    : `Provide agent auth in ${auth.envFile} with non-empty required keys: ${auth.requiredKeys.join(", ")}. Use --auth-secret KEY=$KEY during setup or edit the file manually.`;
 
 const setupAuthGateReason = (input: SetupPlanningInput): string | undefined => {
   const config = input.existing?.config;
@@ -4860,12 +5002,7 @@ const setupAuthGateReason = (input: SetupPlanningInput): string | undefined => {
     return "Morpheus config with agent auth settings is required.";
   }
 
-  return setupAuthReady(input)
-    ? undefined
-    : setupAuthHandoffMessage(
-        config.agentRunner.auth.envFile,
-        config.agentRunner.auth.requiredKeys,
-      );
+  return setupAuthReady(input) ? undefined : setupAuthHandoffMessage(config.agentRunner.auth);
 };
 
 const overwriteTemplatesValidation = (
@@ -4912,12 +5049,15 @@ export const planMorpheusSetup = (input: SetupPlanningInput = {}): SetupPlan => 
     answers.agentModel ?? existingConfig?.agentRunner.agent.model ?? "gpt-5.4-mini";
   const agentEffort = answers.agentEffort ?? existingConfig?.agentRunner.agent.effort ?? "xhigh";
   const agentIdleTimeoutSeconds = existingConfig?.agentRunner.agent.idleTimeoutSeconds ?? 1800;
+  const authKind = answers.authKind ?? existingConfig?.agentRunner.auth.kind ?? "chatgpt";
+  const existingApiKeyAuth =
+    existingConfig?.agentRunner.auth.kind === "api-key"
+      ? existingConfig.agentRunner.auth
+      : undefined;
   const authEnvFile =
-    answers.authEnvFile ??
-    existingConfig?.agentRunner.auth.envFile ??
-    ".morpheus/secrets/agent.env";
+    answers.authEnvFile ?? existingApiKeyAuth?.envFile ?? ".morpheus/secrets/agent.env";
   const requiredAuthKeys = answers.requiredAuthKeys ??
-    existingConfig?.agentRunner.auth.requiredKeys ?? ["OPENAI_API_KEY"];
+    existingApiKeyAuth?.requiredKeys ?? ["OPENAI_API_KEY"];
   const containerImage =
     answers.containerImage ?? existingConfig?.agentRunner.container.image ?? "morpheus-agent:local";
   const containerProfile =
@@ -4949,11 +5089,23 @@ export const planMorpheusSetup = (input: SetupPlanningInput = {}): SetupPlan => 
   };
   const overwriteTemplates = answers.overwriteTemplates ?? false;
   const writeChanges = answers.writeChanges ?? mode === "create";
-  const shouldCreateSecretFile = answers.createSecretFile ?? !existingFiles.has(authEnvFile);
+  const shouldCreateSecretFile =
+    authKind === "api-key" && (answers.createSecretFile ?? !existingFiles.has(authEnvFile));
   const authEnvKeys = new Set(input.existing?.authEnvKeys ?? []);
   const authFileExists = existingFiles.has(authEnvFile);
   const requiredAuthKeysPresent = requiredAuthKeys.every((key) => authEnvKeys.has(key));
-  const agentAuthReady = authFileExists && requiredAuthKeysPresent;
+  const agentAuthReady =
+    authKind === "chatgpt"
+      ? input.detected?.codexAuthLoggedIn === true
+      : authFileExists && requiredAuthKeysPresent;
+  const nextAuth: MorpheusConfig["agentRunner"]["auth"] =
+    authKind === "chatgpt"
+      ? { kind: "chatgpt" }
+      : {
+          kind: "api-key",
+          envFile: authEnvFile,
+          requiredKeys: [...requiredAuthKeys],
+        };
   const syncReady =
     agentAuthReady &&
     input.detected?.doctor?.beadsOk === true &&
@@ -4978,10 +5130,7 @@ export const planMorpheusSetup = (input: SetupPlanningInput = {}): SetupPlan => 
         effort: agentEffort,
         idleTimeoutSeconds: agentIdleTimeoutSeconds,
       },
-      auth: {
-        envFile: authEnvFile,
-        requiredKeys: [...requiredAuthKeys],
-      },
+      auth: nextAuth,
       container: {
         ...baseConfig.agentRunner.container,
         image: containerImage,
@@ -5019,8 +5168,13 @@ export const planMorpheusSetup = (input: SetupPlanningInput = {}): SetupPlan => 
     valid(),
     nonEmptyValidation(agentModel, "Agent model is required."),
     agentEffortValidation(agentEffort),
-    authEnvFileValidation(authEnvFile, answers.confirmAbsoluteAuthEnvFile === true),
-    envKeysValidation(requiredAuthKeys),
+    authKind === "chatgpt" || authKind === "api-key"
+      ? valid()
+      : invalid("Agent auth must be chatgpt or api-key."),
+    authKind === "api-key"
+      ? authEnvFileValidation(authEnvFile, answers.confirmAbsoluteAuthEnvFile === true)
+      : valid(),
+    authKind === "api-key" ? envKeysValidation(requiredAuthKeys) : valid(),
     valid(),
     nonEmptyValidation(containerImage, "Container image tag is required."),
     containerProfileValidation(containerProfile),
@@ -5052,7 +5206,7 @@ export const planMorpheusSetup = (input: SetupPlanningInput = {}): SetupPlan => 
       ? invalid(
           agentAuthReady
             ? "Daemon tick requires doctor to have no FAIL results."
-            : setupAuthHandoffMessage(authEnvFile, requiredAuthKeys),
+            : setupAuthHandoffMessage(nextAuth),
         )
       : agentAuthReady
         ? valid()
@@ -5140,10 +5294,20 @@ export const planMorpheusSetup = (input: SetupPlanningInput = {}): SetupPlan => 
       },
     ),
     setupPrompt(
-      "authEnvFile",
-      existingConfig?.agentRunner.auth.envFile ?? ".morpheus/secrets/agent.env",
-      authEnvFile,
+      "authKind",
+      existingConfig?.agentRunner.auth.kind ?? "chatgpt",
+      authKind,
       promptValidations[9],
+      {
+        kind: "config",
+        field: "agentRunner.auth.kind",
+      },
+    ),
+    setupPrompt(
+      "authEnvFile",
+      existingApiKeyAuth?.envFile ?? ".morpheus/secrets/agent.env",
+      authEnvFile,
+      promptValidations[10],
       {
         kind: "config",
         field: "agentRunner.auth.envFile",
@@ -5151,9 +5315,9 @@ export const planMorpheusSetup = (input: SetupPlanningInput = {}): SetupPlan => 
     ),
     setupPrompt(
       "requiredAuthKeys",
-      existingConfig?.agentRunner.auth.requiredKeys ?? ["OPENAI_API_KEY"],
+      existingApiKeyAuth?.requiredKeys ?? ["OPENAI_API_KEY"],
       requiredAuthKeys,
-      promptValidations[10],
+      promptValidations[11],
       {
         kind: "config",
         field: "agentRunner.auth.requiredKeys",
@@ -5163,7 +5327,7 @@ export const planMorpheusSetup = (input: SetupPlanningInput = {}): SetupPlan => 
       "createSecretFile",
       !existingFiles.has(authEnvFile),
       shouldCreateSecretFile,
-      promptValidations[11],
+      promptValidations[12],
       {
         kind: "file",
         path: authEnvFile,
@@ -5178,7 +5342,7 @@ export const planMorpheusSetup = (input: SetupPlanningInput = {}): SetupPlan => 
       "containerImage",
       existingConfig?.agentRunner.container.image ?? "morpheus-agent:local",
       containerImage,
-      promptValidations[12],
+      promptValidations[13],
       {
         kind: "config",
         field: "agentRunner.container.image",
@@ -5188,7 +5352,7 @@ export const planMorpheusSetup = (input: SetupPlanningInput = {}): SetupPlan => 
       "containerProfile",
       existingConfig?.agentRunner.container.profile ?? ".morpheus/container/Dockerfile",
       containerProfile,
-      promptValidations[13],
+      promptValidations[14],
       {
         kind: "config",
         field: "agentRunner.container.profile",
@@ -5200,17 +5364,17 @@ export const planMorpheusSetup = (input: SetupPlanningInput = {}): SetupPlan => 
         { hostPath: ".", containerPath: "/workspace" },
       ],
       containerMounts,
-      promptValidations[14],
+      promptValidations[15],
       {
         kind: "config",
         field: "agentRunner.container.mounts",
       },
     ),
-    setupPrompt("containerBuild", defaultBuildContainer, buildContainer, promptValidations[15], {
+    setupPrompt("containerBuild", defaultBuildContainer, buildContainer, promptValidations[16], {
       kind: "command",
       command: containerBuildCommand,
     }),
-    setupPrompt("toolchainProbes", true, toolchainProbes, promptValidations[16], {
+    setupPrompt("toolchainProbes", true, toolchainProbes, promptValidations[17], {
       kind: "config",
       field: "verification.toolchainProbes",
     }),
@@ -5218,7 +5382,7 @@ export const planMorpheusSetup = (input: SetupPlanningInput = {}): SetupPlan => 
       "verificationCommands",
       existingConfig?.verification.commands ?? input.detected?.verificationCommands ?? [],
       verificationCommands,
-      promptValidations[17],
+      promptValidations[18],
       {
         kind: "config",
         field: "verification.commands",
@@ -5228,7 +5392,7 @@ export const planMorpheusSetup = (input: SetupPlanningInput = {}): SetupPlan => 
       "pollIntervalSeconds",
       existingConfig?.daemon.pollIntervalSeconds ?? 30,
       pollIntervalSeconds,
-      promptValidations[18],
+      promptValidations[19],
       {
         kind: "config",
         field: "daemon.pollIntervalSeconds",
@@ -5240,13 +5404,13 @@ export const planMorpheusSetup = (input: SetupPlanningInput = {}): SetupPlan => 
         ? { preparation: 1, implementation: 1, review: 1 }
         : laneConcurrency,
       laneConcurrency,
-      promptValidations[19],
+      promptValidations[20],
       {
         kind: "config",
         field: "lanes",
       },
     ),
-    setupPrompt("writeChanges", mode === "create", writeChanges, promptValidations[20], {
+    setupPrompt("writeChanges", mode === "create", writeChanges, promptValidations[21], {
       kind: "file",
       path: ".",
       action: "patch",
@@ -5255,17 +5419,17 @@ export const planMorpheusSetup = (input: SetupPlanningInput = {}): SetupPlan => 
       "doctor",
       true,
       writeChanges ? true : (answers.runDoctor ?? true),
-      promptValidations[21],
+      promptValidations[22],
       {
         kind: "command",
         command: "morpheus doctor",
       },
     ),
-    setupPrompt("sync", false, answers.runSync ?? false, promptValidations[22], {
+    setupPrompt("sync", false, answers.runSync ?? false, promptValidations[23], {
       kind: "command",
       command: "morpheus sync",
     }),
-    setupPrompt("daemonOnce", false, answers.runDaemonOnce ?? false, promptValidations[23], {
+    setupPrompt("daemonOnce", false, answers.runDaemonOnce ?? false, promptValidations[24], {
       kind: "command",
       command: "morpheus daemon --once",
     }),
@@ -5302,27 +5466,31 @@ export const planMorpheusSetup = (input: SetupPlanningInput = {}): SetupPlan => 
               templateFileMutation(path, existingFiles, overwriteTemplates, writeChanges),
             ),
           templateFileMutation(containerProfile, existingFiles, overwriteTemplates, writeChanges),
-          templateFileMutation(
-            ".morpheus/secrets/agent.env.example",
-            existingFiles,
-            overwriteTemplates,
-            writeChanges,
-          ),
-          existingFiles.has(authEnvFile)
-            ? {
-                path: authEnvFile,
-                action: "refuse" as const,
-                apply: false,
-                reason: "Refusing to overwrite existing secret env file.",
-              }
-            : {
-                path: authEnvFile,
-                action: shouldCreateSecretFile ? ("create" as const) : ("skip" as const),
-                apply: shouldCreateSecretFile && writeChanges,
-                reason: shouldCreateSecretFile
-                  ? "Create empty key placeholders only; setup can fill them when auth secrets are provided."
-                  : "Operator chose to create the secret file later.",
-              },
+          ...(authKind === "api-key"
+            ? [
+                templateFileMutation(
+                  ".morpheus/secrets/agent.env.example",
+                  existingFiles,
+                  overwriteTemplates,
+                  writeChanges,
+                ),
+                existingFiles.has(authEnvFile)
+                  ? {
+                      path: authEnvFile,
+                      action: "refuse" as const,
+                      apply: false,
+                      reason: "Refusing to overwrite existing secret env file.",
+                    }
+                  : {
+                      path: authEnvFile,
+                      action: shouldCreateSecretFile ? ("create" as const) : ("skip" as const),
+                      apply: shouldCreateSecretFile && writeChanges,
+                      reason: shouldCreateSecretFile
+                        ? "Create empty key placeholders only; setup can fill them when auth secrets are provided."
+                        : "Operator chose to create the secret file later.",
+                    },
+              ]
+            : []),
           { path: ".gitignore", action: "patch", apply: writeChanges },
         ];
 
@@ -5357,16 +5525,15 @@ export const planMorpheusSetup = (input: SetupPlanningInput = {}): SetupPlan => 
       ...warningMessages,
       ...preserveWarnings,
       ...(verificationCommands.length === 0 ? ["No verification commands configured."] : []),
-      ...(authFileExists && !requiredAuthKeysPresent
+      ...(authKind === "api-key" && authFileExists && !requiredAuthKeysPresent
         ? [`Required agent auth keys are missing from ${authEnvFile}.`]
         : []),
-      ...(!agentAuthReady ? [setupAuthHandoffMessage(authEnvFile, requiredAuthKeys)] : []),
+      ...(!agentAuthReady ? [setupAuthHandoffMessage(nextAuth)] : []),
     ].filter((message, index, messages) => messages.indexOf(message) === index),
     errors: errors.filter((message, index, messages) => messages.indexOf(message) === index),
     nextSteps: setupNextSteps(
       readyLabel,
-      authEnvFile,
-      requiredAuthKeys,
+      nextAuth,
       containerImage,
       containerProfile,
       agentAuthReady,
@@ -5462,7 +5629,9 @@ export const setupGeneratedFileContents = (
     case ".morpheus/container/README.md":
       return containerReadmeTemplate(detectTargetCapabilities(target));
     case ".morpheus/secrets/agent.env.example":
-      return setupAgentEnvExampleTemplate(config.agentRunner.auth.requiredKeys);
+      return config.agentRunner.auth.kind === "api-key"
+        ? setupAgentEnvExampleTemplate(config.agentRunner.auth.requiredKeys)
+        : undefined;
     default:
       if (path === config.agentRunner.container.profile || path.endsWith("/Dockerfile")) {
         return containerDockerfileTemplate;
@@ -5497,6 +5666,9 @@ export const setupAuthReady = (input: SetupPlanningInput): boolean => {
   }
 
   const files = new Set(input.existing?.files ?? []);
+  if (config.agentRunner.auth.kind === "chatgpt") {
+    return input.detected?.codexAuthLoggedIn === true;
+  }
   const keys = new Set(input.existing?.authEnvKeys ?? []);
   return (
     files.has(config.agentRunner.auth.envFile) &&
@@ -5586,7 +5758,7 @@ const starterPrompts = {
     stageSkillInstructions("implement"),
     "",
     "Implement the prepared contract only.",
-    "Use caveman for concise communication, TDD for behavior-first implementation where practical, and diagnose before changing unclear code.",
+    "Use TDD for behavior-first implementation where practical, and diagnose before changing unclear code.",
     "Keep changes scoped, preserve user work, and follow repo guidance.",
     "Inspect obvious repo merge gates such as `.gitlab-ci.yml` and `scripts/**/check_*`; if the target requires a metadata-only version/build bump for every MR, include the minimal required bump and report it as gate evidence.",
     "Run the configured verification commands or explain why they could not run.",
@@ -5602,7 +5774,10 @@ const starterPrompts = {
     "",
     "Review the implementation against the Agent-Ready Contract.",
     "Stay read-only. Use concise review and diagnosis behavior. Report correctness bugs, regressions, missing verification, and risk.",
+    "Inspect the Worktree/MR tip only; never infer implementation state from the host Workspace/base checkout.",
+    "Start by proving the review root HEAD and diff against the configured remote target branch. If checkout files are sparse or absent, use git show HEAD:<path> and git diff <remote>/<target>...HEAD; do not substitute the base checkout.",
     "Verify the implementation satisfies contract acceptance criteria, AFK gates, verification plan, out-of-scope boundaries, and evidence claims.",
+    'Every finding must use this exact item shape: {"severity":"info|warning|error","summary":"..."}.',
     'Return only one exact verdict shape: passed {"status":"passed","findings":[],"transcript":"...","artifact":{}}; blocked {"status":"blocked","reason":"...","findings":[],"transcript":"...","artifact":{}}; failed {"status":"failed","failureKind":"verification_error","message":"...","findings":[],"transcript":"...","artifact":{}}.',
     "For failed review results, `failureKind` is required and must be one of: operator_access, runtime_error, agent_contract_error, verification_error, state_conflict, unknown.",
     "",
@@ -5616,13 +5791,6 @@ export const gitignoreEntries = [
   ".morpheus/cache/",
   ".morpheus/secrets/agent.env",
 ] as const;
-
-const agentEnvExample = [
-  "# Copy to .morpheus/secrets/agent.env and fill with a real token.",
-  "# Morpheus requires this explicit file for agent runs.",
-  "OPENAI_API_KEY=",
-  "",
-].join("\n");
 
 const containerDockerfileTemplate = [
   "# Morpheus container profile",
@@ -5820,7 +5988,7 @@ const containerReadmeTemplate = (capabilities: readonly TargetCapability[]): str
     "",
     "Morpheus does not auto-install Android SDK or Xcode in v1. Operators opt in by editing `.morpheus/container/Dockerfile`, rebuilding the image, and keeping verification failures explicit in run evidence.",
     "",
-    "The generated image runs as container-internal root for Docker sandbox compatibility: Morpheus performs UID preflight before container start and writes setup files inside the isolated container workspace. Do not mount host-sensitive paths into this profile; keep secrets in `.morpheus/secrets/agent.env` only.",
+    "The generated image runs as container-internal root for Docker sandbox compatibility: Morpheus performs UID preflight before container start and writes setup files inside the isolated container workspace. Do not mount host-sensitive paths into this profile. API-key secrets stay in the configured `.morpheus/secrets/*.env` file; ChatGPT credentials use Morpheus's internal Codex auth mount.",
     "",
     "Required operator setup:",
     ...(setupLines.length === 0
@@ -5844,7 +6012,6 @@ export const initMorpheusRepo = (options: InitMorpheusRepoOptions): InitMorpheus
   const configPath = join(target, "morpheus.config.json");
   const containerDockerfilePath = join(target, ".morpheus", "container", "Dockerfile");
   const containerReadmePath = join(target, ".morpheus", "container", "README.md");
-  const agentEnvExamplePath = join(target, ".morpheus", "secrets", "agent.env.example");
   const promptPaths = [
     join(target, defaultPromptPaths.prepare),
     join(target, defaultPromptPaths.implement),
@@ -5859,7 +6026,6 @@ export const initMorpheusRepo = (options: InitMorpheusRepoOptions): InitMorpheus
     configPath,
     containerDockerfilePath,
     containerReadmePath,
-    agentEnvExamplePath,
     ...promptPaths,
     ...skillFiles.map((skill) => skill.path),
   ];
@@ -5895,7 +6061,6 @@ export const initMorpheusRepo = (options: InitMorpheusRepoOptions): InitMorpheus
     [configPath, `${JSON.stringify(decodedConfig, null, 2)}\n`],
     [containerDockerfilePath, containerDockerfileTemplate],
     [containerReadmePath, containerReadmeTemplate(capabilities)],
-    [agentEnvExamplePath, agentEnvExample],
     [promptPaths[0], starterPrompts.prepare],
     [promptPaths[1], starterPrompts.implement],
     [promptPaths[2], starterPrompts.review],
