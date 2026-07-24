@@ -1367,10 +1367,10 @@ describe("setup planning", () => {
       expect(planMorpheusSetupExecution(missingAuthInput).daemonOnce).toEqual({
         canRun: false,
         skipReason:
-          "Provide agent auth in .morpheus/secrets/agent.env with non-empty required keys: OPENAI_API_KEY. Use --auth-secret KEY=$KEY during setup or edit the file manually.",
+          "Provide agent auth in .morpheus/secrets/agent.env with non-empty required keys: OPENAI_API_KEY. Edit the local file directly or populate it with your secret manager.",
       });
       expect(missingAuthPreview).toContain(
-        "Provide agent auth in .morpheus/secrets/agent.env with non-empty required keys: OPENAI_API_KEY. Use --auth-secret KEY=$KEY during setup or edit the file manually.",
+        "Provide agent auth in .morpheus/secrets/agent.env with non-empty required keys: OPENAI_API_KEY. Edit the local file directly or populate it with your secret manager.",
       );
       const requestedDaemonPlan = planMorpheusSetup({
         ...missingAuthInput,
@@ -1381,7 +1381,7 @@ describe("setup planning", () => {
         answers: { runDaemonOnce: true },
       });
       expect(requestedDaemonPlan.errors).toContain(
-        "Provide agent auth in .morpheus/secrets/agent.env with non-empty required keys: OPENAI_API_KEY. Use --auth-secret KEY=$KEY during setup or edit the file manually.",
+        "Provide agent auth in .morpheus/secrets/agent.env with non-empty required keys: OPENAI_API_KEY. Edit the local file directly or populate it with your secret manager.",
       );
       expect(missingAuthPreview).not.toContain("morpheus sync (after-doctor)");
       expect(missingAuthPreview).not.toContain("morpheus daemon --once (after-doctor)");
@@ -1393,7 +1393,7 @@ describe("setup planning", () => {
       expect(planMorpheusSetupExecution(emptyAuthInput).daemonOnce).toEqual({
         canRun: false,
         skipReason:
-          "Provide agent auth in .morpheus/secrets/agent.env with non-empty required keys: OPENAI_API_KEY. Use --auth-secret KEY=$KEY during setup or edit the file manually.",
+          "Provide agent auth in .morpheus/secrets/agent.env with non-empty required keys: OPENAI_API_KEY. Edit the local file directly or populate it with your secret manager.",
       });
     });
   });

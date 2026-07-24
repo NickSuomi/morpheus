@@ -23,7 +23,6 @@ export type NonInteractiveSetupInput = {
   readonly containerProfile?: string;
   readonly verificationCommand?: readonly string[];
   readonly pollIntervalSeconds?: number;
-  readonly authSecret?: string;
   readonly requiredAuthKeys?: readonly string[];
   readonly verificationCommands?: readonly string[];
 };

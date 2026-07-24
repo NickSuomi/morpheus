@@ -352,8 +352,8 @@ exit 1
         "--auth",
         "chatgpt",
         "--device-auth",
-        "--auth-secret",
-        "OPENAI_API_KEY=not-a-real-key",
+        "--auth-env-file",
+        ".morpheus/secrets/agent.env",
       ]);
       expect(`${mixedSubscription.stdout}\n${mixedSubscription.stderr}`).toContain(
         "ChatGPT setup does not accept API-key options",
@@ -363,6 +363,17 @@ exit 1
       expect(`${mixedApiKey.stdout}\n${mixedApiKey.stderr}`).toContain(
         "API-key setup does not accept --device-auth.",
       );
+
+      const removedSecretFlag = runPnpmFailure([
+        ...base,
+        "--auth",
+        "api-key",
+        "--auth-secret",
+        "OPENAI_API_KEY=not-a-real-key",
+      ]);
+      const removedSecretFlagOutput = `${removedSecretFlag.stdout}\n${removedSecretFlag.stderr}`;
+      expect(removedSecretFlagOutput).toContain("auth-secret");
+      expect(removedSecretFlagOutput).not.toContain("not-a-real-key");
     } finally {
       rmSync(dir, { force: true, recursive: true });
     }
@@ -661,7 +672,7 @@ exit 1
         ].join("\n"),
       );
       expect(output).toContain(
-        "Daemon once not ready: Provide agent auth in .morpheus/secrets/agent.env with non-empty required keys: OPENAI_API_KEY. Use --auth-secret KEY=$KEY during setup or edit the file manually.",
+        "Daemon once not ready: Provide agent auth in .morpheus/secrets/agent.env with non-empty required keys: OPENAI_API_KEY. Edit the local file directly or populate it with your secret manager.",
       );
     } finally {
       rmSync(dir, { force: true, recursive: true });

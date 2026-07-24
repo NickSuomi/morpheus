@@ -4994,7 +4994,7 @@ const setupNextSteps = (
 const setupAuthHandoffMessage = (auth: MorpheusConfig["agentRunner"]["auth"]): string =>
   auth.kind === "chatgpt"
     ? "Run morpheus auth login codex to configure Morpheus-owned ChatGPT access."
-    : `Provide agent auth in ${auth.envFile} with non-empty required keys: ${auth.requiredKeys.join(", ")}. Use --auth-secret KEY=$KEY during setup or edit the file manually.`;
+    : `Provide agent auth in ${auth.envFile} with non-empty required keys: ${auth.requiredKeys.join(", ")}. Edit the local file directly or populate it with your secret manager.`;
 
 const setupAuthGateReason = (input: SetupPlanningInput): string | undefined => {
   const config = input.existing?.config;
