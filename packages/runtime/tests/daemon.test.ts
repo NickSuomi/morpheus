@@ -12,6 +12,7 @@ import {
   IssueTracker,
   loadMorpheusConfig,
   MergeRequestClient,
+  renderDaemonOnceResult,
   RunLedger,
   runDaemonOnce,
   runDaemonOnceForCli,
@@ -392,6 +393,7 @@ const supportLayer = (
     }) => void;
     readonly inspectGate?: MergeRequestClientService["inspectGate"];
     readonly agentRunner?: AgentRunnerService;
+    readonly runLedger?: Layer.Layer<RunLedger>;
   } = {},
 ) =>
   Layer.mergeAll(
@@ -403,7 +405,7 @@ const supportLayer = (
         return Effect.succeed(undefined);
       },
     } satisfies GitLabIssueSourceService),
-    fakeRunLedger(),
+    options.runLedger ?? fakeRunLedger(),
     Layer.succeed(AgentRunner, options.agentRunner ?? fakeAgentRunnerService(statuses)),
     Layer.succeed(WorkspaceRuntime, {
       prepareImplementationWorkspace: ({ issueId }) =>
@@ -705,24 +707,23 @@ describe("runDaemonOnce", () => {
       readonly removeLabels: readonly string[];
       readonly duringImplementation: boolean;
     }> = [];
+    let releaseImplementation = (): void => undefined;
+    const implementationGate = new Promise<void>((resolveImplementation) => {
+      releaseImplementation = resolveImplementation;
+    });
     const baseAgentRunner = fakeAgentRunnerService();
     const agentRunner: AgentRunnerService = {
       ...baseAgentRunner,
       prepareIssue: () =>
-        Effect.promise(async () => {
-          await new Promise<void>((resolvePrepare) => setTimeout(resolvePrepare, 50));
-          return {
-            status: "prepared" as const,
-            contract,
-            transcript: "prepared",
-            artifact: { status: "prepared" },
-          };
+        Effect.succeed({
+          status: "prepared" as const,
+          contract,
+          transcript: "prepared",
+          artifact: { status: "prepared" },
         }),
       implementIssue: () =>
         Effect.promise(async () => {
-          await new Promise<void>((resolveImplementation) =>
-            setTimeout(resolveImplementation, 250),
-          );
+          await implementationGate;
           implementationFinished = true;
           return {
             status: "implemented" as const,
@@ -759,13 +760,17 @@ describe("runDaemonOnce", () => {
         ],
         {
           agentRunner,
-          onUpdateIssueLabels: (input) =>
-            updates.push({ ...input, duringImplementation: !implementationFinished }),
+          onUpdateIssueLabels: (input) => {
+            updates.push({ ...input, duringImplementation: !implementationFinished });
+            if (input.iid === 42 && input.addLabels.includes("agent:prepared")) {
+              releaseImplementation();
+            }
+          },
         },
       ),
     );
 
-    await Effect.runPromise(
+    const result = await Effect.runPromise(
       runDaemonOnce({
         project: "group/project",
         readyLabel: "agent:ready",
@@ -780,6 +785,9 @@ describe("runDaemonOnce", () => {
       removeLabels: ["agent:ready"],
       duringImplementation: true,
     });
+    expect(result.sync.updated.map((item) => item.issueId)).toEqual([
+      ...new Set(result.sync.updated.map((item) => item.issueId)),
+    ]);
   });
 
   it("leaves blocked preparation terminal and does no work on next tick", async () => {
@@ -860,7 +868,12 @@ describe("runDaemonOnce", () => {
         startedAt: "2026-05-19T00:00:00.000Z",
       },
     ]);
-    const layer = Layer.mergeAll(tracker.layer, supportLayer(), ledger);
+    const layer = Layer.mergeAll(
+      tracker.layer,
+      supportLayer({}, [], {
+        runLedger: ledger,
+      }),
+    );
 
     const result = await Effect.runPromise(
       runDaemonOnce({
@@ -897,6 +910,48 @@ describe("runDaemonOnce", () => {
         failureKind: "runtime_error",
       }),
     ]);
+    expect(renderDaemonOnceResult(result)).toContain(
+      "RECOVERED run_interrupted implementation morph-interrupted issue-state=failed",
+    );
+  });
+
+  it("reports interrupted runs whose issue lifecycle cannot be changed", async () => {
+    const tracker = fakeIssueTracker({ "morph-interrupted-terminal": ["agent:blocked"] });
+    const ledger = fakeRunLedger([
+      {
+        id: "run_interrupted_terminal",
+        issueId: "morph-interrupted-terminal",
+        lane: "implementation",
+        status: "running",
+        summary: "Interrupted implementation",
+        startedAt: "2026-05-19T00:00:00.000Z",
+      },
+    ]);
+    const layer = Layer.mergeAll(
+      tracker.layer,
+      supportLayer({}, [], {
+        runLedger: ledger,
+      }),
+    );
+
+    const result = await Effect.runPromise(
+      runDaemonOnce({
+        project: "group/project",
+        readyLabel: "agent:ready",
+      }).pipe(Effect.provide(layer)),
+    );
+
+    expect(result.recoveredRuns).toEqual([
+      {
+        runId: "run_interrupted_terminal",
+        issueId: "morph-interrupted-terminal",
+        lane: "implementation",
+        issueStateChanged: false,
+      },
+    ]);
+    expect(renderDaemonOnceResult(result)).toContain(
+      "RECOVERED run_interrupted_terminal implementation morph-interrupted-terminal issue-state=unchanged",
+    );
   });
 
   it("fails preflight failures terminally and does no repeated work on next tick", async () => {

@@ -6,6 +6,7 @@ import {
   GitLabIssueSourceParseError,
   IssueTracker,
   IssueTrackerCommandError,
+  mergeSyncGitLabIssuesResults,
   renderSyncGitLabIssuesResult,
   syncGitLabIssues,
   type GitLabIssueInput,
@@ -80,6 +81,21 @@ const issueTrackerLayer = (service: Partial<IssueTrackerService>): Layer.Layer<I
   });
 
 describe("syncGitLabIssues", () => {
+  it("deduplicates overlapping lifecycle sync results by issue", () => {
+    const updated = {
+      status: "updated" as const,
+      issueId: "morph-duplicate",
+      addedReadyLabel: false,
+    };
+
+    expect(
+      mergeSyncGitLabIssuesResults(
+        { created: [], updated: [updated], skipped: [], failed: [] },
+        { created: [], updated: [updated], skipped: [], failed: [] },
+      ).updated,
+    ).toEqual([updated]);
+  });
+
   it("reports remote lifecycle ownership conflicts to the operator", () => {
     expect(
       renderSyncGitLabIssuesResult({

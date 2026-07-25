@@ -1337,14 +1337,25 @@ const syncGitLabLifecycleLabelsFromBeads = (
       : undefined;
   });
 
-const mergeSyncGitLabIssuesResults = (
+const uniqueBy = <A>(items: readonly A[], key: (item: A) => string): readonly A[] => {
+  const unique = new Map<string, A>();
+  for (const item of items) {
+    unique.set(key(item), item);
+  }
+  return [...unique.values()];
+};
+
+export const mergeSyncGitLabIssuesResults = (
   left: SyncGitLabIssuesResult,
   right: SyncGitLabIssuesResult,
 ): SyncGitLabIssuesResult => ({
-  created: [...left.created, ...right.created],
-  updated: [...left.updated, ...right.updated],
-  skipped: [...left.skipped, ...right.skipped],
-  failed: [...left.failed, ...right.failed],
+  created: uniqueBy([...left.created, ...right.created], (item) => item.issueId),
+  updated: uniqueBy([...left.updated, ...right.updated], (item) => item.issueId),
+  skipped: uniqueBy([...left.skipped, ...right.skipped], (item) => item.issueId),
+  failed: uniqueBy(
+    [...left.failed, ...right.failed],
+    (item) => `${item.project}:${item.iid ?? "unknown"}:${item.message}`,
+  ),
 });
 
 export const syncGitLabIssues = ({
@@ -3562,6 +3573,7 @@ const sleepMilliseconds = (milliseconds: number): Effect.Effect<void, never> =>
 const syncGitLabLifecycleAfterLaneStart = (
   input: RunDaemonOnceInput,
   command: ScheduledLaneWorkCommand,
+  syncSemaphore: Effect.Semaphore,
 ): Effect.Effect<SyncGitLabIssuesResult | undefined, never, IssueTracker | GitLabIssueSource> =>
   Effect.gen(function* () {
     const tracker = yield* IssueTracker;
@@ -3575,10 +3587,12 @@ const syncGitLabLifecycleAfterLaneStart = (
 
       const labels = issueResult.right.labels;
       if (labels.includes(lifecycle.started)) {
-        return yield* syncGitLabIssues({
-          ...input,
-          syncedAt: new Date().toISOString(),
-        });
+        return yield* syncSemaphore.withPermits(1)(
+          syncGitLabIssues({
+            ...input,
+            syncedAt: new Date().toISOString(),
+          }),
+        );
       }
 
       if (!labels.includes(lifecycle.before)) {
@@ -3594,6 +3608,7 @@ const syncGitLabLifecycleAfterLaneStart = (
 const executeDaemonCommandWithLifecycleSync = (
   input: RunDaemonOnceInput,
   command: ScheduledLaneWorkCommand,
+  syncSemaphore: Effect.Semaphore,
 ): Effect.Effect<
   {
     readonly execution: DaemonLaneExecution;
@@ -3605,15 +3620,20 @@ const executeDaemonCommandWithLifecycleSync = (
 > =>
   Effect.gen(function* () {
     const [execution, startSync] = yield* Effect.all(
-      [executeDaemonCommand(command), syncGitLabLifecycleAfterLaneStart(input, command)],
+      [
+        executeDaemonCommand(command),
+        syncGitLabLifecycleAfterLaneStart(input, command, syncSemaphore),
+      ],
       {
         concurrency: "unbounded",
       },
     );
-    const terminalSync = yield* syncGitLabIssues({
-      ...input,
-      syncedAt: new Date().toISOString(),
-    });
+    const terminalSync = yield* syncSemaphore.withPermits(1)(
+      syncGitLabIssues({
+        ...input,
+        syncedAt: new Date().toISOString(),
+      }),
+    );
 
     return {
       execution,
@@ -3773,6 +3793,7 @@ export const runDaemonOnce = (
   IssueTracker | GitLabIssueSource | RunLedger | AgentRunner | WorkspaceRuntime | MergeRequestClient
 > =>
   Effect.gen(function* () {
+    const syncSemaphore = yield* Effect.makeSemaphore(1);
     const recoveredRuns = yield* recoverInterruptedRuns();
     const sync = yield* syncGitLabIssues(input);
     const gateAudits = yield* auditReviewCandidateMergeRequestGates();
@@ -3781,7 +3802,7 @@ export const runDaemonOnce = (
       [
         Effect.all(
           tick.commands.preparation.map((command) =>
-            executeDaemonCommandWithLifecycleSync(input, command),
+            executeDaemonCommandWithLifecycleSync(input, command, syncSemaphore),
           ),
           {
             concurrency: "unbounded",
@@ -3789,7 +3810,7 @@ export const runDaemonOnce = (
         ),
         Effect.all(
           tick.commands.implementation.map((command) =>
-            executeDaemonCommandWithLifecycleSync(input, command),
+            executeDaemonCommandWithLifecycleSync(input, command, syncSemaphore),
           ),
           {
             concurrency: "unbounded",
@@ -3797,7 +3818,7 @@ export const runDaemonOnce = (
         ),
         Effect.all(
           tick.commands.review.map((command) =>
-            executeDaemonCommandWithLifecycleSync(input, command),
+            executeDaemonCommandWithLifecycleSync(input, command, syncSemaphore),
           ),
           {
             concurrency: "unbounded",
@@ -3854,6 +3875,10 @@ export const renderDaemonOnceResult = (result: DaemonOnceResult): string => {
   return [
     "Morpheus daemon tick",
     `recovered: ${result.recoveredRuns.length}`,
+    ...result.recoveredRuns.map(
+      (run) =>
+        `RECOVERED ${run.runId} ${run.lane} ${run.issueId} issue-state=${run.issueStateChanged ? "failed" : "unchanged"}`,
+    ),
     `sync: created=${result.sync.created.length} updated=${result.sync.updated.length} skipped=${result.sync.skipped.length} failed=${result.sync.failed.length}`,
     ...(result.gateAudits.length === 0
       ? []

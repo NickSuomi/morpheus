@@ -18,7 +18,9 @@ const sh = (command: string, cwd: string) =>
 describe("release packaging", () => {
   it("creates a selected release artifact with a runnable Morpheus shim", () => {
     const dir = mkdtempSync(join(tmpdir(), "morpheus-release-package-"));
+    const sourceVitest = join(repoRoot, "node_modules", ".bin", "vitest");
     try {
+      expect(existsSync(sourceVitest)).toBe(true);
       const output = sh(
         `${JSON.stringify(packageScript)} --version 0.1.0-test --out-dir ${JSON.stringify(dir)} --skip-build --only-os darwin --only-arch arm64`,
         repoRoot,
@@ -41,7 +43,8 @@ describe("release packaging", () => {
       expect(listing).toContain("bin/morpheus");
       expect(listing).toContain("app/dist/index.mjs");
       expect(listing).toContain("app/node_modules/");
-      expect(existsSync(join(repoRoot, "node_modules", ".bin", "vitest"))).toBe(true);
+      expect(listing).not.toContain("app/node_modules/.bin/vitest");
+      expect(existsSync(sourceVitest)).toBe(true);
 
       const extractDir = join(dir, `${os}-${arch}`);
       sh(`mkdir -p ${JSON.stringify(extractDir)}`, repoRoot);

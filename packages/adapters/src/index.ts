@@ -4,15 +4,17 @@ import {
   chmodSync,
   cpSync,
   existsSync,
+  lstatSync,
   mkdirSync,
   mkdtempSync,
   readFileSync,
+  realpathSync,
   rmSync,
   statSync,
   writeFileSync,
 } from "node:fs";
 import { homedir, tmpdir } from "node:os";
-import { basename, dirname, isAbsolute, join, resolve } from "node:path";
+import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { codex, run as sandcastleRun } from "@ai-hero/sandcastle";
 import type { AgentProvider, RunOptions, RunResult } from "@ai-hero/sandcastle";
 import { docker } from "@ai-hero/sandcastle/sandboxes/docker";
@@ -2046,6 +2048,7 @@ const branchCommitsFromGit = (cwd: string, targetBranch: string): readonly strin
 };
 
 const disposableReadOnlyWorktreePrefix = ".morpheus-readonly-worktree-";
+const disposableReadOnlyWorktreeProcessPrefix = `${disposableReadOnlyWorktreePrefix}${process.pid}-`;
 const activeDisposableReadOnlyWorktrees = new Set<string>();
 const canonicalContainerWorkspace = "/home/agent/workspace";
 const containerSkillRoot = "/opt/morpheus";
@@ -2073,8 +2076,25 @@ const cleanupStaleDisposableReadOnlyWorktrees = (cwd: string): void => {
         continue;
       }
       const worktreePath = line.slice("worktree ".length);
+      const worktreeName = basename(worktreePath);
+      const ownerPidMatch = worktreeName.match(
+        new RegExp(`^${disposableReadOnlyWorktreePrefix.replaceAll(".", "\\.")}(\\d+)-`),
+      );
+      const ownerPid = ownerPidMatch?.[1] === undefined ? undefined : Number(ownerPidMatch[1]);
+      const ownerIsAlive =
+        ownerPid !== undefined &&
+        (() => {
+          try {
+            process.kill(ownerPid, 0);
+            return true;
+          } catch (error) {
+            return (error as NodeJS.ErrnoException).code === "EPERM";
+          }
+        })();
       if (
-        basename(worktreePath).startsWith(disposableReadOnlyWorktreePrefix) &&
+        worktreeName.startsWith(disposableReadOnlyWorktreePrefix) &&
+        ownerPid !== undefined &&
+        !ownerIsAlive &&
         !activeDisposableReadOnlyWorktrees.has(worktreePath)
       ) {
         cleanupDisposableReadOnlyWorktree(cwd, worktreePath);
@@ -2087,7 +2107,10 @@ const cleanupStaleDisposableReadOnlyWorktrees = (cwd: string): void => {
 
 const createDisposableReadOnlyWorktree = (cwd: string): string => {
   cleanupStaleDisposableReadOnlyWorktrees(cwd);
-  const worktreePath = resolve(dirname(cwd), `${disposableReadOnlyWorktreePrefix}${randomUUID()}`);
+  const worktreePath = resolve(
+    dirname(cwd),
+    `${disposableReadOnlyWorktreeProcessPrefix}${randomUUID()}`,
+  );
   execFileSync("git", ["-C", cwd, "worktree", "add", "--detach", worktreePath, "HEAD"], {
     stdio: "ignore",
   });
@@ -2099,6 +2122,27 @@ const createDisposableReadOnlyWorktree = (cwd: string): string => {
   }
   activeDisposableReadOnlyWorktrees.add(worktreePath);
   return worktreePath;
+};
+
+const managedContainerMountSource = (cwd: string, relativePath: string): string | undefined => {
+  const candidate = join(cwd, relativePath);
+  if (!existsSync(candidate)) {
+    return undefined;
+  }
+  if (lstatSync(candidate).isSymbolicLink()) {
+    throw new Error(`Managed container mount source must not be a symbolic link: ${relativePath}`);
+  }
+
+  const root = realpathSync(cwd);
+  const source = realpathSync(candidate);
+  const pathFromRoot = relative(root, source);
+  if (pathFromRoot === ".." || pathFromRoot.startsWith(`..${sep}`) || isAbsolute(pathFromRoot)) {
+    throw new Error(
+      `Managed container mount source must stay inside the target repo: ${relativePath}`,
+    );
+  }
+
+  return candidate;
 };
 
 const isGitWorktree = (cwd: string): boolean => {
@@ -2170,22 +2214,30 @@ const runSandcastlePhase = (
             ]
           : [];
       const usesManagedContainer = options.sandbox === undefined;
+      const canonicalNodeModulesSource =
+        usesManagedContainer && (phase === "implement" || phase === "review")
+          ? managedContainerMountSource(options.cwd, "node_modules")
+          : undefined;
+      const canonicalSkillsSource =
+        usesManagedContainer && (phase === "implement" || phase === "review")
+          ? managedContainerMountSource(options.cwd, join(".morpheus", "skills"))
+          : undefined;
       const canonicalWorkspaceMounts =
         usesManagedContainer && (phase === "implement" || phase === "review")
           ? [
-              ...(existsSync(join(options.cwd, "node_modules"))
+              ...(canonicalNodeModulesSource !== undefined
                 ? [
                     {
-                      hostPath: join(options.cwd, "node_modules"),
+                      hostPath: canonicalNodeModulesSource,
                       sandboxPath: `${canonicalContainerWorkspace}/node_modules`,
                       readonly: true,
                     },
                   ]
                 : []),
-              ...(existsSync(join(options.cwd, ".morpheus", "skills"))
+              ...(canonicalSkillsSource !== undefined
                 ? [
                     {
-                      hostPath: join(options.cwd, ".morpheus", "skills"),
+                      hostPath: canonicalSkillsSource,
                       sandboxPath: `${containerSkillRoot}/.morpheus/skills`,
                       readonly: true,
                     },
@@ -2211,7 +2263,7 @@ const runSandcastlePhase = (
                 sandboxPath: "/tmp/morpheus-cache",
                 readonly: false,
               },
-              ...(existsSync(join(options.cwd, "node_modules"))
+              ...(canonicalNodeModulesSource !== undefined
                 ? [
                     {
                       hostPath: join(agentCachePath, "vite-temp"),

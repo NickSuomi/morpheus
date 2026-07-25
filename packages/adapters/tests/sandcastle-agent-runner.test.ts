@@ -1,7 +1,7 @@
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import { deriveIssueState, deriveLane } from "@morpheus/core";
 import { Effect, Either, Layer } from "effect";
 import { describe, expect, it } from "vitest";
@@ -748,6 +748,122 @@ describe("SandcastleAgentRunner", () => {
         encoding: "utf8",
       }),
     ).not.toContain(".morpheus-readonly-worktree-");
+  });
+
+  it("does not remove a live preparation worktree owned by another process", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "morpheus-sandcastle-"));
+    execFileSync("git", ["-C", dir, "init", "-b", "dev"]);
+    execFileSync("git", ["-C", dir, "config", "user.email", "morpheus@example.invalid"]);
+    execFileSync("git", ["-C", dir, "config", "user.name", "Morpheus Test"]);
+    writeFileSync(join(dir, "README.md"), "base\n");
+    execFileSync("git", ["-C", dir, "add", "README.md"]);
+    execFileSync("git", ["-C", dir, "commit", "-m", "base"]);
+    const liveWorktreePath = resolve(
+      dirname(dir),
+      `.morpheus-readonly-worktree-${process.pid}-external-live`,
+    );
+    execFileSync("git", ["-C", dir, "worktree", "add", "--detach", liveWorktreePath, "HEAD"]);
+
+    try {
+      const runner = createSandcastleAgentRunner({
+        cwd: dir,
+        logDirectory: join(dir, ".morpheus", "sandcastle-logs"),
+        containerConfig: {
+          image: "morpheus-agent:test",
+          mounts: [{ hostPath: ".", containerPath: "/workspace" }],
+        },
+        dockerFactory: () =>
+          ({
+            kind: "none",
+            exec: async () => ({ stdout: "", stderr: "", exitCode: 0 }),
+            close: async () => ({}),
+          }) as never,
+        run: async () => ({
+          iterations: [],
+          stdout: `<morpheus_result>{"status":"blocked","reason":"fixture","transcript":"","artifact":{}}</morpheus_result>`,
+          commits: [],
+          branch: "dev",
+        }),
+      });
+
+      await Effect.runPromise(runner.prepareIssue({ issue: trackedIssue() }));
+
+      expect(existsSync(liveWorktreePath)).toBe(true);
+    } finally {
+      try {
+        execFileSync("git", ["-C", dir, "worktree", "remove", "--force", liveWorktreePath]);
+      } catch {
+        // The assertion above reports an unsafe removal; cleanup stays best-effort.
+      }
+    }
+  });
+
+  it("rejects symlinked managed container mount sources", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "morpheus-sandcastle-"));
+    const outside = mkdtempSync(join(tmpdir(), "morpheus-outside-"));
+    const worktreePath = join(dir, "worktree");
+    mkdirSync(worktreePath, { recursive: true });
+    symlinkSync(outside, join(dir, "node_modules"), "dir");
+    let dockerCreated = false;
+    const runner = createSandcastleAgentRunner({
+      cwd: dir,
+      logDirectory: join(dir, ".morpheus", "sandcastle-logs"),
+      containerConfig: {
+        image: "morpheus-agent:test",
+        mounts: [{ hostPath: ".", containerPath: "/workspace" }],
+      },
+      dockerFactory: () => {
+        dockerCreated = true;
+        return {
+          kind: "none",
+          exec: async () => ({ stdout: "", stderr: "", exitCode: 0 }),
+          close: async () => ({}),
+        } as never;
+      },
+      run: async () => {
+        throw new Error("runner must not start");
+      },
+    });
+
+    const result = await Effect.runPromise(
+      Effect.either(
+        runner.implementIssue?.({
+          issue: trackedIssue(["agent:prepared"]),
+          contract: {
+            category: "task",
+            summary: "Prepared",
+            currentBehavior: "Before",
+            desiredBehavior: "After",
+            keyInterfaces: ["AgentRunner"],
+            acceptanceCriteria: ["Runs"],
+            outOfScope: ["None"],
+            verificationPlan: ["pnpm check"],
+            blockedBy: "None",
+            hitlDecisions: "None",
+            riskLevel: "medium",
+          },
+          workspace: {
+            workspacePath: dir,
+            worktreePath,
+            branch: "morpheus/morph-bbp-run_123",
+            targetBranch: "dev",
+            remote: "origin",
+          },
+          mergeRequest: {
+            reference: "!42",
+            url: "https://example.invalid/group/project/mr/42",
+          },
+        }) ?? Effect.die("missing implementIssue"),
+      ),
+    );
+
+    expect(Either.isLeft(result)).toBe(true);
+    if (Either.isLeft(result)) {
+      expect(result.left.message).toContain(
+        "Managed container mount source must not be a symbolic link",
+      );
+    }
+    expect(dockerCreated).toBe(false);
   });
 
   it("uses prompt override files relative to the target repo", async () => {
