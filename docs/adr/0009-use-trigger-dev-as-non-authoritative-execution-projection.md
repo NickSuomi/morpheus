@@ -36,9 +36,15 @@ Trigger.dev is an optional projection only:
 - If an active wrapper disappears or becomes terminal before Morpheus, the
   outbox creates a new projection generation.
 - Observer delivery is fail-open. Outage never fails a Morpheus ledger
-  mutation. Restart reconciliation drains pending rows and backfills the crash
-  gap after ledger commit without projecting runs older than observer
-  enablement.
+  mutation. Outbound requests have a bounded timeout. Restart reconciliation
+  retries each pending row independently, continues past poisoned rows, and
+  backfills the crash gap after ledger commit without projecting runs older
+  than observer enablement.
+- Delivery is serialized inside an observer process. The outbox retains only
+  the latest full snapshot while offline, and sequence/generation guards prevent
+  late acknowledgements from regressing newer state.
+- The deployed observer validates opaque identifiers, curated enums, sequence
+  numbers, and timestamps at runtime before using waitpoint output.
 - Production uses deployed Trigger.dev Cloud tasks. `trigger dev` is never
   production infrastructure.
 

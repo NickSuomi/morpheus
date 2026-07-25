@@ -1,13 +1,13 @@
 import { describe, expect, it } from "vitest";
-import { observerResult, type ObserverProjection } from "../src/model.js";
+import { observerResult, parseObserverProjection, type ObserverProjection } from "../src/model.js";
 
 const projection: ObserverProjection = {
   schemaVersion: 1,
   authority: "morpheus",
   projectionKind: "execution-observer",
-  targetId: "target_opaque",
-  issueId: "issue_opaque",
-  runId: "run_opaque",
+  targetId: "target_0123456789abcdef0123456789abcdef",
+  issueId: "issue_0123456789abcdef0123456789abcdef",
+  runId: "run_0123456789abcdef0123456789abcdef",
   generation: 1,
   lane: "review",
   status: "succeeded",
@@ -39,7 +39,7 @@ describe("observerResult", () => {
       kind: "failed",
       failureKind: "verification_error",
       projection: expect.objectContaining({
-        runId: "run_opaque",
+        runId: "run_0123456789abcdef0123456789abcdef",
       }),
     });
   });
@@ -53,5 +53,26 @@ describe("observerResult", () => {
         requiredHumanAction: null,
       }),
     ).toThrow("terminal projection");
+  });
+
+  it("rejects untrusted values outside the opaque and curated projection schema", () => {
+    expect(() =>
+      parseObserverProjection({
+        ...projection,
+        runId: "private/group#113",
+      }),
+    ).toThrow("invalid execution projection");
+    expect(() =>
+      parseObserverProjection({
+        ...projection,
+        failureKind: "private exception text",
+      }),
+    ).toThrow("invalid execution projection");
+    expect(() =>
+      parseObserverProjection({
+        ...projection,
+        lane: "deploy",
+      }),
+    ).toThrow("invalid execution projection");
   });
 });

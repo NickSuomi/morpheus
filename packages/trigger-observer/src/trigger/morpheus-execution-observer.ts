@@ -1,5 +1,5 @@
 import { logger, task, wait } from "@trigger.dev/sdk";
-import { observerResult, type ObserverProjection } from "../model.js";
+import { observerResult, parseObserverInput, type ObserverProjection } from "../model.js";
 
 export type MorpheusExecutionObserverInput = {
   readonly waitpointId: string;
@@ -9,7 +9,8 @@ export type MorpheusExecutionObserverInput = {
 export const morpheusExecutionObserver = task({
   id: "morpheus-execution-observer-v1",
   retry: { maxAttempts: 1 },
-  run: async (payload: MorpheusExecutionObserverInput) => {
+  run: async (untrustedPayload: MorpheusExecutionObserverInput) => {
+    const payload = parseObserverInput(untrustedPayload);
     logger.info("Waiting for authoritative Morpheus terminal state");
     const result = await wait.forToken<{
       readonly projection: ObserverProjection;

@@ -76,7 +76,8 @@ projection generation.
 ## Failure and recovery
 
 - Trigger.dev outage: Morpheus continues. The local outbox records pending
-  delivery and retries on later daemon ticks.
+  delivery and retries on later daemon ticks. Each HTTP attempt is bounded to
+  10 seconds; one poisoned row does not block later rows.
 - Daemon restart: existing outbox rows are resumed. A run committed after
   observer enablement but before enqueue is backfilled from the ledger.
 - Duplicate request or lost response: waitpoint and task trigger use stable
@@ -84,7 +85,8 @@ projection generation.
   idempotent no-op after success.
 - Missing observer secrets: Morpheus continues with a degraded warning and
   retains pending projection work.
-- Wrapper timeout/failure/cancel: it is never interpreted as Morpheus state.
+- Wrapper timeout/failure/cancel/deletion: it is never interpreted as Morpheus
+  state. Reconciliation creates a new numbered wrapper generation.
 
 ## Privacy gate
 

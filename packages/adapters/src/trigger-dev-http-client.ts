@@ -1,8 +1,10 @@
 import { ExecutionObserverError } from "@morpheus/runtime";
 import { Effect } from "effect";
+import { triggerDevRunStatuses } from "./trigger-dev-execution-observer.js";
 import type {
   TriggerDevObserverClient,
   TriggerDevProjection,
+  TriggerDevRunLookup,
   TriggerDevRunStatus,
 } from "./trigger-dev-execution-observer.js";
 
@@ -10,6 +12,7 @@ export type TriggerDevHttpClientOptions = {
   readonly secretKey: string;
   readonly baseUrl?: string;
   readonly fetch?: typeof globalThis.fetch;
+  readonly requestTimeoutMs?: number;
 };
 
 type JsonRecord = Readonly<Record<string, unknown>>;
@@ -28,36 +31,30 @@ const responseId = (
     ? Effect.succeed({ id: value.id })
     : Effect.fail(clientError(operation, "Trigger.dev returned an invalid response."));
 
-const runStatuses = new Set<TriggerDevRunStatus>([
-  "PENDING_VERSION",
-  "DELAYED",
-  "QUEUED",
-  "EXECUTING",
-  "REATTEMPTING",
-  "FROZEN",
-  "COMPLETED",
-  "CANCELED",
-  "FAILED",
-  "CRASHED",
-  "INTERRUPTED",
-  "SYSTEM_FAILURE",
-]);
+const runStatuses = new Set<TriggerDevRunStatus>(triggerDevRunStatuses);
+const notFound = Symbol("trigger-dev-run-not-found");
 
 export const createTriggerDevHttpClient = (
   options: TriggerDevHttpClientOptions,
 ): TriggerDevObserverClient => {
   const fetchImplementation = options.fetch ?? globalThis.fetch;
   const baseUrl = (options.baseUrl ?? "https://api.trigger.dev").replace(/\/+$/, "");
+  const requestTimeoutMs = options.requestTimeoutMs ?? 10_000;
 
   const request = (
     operation: string,
     path: string,
     init: RequestInit,
-  ): Effect.Effect<unknown, ExecutionObserverError> =>
+    allowNotFound = false,
+  ): Effect.Effect<unknown | typeof notFound, ExecutionObserverError> =>
     Effect.tryPromise({
       try: () =>
         fetchImplementation(`${baseUrl}${path}`, {
           ...init,
+          signal:
+            init.signal === undefined || init.signal === null
+              ? AbortSignal.timeout(requestTimeoutMs)
+              : AbortSignal.any([init.signal, AbortSignal.timeout(requestTimeoutMs)]),
           headers: {
             Authorization: `Bearer ${options.secretKey}`,
             ...(init.body === undefined ? {} : { "Content-Type": "application/json" }),
@@ -67,14 +64,16 @@ export const createTriggerDevHttpClient = (
       catch: () => clientError(operation, "Trigger.dev request failed."),
     }).pipe(
       Effect.flatMap((response) =>
-        response.ok
-          ? Effect.tryPromise({
-              try: () => response.json() as Promise<unknown>,
-              catch: () => clientError(operation, "Trigger.dev returned an invalid response."),
-            })
-          : Effect.fail(
-              clientError(operation, `Trigger.dev request failed with HTTP ${response.status}.`),
-            ),
+        allowNotFound && response.status === 404
+          ? Effect.succeed(notFound)
+          : response.ok
+            ? Effect.tryPromise({
+                try: () => response.json() as Promise<unknown>,
+                catch: () => clientError(operation, "Trigger.dev returned an invalid response."),
+              })
+            : Effect.fail(
+                clientError(operation, `Trigger.dev request failed with HTTP ${response.status}.`),
+              ),
       ),
     );
 
@@ -116,13 +115,26 @@ export const createTriggerDevHttpClient = (
         },
       ).pipe(Effect.asVoid),
     retrieveRun: (runId) =>
-      request("retrieveRun", `/api/v3/runs/${encodeURIComponent(runId)}`, { method: "GET" }).pipe(
-        Effect.flatMap((value) =>
-          isRecord(value) &&
-          typeof value.status === "string" &&
-          runStatuses.has(value.status as TriggerDevRunStatus)
-            ? Effect.succeed({ status: value.status as TriggerDevRunStatus })
-            : Effect.fail(clientError("retrieveRun", "Trigger.dev returned an invalid response.")),
+      request(
+        "retrieveRun",
+        `/api/v3/runs/${encodeURIComponent(runId)}`,
+        { method: "GET" },
+        true,
+      ).pipe(
+        Effect.flatMap(
+          (value): Effect.Effect<TriggerDevRunLookup, ExecutionObserverError> =>
+            value === notFound
+              ? Effect.succeed({ found: false } as const)
+              : isRecord(value) &&
+                  typeof value.status === "string" &&
+                  runStatuses.has(value.status as TriggerDevRunStatus)
+                ? Effect.succeed({
+                    found: true,
+                    status: value.status as TriggerDevRunStatus,
+                  } as const)
+                : Effect.fail(
+                    clientError("retrieveRun", "Trigger.dev returned an invalid response."),
+                  ),
         ),
       ),
   };

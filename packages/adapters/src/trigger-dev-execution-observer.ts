@@ -7,19 +7,26 @@ import {
 } from "@morpheus/runtime";
 import { Effect } from "effect";
 
-export type TriggerDevRunStatus =
-  | "PENDING_VERSION"
-  | "DELAYED"
-  | "QUEUED"
-  | "EXECUTING"
-  | "REATTEMPTING"
-  | "FROZEN"
-  | "COMPLETED"
-  | "CANCELED"
-  | "FAILED"
-  | "CRASHED"
-  | "SYSTEM_FAILURE"
-  | "INTERRUPTED";
+export const triggerDevRunStatuses = [
+  "PENDING_VERSION",
+  "DELAYED",
+  "QUEUED",
+  "EXECUTING",
+  "REATTEMPTING",
+  "FROZEN",
+  "COMPLETED",
+  "CANCELED",
+  "FAILED",
+  "CRASHED",
+  "SYSTEM_FAILURE",
+  "INTERRUPTED",
+] as const;
+
+export type TriggerDevRunStatus = (typeof triggerDevRunStatuses)[number];
+
+export type TriggerDevRunLookup =
+  | { readonly found: true; readonly status: TriggerDevRunStatus }
+  | { readonly found: false };
 
 export type TriggerDevObserverClient = {
   readonly createWaitpoint: (input: {
@@ -50,7 +57,7 @@ export type TriggerDevObserverClient = {
   ) => Effect.Effect<void, ExecutionObserverError>;
   readonly retrieveRun: (
     runId: string,
-  ) => Effect.Effect<{ readonly status: TriggerDevRunStatus }, ExecutionObserverError>;
+  ) => Effect.Effect<TriggerDevRunLookup, ExecutionObserverError>;
 };
 
 export type TriggerDevProjection = Omit<ExecutionProjectionSnapshot, "runId" | "issueId"> & {
@@ -211,6 +218,7 @@ export const createTriggerDevExecutionObserver = (
   Effect.gen(function* () {
     yield* mapSqlError("setupOutbox", setupProjectionSchema());
     const sql = yield* SqlClient.SqlClient;
+    const deliverySemaphore = yield* Effect.makeSemaphore(1);
     const [settings] = yield* mapSqlError(
       "readProjectionSettings",
       sql<SettingsRow>`
@@ -274,6 +282,20 @@ export const createTriggerDevExecutionObserver = (
       ).pipe(Effect.catchAll(() => Effect.void));
     });
 
+    const clearError = Effect.fn("TriggerDevExecutionObserver.clearError")(function* (
+      runId: string,
+    ) {
+      yield* mapSqlError(
+        "updateOutbox",
+        sql`
+          UPDATE execution_projection_outbox
+          SET last_error = NULL,
+              updated_at = ${new Date().toISOString()}
+          WHERE run_id = ${runId}
+        `,
+      );
+    });
+
     const resetGeneration = Effect.fn("TriggerDevExecutionObserver.resetGeneration")(function* (
       row: ProjectionRow,
     ) {
@@ -309,18 +331,21 @@ export const createTriggerDevExecutionObserver = (
       const snapshot = yield* parseSnapshot(row);
       let changed = false;
 
-      if (
+      const shouldInspectRemote =
         inspectActive &&
-        row.is_terminal === 0 &&
         row.trigger_run_id !== null &&
-        row.delivered_sequence >= row.event_sequence
-      ) {
+        row.terminal_delivered === 0 &&
+        (row.is_terminal === 1 || row.delivered_sequence >= row.event_sequence);
+      if (shouldInspectRemote && row.trigger_run_id !== null) {
         const remote = yield* options.client.retrieveRun(row.trigger_run_id);
-        if (terminalRunStatuses.has(remote.status)) {
+        if (!remote.found || terminalRunStatuses.has(remote.status)) {
           row = yield* resetGeneration(row);
           changed = true;
         } else {
-          return changed;
+          yield* clearError(row.run_id);
+          if (row.delivered_sequence >= row.event_sequence) {
+            return changed;
+          }
         }
       }
 
@@ -362,10 +387,11 @@ export const createTriggerDevExecutionObserver = (
           "updateOutbox",
           sql`
             UPDATE execution_projection_outbox
-            SET delivered_sequence = ${row.event_sequence},
+            SET delivered_sequence = MAX(delivered_sequence, ${row.event_sequence}),
                 last_error = NULL,
                 updated_at = ${new Date().toISOString()}
             WHERE run_id = ${row.run_id}
+              AND generation = ${row.generation}
           `,
         );
         changed = true;
@@ -381,6 +407,7 @@ export const createTriggerDevExecutionObserver = (
                 last_error = NULL,
                 updated_at = ${new Date().toISOString()}
             WHERE run_id = ${row.run_id}
+              AND generation = ${row.generation}
           `,
         );
         changed = true;
@@ -396,6 +423,20 @@ export const createTriggerDevExecutionObserver = (
       deliver(row, inspectActive).pipe(
         Effect.catchAll((error) =>
           markError(row.run_id, error).pipe(Effect.zipRight(Effect.fail(error))),
+        ),
+      );
+
+    const deliverCurrent = (
+      runId: string,
+      inspectActive: boolean,
+    ): Effect.Effect<boolean, ExecutionObserverError> =>
+      deliverySemaphore.withPermits(1)(
+        getRow(runId).pipe(
+          Effect.flatMap((row) =>
+            row === undefined
+              ? Effect.succeed(false)
+              : deliverWithPersistedError(row, inspectActive),
+          ),
         ),
       );
 
@@ -444,7 +485,7 @@ export const createTriggerDevExecutionObserver = (
       observe: (snapshot) =>
         Effect.gen(function* () {
           const row = yield* enqueue(snapshot);
-          yield* deliverWithPersistedError(row, false);
+          yield* deliverCurrent(row.run_id, row.is_terminal === 1);
         }),
       reconcile: (snapshots = []) =>
         Effect.gen(function* () {
@@ -467,7 +508,10 @@ export const createTriggerDevExecutionObserver = (
           );
           let delivered = 0;
           for (const row of rows) {
-            if (yield* deliverWithPersistedError(row, true)) {
+            const changed = yield* deliverCurrent(row.run_id, true).pipe(
+              Effect.catchAll(() => Effect.succeed(false)),
+            );
+            if (changed) {
               delivered += 1;
             }
           }

@@ -51,7 +51,9 @@ const recordingClient = (
   calls: RecordedCall[],
   options: {
     readonly failCreateWaitpoint?: () => boolean;
-    readonly runStatus?: () => TriggerDevRunStatus;
+    readonly runLookup?: () =>
+      | { readonly found: true; readonly status: TriggerDevRunStatus }
+      | { readonly found: false };
   } = {},
 ): TriggerDevObserverClient => ({
   createWaitpoint: (input) => {
@@ -79,7 +81,7 @@ const recordingClient = (
   },
   retrieveRun: (runId) => {
     calls.push({ operation: "retrieveRun", input: { runId } });
-    return Effect.succeed({ status: options.runStatus?.() ?? "FROZEN" });
+    return Effect.succeed(options.runLookup?.() ?? { found: true, status: "FROZEN" });
   },
 });
 
@@ -203,6 +205,7 @@ describe("createTriggerDevExecutionObserver", () => {
       "createWaitpoint",
       "triggerObserver",
       "updateRunMetadata",
+      "retrieveRun",
       "updateRunMetadata",
       "completeWaitpoint",
     ]);
@@ -270,7 +273,7 @@ describe("createTriggerDevExecutionObserver", () => {
       withObserver(
         join(dir, "ledger.sqlite"),
         recordingClient(calls, {
-          runStatus: () => status,
+          runLookup: () => ({ found: true, status }),
         }),
         (observer) =>
           Effect.gen(function* () {
@@ -290,5 +293,152 @@ describe("createTriggerDevExecutionObserver", () => {
       "updateRunMetadata",
     ]);
     expect(JSON.stringify(calls)).toContain('"generation":2');
+  });
+
+  it("continues reconciling later rows when one pending row is poisoned", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "morpheus-trigger-poison-row-"));
+    const ledgerPath = join(dir, "ledger.sqlite");
+    const secondSnapshot: ExecutionProjectionSnapshot = {
+      ...runningSnapshot,
+      runId: "run_private_456",
+      issueId: "private-group/private-project#114",
+    };
+
+    for (const snapshot of [runningSnapshot, secondSnapshot]) {
+      await Effect.runPromise(
+        Effect.either(
+          withObserver(
+            ledgerPath,
+            recordingClient([], { failCreateWaitpoint: () => true }),
+            (observer) => observer.observe(snapshot),
+          ),
+        ),
+      );
+    }
+
+    let createAttempts = 0;
+    const calls: RecordedCall[] = [];
+    const baseClient = recordingClient(calls);
+    const client: TriggerDevObserverClient = {
+      ...baseClient,
+      createWaitpoint: (input) => {
+        createAttempts += 1;
+        calls.push({ operation: "createWaitpoint", input });
+        return createAttempts === 1
+          ? Effect.fail(
+              new ExecutionObserverError({
+                operation: "createWaitpoint",
+                message: "permanent row failure",
+              }),
+            )
+          : Effect.succeed({ id: "waitpoint_2" });
+      },
+    };
+    const reconciled = await Effect.runPromise(
+      withObserver(ledgerPath, client, (observer) => observer.reconcile()),
+    );
+
+    expect(reconciled).toEqual({ delivered: 1, pending: 1 });
+    expect(calls.filter((call) => call.operation === "createWaitpoint")).toHaveLength(2);
+    expect(calls.map((call) => call.operation)).toContain("updateRunMetadata");
+  });
+
+  it("replaces a missing wrapper with a new projection generation", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "morpheus-trigger-missing-run-"));
+    const calls: RecordedCall[] = [];
+    let found = true;
+    const reconciled = await Effect.runPromise(
+      withObserver(
+        join(dir, "ledger.sqlite"),
+        recordingClient(calls, {
+          runLookup: () => (found ? { found: true, status: "FROZEN" } : { found: false }),
+        }),
+        (observer) =>
+          Effect.gen(function* () {
+            yield* observer.observe(runningSnapshot);
+            calls.length = 0;
+            found = false;
+            return yield* observer.reconcile();
+          }),
+      ),
+    );
+
+    expect(reconciled).toEqual({ delivered: 1, pending: 0 });
+    expect(calls.map((call) => call.operation)).toEqual([
+      "retrieveRun",
+      "createWaitpoint",
+      "triggerObserver",
+      "updateRunMetadata",
+    ]);
+    expect(JSON.stringify(calls)).toContain('"generation":2');
+  });
+
+  it("replaces a cancelled wrapper even when Morpheus became terminal before reconciliation", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "morpheus-trigger-terminal-race-"));
+    const calls: RecordedCall[] = [];
+    let status: TriggerDevRunStatus = "FROZEN";
+    await Effect.runPromise(
+      withObserver(
+        join(dir, "ledger.sqlite"),
+        recordingClient(calls, {
+          runLookup: () => ({ found: true, status }),
+        }),
+        (observer) =>
+          Effect.gen(function* () {
+            yield* observer.observe(runningSnapshot);
+            calls.length = 0;
+            status = "CANCELED";
+            yield* observer.observe(terminalSnapshot);
+          }),
+      ),
+    );
+
+    expect(calls.map((call) => call.operation)).toEqual([
+      "retrieveRun",
+      "createWaitpoint",
+      "triggerObserver",
+      "updateRunMetadata",
+      "completeWaitpoint",
+    ]);
+    expect(JSON.stringify(calls)).toContain('"generation":2');
+  });
+
+  it("serializes concurrent metadata writes and preserves the newest event sequence", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "morpheus-trigger-serialized-"));
+    const calls: RecordedCall[] = [];
+    let inFlight = 0;
+    let maxInFlight = 0;
+    const baseClient = recordingClient(calls);
+    const client: TriggerDevObserverClient = {
+      ...baseClient,
+      updateRunMetadata: (runId, metadata) =>
+        Effect.gen(function* () {
+          inFlight += 1;
+          maxInFlight = Math.max(maxInFlight, inFlight);
+          calls.push({ operation: "updateRunMetadata", input: { runId, metadata } });
+          yield* Effect.sleep("5 millis");
+          inFlight -= 1;
+        }),
+    };
+
+    await Effect.runPromise(
+      withObserver(join(dir, "ledger.sqlite"), client, (observer) =>
+        Effect.gen(function* () {
+          yield* observer.observe(runningSnapshot);
+          calls.length = 0;
+          yield* Effect.all(
+            [
+              observer.observe({ ...runningSnapshot, eventSequence: 4 }),
+              observer.observe({ ...runningSnapshot, eventSequence: 5 }),
+            ],
+            { concurrency: "unbounded" },
+          );
+        }),
+      ),
+    );
+
+    const metadataCalls = calls.filter((call) => call.operation === "updateRunMetadata");
+    expect(maxInFlight).toBe(1);
+    expect(JSON.stringify(metadataCalls.at(-1))).toContain('"eventSequence":5');
   });
 });

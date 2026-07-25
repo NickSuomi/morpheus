@@ -124,4 +124,43 @@ describe("createTriggerDevHttpClient", () => {
     expect(JSON.stringify(result)).not.toContain("private-group");
     expect(JSON.stringify(result)).not.toContain("trigger-private-secret");
   });
+
+  it("aborts a blackholed request after the configured timeout", async () => {
+    const client = createTriggerDevHttpClient({
+      secretKey: "trigger-private-secret",
+      requestTimeoutMs: 10,
+      fetch: async (_url, init) =>
+        await new Promise<Response>((_resolve, reject) => {
+          init?.signal?.addEventListener("abort", () => reject(init.signal?.reason), {
+            once: true,
+          });
+        }),
+    });
+
+    const result = await Effect.runPromise(
+      Effect.either(
+        client.createWaitpoint({
+          idempotencyKey: "waitpoint-key",
+          idempotencyKeyTTL: "30d",
+          timeout: "4w",
+          tags: [],
+        }),
+      ),
+    );
+
+    expect(result._tag).toBe("Left");
+    expect(JSON.stringify(result)).toContain("request failed");
+    expect(JSON.stringify(result)).not.toContain("trigger-private-secret");
+  });
+
+  it("treats a missing retrieved wrapper as a recoverable result", async () => {
+    const client = createTriggerDevHttpClient({
+      secretKey: "trigger-private-secret",
+      fetch: async () => Response.json({ error: "not found" }, { status: 404 }),
+    });
+
+    await expect(Effect.runPromise(client.retrieveRun("run_missing"))).resolves.toEqual({
+      found: false,
+    });
+  });
 });
