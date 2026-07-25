@@ -1,6 +1,0 @@
-{
-  "version": 3,
-  "sources": ["../../../../../../../.prototypes/trigger-dev/node_modules/.pnpm/@opentelemetry+resources@2.7.1_@opentelemetry+api@1.9.1/node_modules/@opentelemetry/resources/src/detectors/platform/node/machine-id/getMachineId-unsupported.ts"],
-  "mappings": ";;;;;;;;;;;;;;;;;AAKA,QAAA,QAAA;AAEO,mBAAe,eAAY;AAChC,YAAA,KAAK,MAAM,iDAAiD;AAC5D,aAAO;IACT;AAHsB;AAAtB,YAAA,eAAA;;;",
-  "names": []
-}

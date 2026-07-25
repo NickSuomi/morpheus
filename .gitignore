@@ -22,6 +22,7 @@ node_modules/
 dist/
 coverage/
 packages/*/dist/
+packages/*/.trigger/
 
 # bv (beads viewer) local config and caches
 .bv/
