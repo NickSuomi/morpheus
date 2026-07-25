@@ -41,6 +41,7 @@ describe("release packaging", () => {
       expect(listing).toContain("bin/morpheus");
       expect(listing).toContain("app/dist/index.mjs");
       expect(listing).toContain("app/node_modules/");
+      expect(existsSync(join(repoRoot, "node_modules", ".bin", "vitest"))).toBe(true);
 
       const extractDir = join(dir, `${os}-${arch}`);
       sh(`mkdir -p ${JSON.stringify(extractDir)}`, repoRoot);

@@ -1,7 +1,18 @@
 import { execFile, execFileSync, spawn, spawnSync } from "node:child_process";
-import { chmodSync, existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
-import { homedir } from "node:os";
-import { dirname, isAbsolute, join, resolve } from "node:path";
+import { randomUUID } from "node:crypto";
+import {
+  chmodSync,
+  cpSync,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  statSync,
+  writeFileSync,
+} from "node:fs";
+import { homedir, tmpdir } from "node:os";
+import { basename, dirname, isAbsolute, join, resolve } from "node:path";
 import { codex, run as sandcastleRun } from "@ai-hero/sandcastle";
 import type { AgentProvider, RunOptions, RunResult } from "@ai-hero/sandcastle";
 import { docker } from "@ai-hero/sandcastle/sandboxes/docker";
@@ -1624,12 +1635,31 @@ const stageSkillInstructionsForPrompt = (
   ].join("\n");
 };
 
+const containerSkillFallbacksForPrompt = (
+  phase: SandcastlePhase,
+  skills: AgentSkillConfig,
+  containerRoots: readonly string[],
+): string[] => {
+  const skillPaths = new Map(skills.mappings.map((skill) => [skill.name, skill.path]));
+
+  return containerRoots.flatMap((root) =>
+    skills.stageMappings[phase].map((name) => {
+      const path = skillPaths.get(name);
+      if (path === undefined) {
+        throw new Error(`Stage skill mapping references unknown copied skill: ${phase}:${name}`);
+      }
+      return `${root.replace(/\/+$/, "")}/${path.replace(/^\.?\//, "")}`;
+    }),
+  );
+};
+
 const builtInPrompt = (
   input: SandcastlePhaseInput,
   skills: AgentSkillConfig,
   containerRoots: readonly string[] = [],
 ): string => {
   const { phase, issue } = input;
+  const containerSkillFallbacks = containerSkillFallbacksForPrompt(phase, skills, containerRoots);
   const base = [
     `You are a Morpheus ${phase} agent.`,
     `Issue: ${issue.id}`,
@@ -1637,11 +1667,14 @@ const builtInPrompt = (
     `Description: ${issue.description ?? "None"}`,
     defaultAgentSkillInstructions,
     stageSkillInstructionsForPrompt(phase, skills),
-    "If a listed repo path or skill path does not exist inside the container, run `pwd` and use the current checkout root; resolve relative `.morpheus/...` skill paths from that root.",
     ...(containerRoots.length === 0
-      ? []
+      ? [
+          "If a listed repo path or skill path does not exist inside the container, run `pwd` and use the current checkout root; resolve relative `.morpheus/...` skill paths from that root.",
+        ]
       : [
-          `If copied skills are absent from the Worktree, check these configured container roots before proceeding: ${containerRoots.join(", ")}. Resolve .morpheus/skills/... beneath those roots.`,
+          "Read stage skills from the exact required container paths before trying repo-relative skill paths.",
+          `Exact required container skill paths:\n${containerSkillFallbacks.map((path) => `- ${path}`).join("\n")}`,
+          `If an exact path is absent, check these configured container roots before proceeding: ${containerRoots.join(", ")}. Resolve .morpheus/skills/... beneath those roots; do not treat the implementation checkout as the skill source.`,
         ]),
     phase === "implement"
       ? "Do not close Beads issues. Commit implementation changes on the implementation branch before returning implemented. Do not push. Do not run glab. Morpheus or the host operator publishes the branch/MR outside the sandbox."
@@ -1673,6 +1706,9 @@ const builtInPrompt = (
       `Contract: ${JSON.stringify(input.contract)}`,
       "All code changes, verification commands, git diff checks, and commits must happen inside the Implementation root. Do not edit or verify the host workspace path.",
       "Before returning implemented, inspect obvious repo merge gates such as `.gitlab-ci.yml` and `scripts/**/check_*`; if the target requires a metadata-only version/build bump for every MR, include the minimal required bump and report it as gate evidence.",
+      "Verification evidence must cover the Contract verification plan and required target CI gates for this implementation.",
+      "If an exploratory repository-wide check fails only on pre-existing files outside the implementation diff, record it in the transcript, not as failed verification evidence.",
+      "An implemented result must not contain failed verification evidence; return a failed result only when a required verification-plan or target CI gate fails because of this implementation.",
       "Before returning implemented, run git add for changed files and git commit on the Branch above. A successful implementation must leave at least one commit on that branch. Do not push from the sandbox.",
       "Before returning implemented, verify `git diff --stat TARGET...HEAD` is non-empty and that your implementation commits are on the Branch above.",
       "Use TDD for behavior-first implementation where practical, and diagnose before changing unclear code.",
@@ -2009,6 +2045,75 @@ const branchCommitsFromGit = (cwd: string, targetBranch: string): readonly strin
   }
 };
 
+const disposableReadOnlyWorktreePrefix = ".morpheus-readonly-worktree-";
+const activeDisposableReadOnlyWorktrees = new Set<string>();
+const canonicalContainerWorkspace = "/home/agent/workspace";
+const containerSkillRoot = "/opt/morpheus";
+
+const cleanupDisposableReadOnlyWorktree = (cwd: string, worktreePath: string): void => {
+  try {
+    execFileSync("git", ["-C", cwd, "worktree", "remove", "--force", worktreePath], {
+      stdio: "ignore",
+    });
+  } catch {
+    // Best-effort cleanup. The next preparation pass retries stale worktree cleanup.
+  } finally {
+    activeDisposableReadOnlyWorktrees.delete(worktreePath);
+  }
+};
+
+const cleanupStaleDisposableReadOnlyWorktrees = (cwd: string): void => {
+  try {
+    const worktrees = execFileSync("git", ["-C", cwd, "worktree", "list", "--porcelain"], {
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "ignore"],
+    });
+    for (const line of worktrees.split("\n")) {
+      if (!line.startsWith("worktree ")) {
+        continue;
+      }
+      const worktreePath = line.slice("worktree ".length);
+      if (
+        basename(worktreePath).startsWith(disposableReadOnlyWorktreePrefix) &&
+        !activeDisposableReadOnlyWorktrees.has(worktreePath)
+      ) {
+        cleanupDisposableReadOnlyWorktree(cwd, worktreePath);
+      }
+    }
+  } catch {
+    // Worktree cleanup is best-effort and must not hide the actual agent result.
+  }
+};
+
+const createDisposableReadOnlyWorktree = (cwd: string): string => {
+  cleanupStaleDisposableReadOnlyWorktrees(cwd);
+  const worktreePath = resolve(dirname(cwd), `${disposableReadOnlyWorktreePrefix}${randomUUID()}`);
+  execFileSync("git", ["-C", cwd, "worktree", "add", "--detach", worktreePath, "HEAD"], {
+    stdio: "ignore",
+  });
+  const sourceSkillsDirectory = join(cwd, ".morpheus", "skills");
+  if (existsSync(sourceSkillsDirectory)) {
+    const worktreeSkillsDirectory = join(worktreePath, ".morpheus", "skills");
+    mkdirSync(dirname(worktreeSkillsDirectory), { recursive: true });
+    cpSync(sourceSkillsDirectory, worktreeSkillsDirectory, { recursive: true });
+  }
+  activeDisposableReadOnlyWorktrees.add(worktreePath);
+  return worktreePath;
+};
+
+const isGitWorktree = (cwd: string): boolean => {
+  try {
+    return (
+      execFileSync("git", ["-C", cwd, "rev-parse", "--is-inside-work-tree"], {
+        encoding: "utf8",
+        stdio: ["ignore", "pipe", "ignore"],
+      }).trim() === "true"
+    );
+  } catch {
+    return false;
+  }
+};
+
 const runSandcastlePhase = (
   options: SandcastleAgentRunnerOptions,
   input: SandcastlePhaseInput,
@@ -2016,7 +2121,7 @@ const runSandcastlePhase = (
   Effect.tryPromise({
     try: async () => {
       const { phase, issue } = input;
-      const cwd =
+      const phaseCwd =
         phase === "implement" || phase === "review"
           ? (input.workspace.worktreePath ?? input.workspace.workspacePath)
           : options.cwd;
@@ -2039,11 +2144,19 @@ const runSandcastlePhase = (
         image: "morpheus-agent:local",
         mounts: [],
       };
-      const configuredMounts = containerConfig.mounts.map((mount) => ({
-        hostPath: resolve(options.cwd, mount.hostPath),
-        sandboxPath: mount.containerPath,
-        readonly: mount.readOnly,
-      }));
+      const preparationWorktree =
+        phase === "prepare" && isGitWorktree(options.cwd)
+          ? createDisposableReadOnlyWorktree(options.cwd)
+          : undefined;
+      const cwd = preparationWorktree ?? phaseCwd;
+      const configuredMounts = containerConfig.mounts.map((mount) => {
+        const hostPath = resolve(options.cwd, mount.hostPath);
+        return {
+          hostPath,
+          sandboxPath: mount.containerPath,
+          readonly: hostPath === resolve(options.cwd) ? true : mount.readOnly,
+        };
+      });
       const worktreeMount =
         (phase === "implement" || phase === "review") &&
         input.workspace.worktreePath !== undefined &&
@@ -2056,16 +2169,91 @@ const runSandcastlePhase = (
               },
             ]
           : [];
+      const usesManagedContainer = options.sandbox === undefined;
+      const canonicalWorkspaceMounts =
+        usesManagedContainer && (phase === "implement" || phase === "review")
+          ? [
+              ...(existsSync(join(options.cwd, "node_modules"))
+                ? [
+                    {
+                      hostPath: join(options.cwd, "node_modules"),
+                      sandboxPath: `${canonicalContainerWorkspace}/node_modules`,
+                      readonly: true,
+                    },
+                  ]
+                : []),
+              ...(existsSync(join(options.cwd, ".morpheus", "skills"))
+                ? [
+                    {
+                      hostPath: join(options.cwd, ".morpheus", "skills"),
+                      sandboxPath: `${containerSkillRoot}/.morpheus/skills`,
+                      readonly: true,
+                    },
+                  ]
+                : []),
+            ]
+          : [];
+      const agentCachePath =
+        usesManagedContainer && (phase === "implement" || phase === "review")
+          ? mkdtempSync(join(tmpdir(), "morpheus-agent-cache-"))
+          : undefined;
+      if (agentCachePath !== undefined) {
+        for (const directory of ["npm", "pnpm", "pnpm-store", "vite-temp"]) {
+          mkdirSync(join(agentCachePath, directory), { recursive: true });
+        }
+      }
+      const cacheMounts =
+        agentCachePath === undefined
+          ? []
+          : [
+              {
+                hostPath: agentCachePath,
+                sandboxPath: "/tmp/morpheus-cache",
+                readonly: false,
+              },
+              ...(existsSync(join(options.cwd, "node_modules"))
+                ? [
+                    {
+                      hostPath: join(agentCachePath, "vite-temp"),
+                      sandboxPath: `${canonicalContainerWorkspace}/node_modules/.vite-temp`,
+                      readonly: false,
+                    },
+                  ]
+                : []),
+            ];
       const subscriptionMount =
         subscriptionAuthHome === undefined
           ? []
           : [
               {
-                hostPath: subscriptionAuthHome,
-                sandboxPath: codexContainerAuthHome,
+                hostPath: join(subscriptionAuthHome, "auth.json"),
+                sandboxPath: `${codexContainerAuthHome}/auth.json`,
                 readonly: false,
               },
             ];
+      const configuredSourceContainerPath = configuredMounts.find(
+        (mount) => mount.hostPath === resolve(options.cwd),
+      )?.sandboxPath;
+      const promptInput: SandcastlePhaseInput =
+        usesManagedContainer && input.phase === "implement"
+          ? {
+              ...input,
+              workspace: {
+                ...input.workspace,
+                workspacePath: configuredSourceContainerPath ?? input.workspace.workspacePath,
+                worktreePath: canonicalContainerWorkspace,
+              },
+            }
+          : usesManagedContainer && input.phase === "review"
+            ? {
+                ...input,
+                workspace: {
+                  ...input.workspace,
+                  workspacePath: configuredSourceContainerPath ?? input.workspace.workspacePath,
+                  worktreePath: canonicalContainerWorkspace,
+                },
+              }
+            : input;
       const execute = () =>
         runner({
           agent:
@@ -2079,25 +2267,39 @@ const runSandcastlePhase = (
               imageName: containerConfig.image,
               containerUid: 0,
               containerGid: 0,
-              ...(containerConfig.profile === undefined
-                ? {}
-                : { dockerfilePath: resolve(options.cwd, containerConfig.profile) }),
-              mounts: [...configuredMounts, ...worktreeMount, ...subscriptionMount],
+              mounts: [
+                ...configuredMounts,
+                ...worktreeMount,
+                ...canonicalWorkspaceMounts,
+                ...cacheMounts,
+                ...subscriptionMount,
+              ],
               env: {
                 ...authEnv,
-                HOME: "/tmp/morpheus-home",
+                HOME: "/home/agent",
                 CODEX_HOME: codexContainerAuthHome,
-                XDG_CONFIG_HOME: "/tmp/morpheus-home/.config",
+                XDG_CONFIG_HOME: "/home/agent/.config",
+                ...(agentCachePath === undefined
+                  ? {}
+                  : {
+                      XDG_CACHE_HOME: "/tmp/morpheus-cache",
+                      npm_config_cache: "/tmp/morpheus-cache/npm",
+                      npm_config_store_dir: "/tmp/morpheus-cache/pnpm-store",
+                      PNPM_HOME: "/tmp/morpheus-cache/pnpm",
+                      PNPM_STORE_DIR: "/tmp/morpheus-cache/pnpm-store",
+                      pnpm_config_verify_deps_before_run: "false",
+                    }),
               },
             }),
           cwd,
-          prompt: resolvePromptText(
-            input,
-            options.promptPaths,
-            options.skills,
-            options.cwd,
-            containerConfig.mounts.map((mount) => mount.containerPath),
-          ),
+          prompt: resolvePromptText(promptInput, options.promptPaths, options.skills, options.cwd, [
+            ...(canonicalWorkspaceMounts.some(
+              (mount) => mount.sandboxPath === `${containerSkillRoot}/.morpheus/skills`,
+            )
+              ? [containerSkillRoot]
+              : []),
+            ...containerConfig.mounts.map((mount) => mount.containerPath),
+          ]),
           logging: {
             type: "file",
             path: join(options.logDirectory, `${issue.id}-${phase}.log`),
@@ -2106,10 +2308,20 @@ const runSandcastlePhase = (
           maxIterations: 1,
           idleTimeoutSeconds: agentConfig.idleTimeoutSeconds ?? 1800,
         });
-      const result =
-        subscriptionAuthHome === undefined
-          ? await execute()
-          : await withSubscriptionAuthLease(subscriptionAuthHome, execute);
+      let result: RunResult;
+      try {
+        result =
+          subscriptionAuthHome === undefined
+            ? await execute()
+            : await withSubscriptionAuthLease(subscriptionAuthHome, execute);
+      } finally {
+        if (preparationWorktree !== undefined) {
+          cleanupDisposableReadOnlyWorktree(options.cwd, preparationWorktree);
+        }
+        if (agentCachePath !== undefined) {
+          rmSync(agentCachePath, { recursive: true, force: true });
+        }
+      }
       const output = extractTaggedJson(result.stdout);
       const reportedCommits = normalizeCommitIds(result.commits);
       const commits =
@@ -2952,12 +3164,31 @@ export const createBeadsIssueTracker = ({
       const currentIssueJson = yield* firstIssueFromJson(showResult.stdout, showArgs);
       const currentMetadata = yield* readMetadata(existing.id, currentIssueJson);
       const currentLabels = labelsFromIssue(currentIssueJson.labels);
-      const nextLabelsFromGitLab = nextLabelsFromGitLabLifecycle(
-        currentLabels,
-        source.labels,
-        readyLabel,
-        stopLabel,
-      );
+      const localLifecycleLabels = agentLifecycleLabelsFrom(currentLabels);
+      const previousRemoteLifecycleLabels = agentLifecycleLabelsFrom(existing.metadata.labels);
+      const currentRemoteLifecycleLabels = agentLifecycleLabelsFrom(source.labels);
+      const localLifecycle =
+        localLifecycleLabels.length === 1 ? localLifecycleLabels[0] : undefined;
+      const previousRemoteLifecycle =
+        previousRemoteLifecycleLabels.length === 1 ? previousRemoteLifecycleLabels[0] : undefined;
+      const currentRemoteLifecycle =
+        currentRemoteLifecycleLabels.length === 1 ? currentRemoteLifecycleLabels[0] : undefined;
+      const lifecycleConflict =
+        localLifecycle !== undefined &&
+        previousRemoteLifecycle !== undefined &&
+        currentRemoteLifecycle !== undefined &&
+        previousRemoteLifecycle !== currentRemoteLifecycle &&
+        localLifecycle !== currentRemoteLifecycle
+          ? {
+              local: localLifecycle,
+              previousRemote: previousRemoteLifecycle,
+              currentRemote: currentRemoteLifecycle,
+            }
+          : undefined;
+      const nextLabelsFromGitLab =
+        lifecycleConflict === undefined
+          ? nextLabelsFromGitLabLifecycle(currentLabels, source.labels, readyLabel, stopLabel)
+          : replaceAgentLifecycleLabel(currentLabels, lifecycleConflict.currentRemote);
       const nextMetadata = metadataWithGitLabImport(currentMetadata, source, syncedAt);
       const contentChanged = importedIssueChanged(existing, source);
       const nextLabels = nextLabelsFromGitLab ?? currentLabels;
@@ -2998,6 +3229,7 @@ export const createBeadsIssueTracker = ({
           labelsChanged &&
           nextLabels.includes("agent:ready") &&
           !currentLabels.includes("agent:ready"),
+        ...(lifecycleConflict === undefined ? {} : { lifecycleConflict }),
       };
     }),
 });

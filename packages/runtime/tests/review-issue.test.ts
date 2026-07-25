@@ -303,6 +303,7 @@ const fakeMergeRequests = (
 const fakeAgentRunner = (
   scenario:
     | "passed"
+    | "passed-with-error"
     | "blocked"
     | "failed"
     | "legacy-finding"
@@ -381,6 +382,14 @@ const fakeAgentRunner = (
           artifact: {},
         });
       }
+      if (scenario === "passed-with-error") {
+        return Effect.succeed({
+          status: "passed",
+          findings: [{ severity: "error", summary: "Broken acceptance path." }],
+          transcript: "contradictory",
+          artifact: {},
+        });
+      }
       return Effect.succeed({
         status: "passed",
         findings: [{ severity: "info", summary: "Review passed." }],
@@ -422,6 +431,7 @@ const expectNoInternalAdapterDetail = (output: string) => {
 const runReview = async (
   scenario:
     | "passed"
+    | "passed-with-error"
     | "blocked"
     | "failed"
     | "legacy-finding"
@@ -542,6 +552,19 @@ describe("reviewIssue", () => {
     expect(mergeRequests.descriptions[0]).toContain("Review verdict: passed");
     expect(mergeRequests.descriptions[0]).toContain("Implemented review workflow.");
     expect(mergeRequests.descriptions[0]).toContain("Source issue: #1234");
+  });
+
+  it("rejects a passed verdict that contains error findings", async () => {
+    const { result, tracker, ledger, mergeRequests } = await runReview("passed-with-error");
+
+    expect(result).toMatchObject({
+      status: "failed",
+      failureKind: "agent_contract_error",
+      message: "Contradictory review result: passed verdict contains error findings.",
+    });
+    expect(tracker.labels).toEqual(["agent:failed"]);
+    expect(ledger.events).toContain("ReviewFailed");
+    expect(mergeRequests.descriptions).toEqual([]);
   });
 
   it("fails review instead of marking review-candidate when the MR gate fails", async () => {

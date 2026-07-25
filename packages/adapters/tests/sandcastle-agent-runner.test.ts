@@ -1,5 +1,5 @@
 import { execFileSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { deriveIssueState, deriveLane } from "@morpheus/core";
@@ -573,12 +573,15 @@ describe("SandcastleAgentRunner", () => {
 
   it("mounts the prepared worktree for Docker-backed implementation runs", async () => {
     const dir = mkdtempSync(join(tmpdir(), "morpheus-sandcastle-"));
+    mkdirSync(join(dir, "node_modules", ".vite-temp"), { recursive: true });
+    mkdirSync(join(dir, ".morpheus", "skills"), { recursive: true });
     writeFileSync(
       join(dir, "agent.env"),
       "OPENAI_API_KEY=test-token\nEXTRA_TOKEN=must-not-enter-container\n",
     );
     const worktreePath = join(dir, "../.morpheus-worktree-run_123");
     const dockerOptions: unknown[] = [];
+    const runOptions: Array<{ cwd?: string; prompt?: string }> = [];
     const runner = createSandcastleAgentRunner({
       cwd: dir,
       logDirectory: join(dir, ".morpheus", "sandcastle-logs"),
@@ -601,12 +604,15 @@ describe("SandcastleAgentRunner", () => {
           close: async () => ({}),
         } as never;
       },
-      run: async () => ({
-        iterations: [],
-        stdout: `<morpheus_result>{"status":"implemented","implementationEvidence":[],"verificationEvidence":[],"transcript":"","artifact":{}}</morpheus_result>`,
-        commits: [],
-        branch: "morpheus/morph-bbp-run_123",
-      }),
+      run: async (options) => {
+        runOptions.push({ cwd: options.cwd, prompt: options.prompt });
+        return {
+          iterations: [],
+          stdout: `<morpheus_result>{"status":"implemented","implementationEvidence":[],"verificationEvidence":[],"transcript":"","artifact":{}}</morpheus_result>`,
+          commits: [],
+          branch: "morpheus/morph-bbp-run_123",
+        };
+      },
     });
 
     const effect = runner.implementIssue?.({
@@ -640,11 +646,108 @@ describe("SandcastleAgentRunner", () => {
 
     expect(dockerOptions).toHaveLength(1);
     expect(dockerOptions[0]).toMatchObject({
-      mounts: [
-        { hostPath: dir, sandboxPath: "/workspace" },
+      mounts: expect.arrayContaining([
+        { hostPath: dir, sandboxPath: "/workspace", readonly: true },
         { hostPath: worktreePath, sandboxPath: worktreePath, readonly: false },
-      ],
+        {
+          hostPath: join(dir, "node_modules"),
+          sandboxPath: "/home/agent/workspace/node_modules",
+          readonly: true,
+        },
+        {
+          hostPath: join(dir, ".morpheus", "skills"),
+          sandboxPath: "/opt/morpheus/.morpheus/skills",
+          readonly: true,
+        },
+        expect.objectContaining({
+          sandboxPath: "/home/agent/workspace/node_modules/.vite-temp",
+          readonly: false,
+        }),
+      ]),
+      env: expect.objectContaining({
+        XDG_CACHE_HOME: "/tmp/morpheus-cache",
+        npm_config_cache: "/tmp/morpheus-cache/npm",
+        PNPM_HOME: "/tmp/morpheus-cache/pnpm",
+        PNPM_STORE_DIR: "/tmp/morpheus-cache/pnpm-store",
+        pnpm_config_verify_deps_before_run: "false",
+      }),
     });
+    expect(runOptions[0]?.prompt).toContain(
+      "Implementation root (edit and verify here ONLY): /home/agent/workspace",
+    );
+    expect(runOptions[0]?.prompt).toContain(
+      "Host workspace (do not edit for implementation): /workspace",
+    );
+    expect(runOptions[0]?.prompt).toContain(
+      "/opt/morpheus/.morpheus/skills/matt-pocock-tdd/SKILL.md",
+    );
+    expect(runOptions[0]?.prompt).toContain(
+      "Read stage skills from the exact required container paths before trying repo-relative skill paths.",
+    );
+  });
+
+  it("runs Docker-backed preparation in a disposable external worktree", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "morpheus-sandcastle-"));
+    execFileSync("git", ["-C", dir, "init", "-b", "dev"]);
+    execFileSync("git", ["-C", dir, "config", "user.email", "morpheus@example.invalid"]);
+    execFileSync("git", ["-C", dir, "config", "user.name", "Morpheus Test"]);
+    writeFileSync(join(dir, "README.md"), "base\n");
+    execFileSync("git", ["-C", dir, "add", "README.md"]);
+    execFileSync("git", ["-C", dir, "commit", "-m", "base"]);
+    const copiedSkillPath = join(".morpheus", "skills", "matt-pocock-to-spec", "SKILL.md");
+    mkdirSync(join(dir, copiedSkillPath, ".."), { recursive: true });
+    writeFileSync(join(dir, copiedSkillPath), "# Test skill\n");
+    const initialStatus = execFileSync("git", ["-C", dir, "status", "--porcelain"], {
+      encoding: "utf8",
+    });
+    const calls: Array<{ branchStrategy?: unknown; cwd?: string; prompt?: string }> = [];
+    const runner = createSandcastleAgentRunner({
+      cwd: dir,
+      logDirectory: join(dir, ".morpheus", "sandcastle-logs"),
+      containerConfig: {
+        image: "morpheus-agent:test",
+        mounts: [{ hostPath: ".", containerPath: "/workspace" }],
+      },
+      dockerFactory: () =>
+        ({
+          kind: "none",
+          exec: async () => ({ stdout: "", stderr: "", exitCode: 0 }),
+          close: async () => ({}),
+        }) as never,
+      run: async (options) => {
+        calls.push({
+          branchStrategy: options.branchStrategy,
+          cwd: options.cwd,
+          prompt: options.prompt,
+        });
+        expect(existsSync(join(options.cwd ?? dir, copiedSkillPath))).toBe(true);
+        mkdirSync(join(options.cwd ?? dir, ".sandcastle", "worktrees"), { recursive: true });
+        return {
+          iterations: [],
+          stdout: `<morpheus_result>{"status":"blocked","reason":"fixture","transcript":"","artifact":{}}</morpheus_result>`,
+          commits: [],
+          branch: "dev",
+        };
+      },
+    });
+
+    await Effect.runPromise(runner.prepareIssue({ issue: trackedIssue() }));
+
+    expect(calls).toHaveLength(1);
+    expect(calls[0]?.branchStrategy).toBeUndefined();
+    expect(calls[0]?.cwd).toMatch(/\.morpheus-readonly-worktree-/);
+    expect(calls[0]?.cwd).not.toBe(dir);
+    expect(existsSync(calls[0]?.cwd ?? "")).toBe(false);
+    expect(calls[0]?.prompt).toContain("/workspace/.morpheus/skills/matt-pocock-to-spec/SKILL.md");
+    expect(execFileSync("git", ["-C", dir, "status", "--porcelain"], { encoding: "utf8" })).toBe(
+      initialStatus,
+    );
+    expect(existsSync(join(dir, ".sandcastle"))).toBe(false);
+    expect(
+      execFileSync("git", ["-C", dir, "worktree", "list", "--porcelain"], {
+        encoding: "utf8",
+      }),
+    ).not.toContain(".morpheus-readonly-worktree-");
   });
 
   it("uses prompt override files relative to the target repo", async () => {
@@ -1033,13 +1136,12 @@ describe("SandcastleAgentRunner", () => {
         imageName: "morpheus-agent:test",
         containerUid: 0,
         containerGid: 0,
-        dockerfilePath: join(dir, ".morpheus/container/Dockerfile"),
         mounts: [{ hostPath: join(dir, ".cache"), sandboxPath: "/cache", readonly: true }],
         env: {
           OPENAI_API_KEY: "test-token",
-          CODEX_HOME: "/tmp/morpheus-codex-home",
-          HOME: "/tmp/morpheus-home",
-          XDG_CONFIG_HOME: "/tmp/morpheus-home/.config",
+          CODEX_HOME: "/home/agent/morpheus-codex",
+          HOME: "/home/agent",
+          XDG_CONFIG_HOME: "/home/agent/.config",
         },
       },
     ]);
@@ -1093,15 +1195,15 @@ describe("SandcastleAgentRunner", () => {
       expect.objectContaining({
         mounts: [
           {
-            hostPath: authHome,
-            sandboxPath: "/tmp/morpheus-codex-home",
+            hostPath: join(authHome, "auth.json"),
+            sandboxPath: "/home/agent/morpheus-codex/auth.json",
             readonly: false,
           },
         ],
         env: {
-          CODEX_HOME: "/tmp/morpheus-codex-home",
-          HOME: "/tmp/morpheus-home",
-          XDG_CONFIG_HOME: "/tmp/morpheus-home/.config",
+          CODEX_HOME: "/home/agent/morpheus-codex",
+          HOME: "/home/agent",
+          XDG_CONFIG_HOME: "/home/agent/.config",
         },
       }),
     ]);
@@ -1373,6 +1475,9 @@ describe("SandcastleAgentRunner", () => {
     expect(calls[0].prompt).toContain("Branch: agent/morph-bbp");
     expect(calls[0].prompt).toContain("Merge request: !42");
     expect(calls[0].prompt).toContain("Implement real adapter");
+    expect(calls[0].prompt).toContain(
+      "If an exploratory repository-wide check fails only on pre-existing files outside the implementation diff, record it in the transcript, not as failed verification evidence.",
+    );
     expect(calls[0].prompt).toContain("Do not run glab.");
   });
 

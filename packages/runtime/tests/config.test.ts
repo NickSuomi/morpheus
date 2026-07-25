@@ -378,10 +378,10 @@ describe("Morpheus config", () => {
   });
 
   it.each([
-    "/tmp/morpheus-codex-home",
-    "/tmp/morpheus-codex-home/",
-    "/tmp/other/../morpheus-codex-home",
-    "/tmp/morpheus-codex-home/auth.json",
+    "/home/agent/morpheus-codex",
+    "/home/agent/morpheus-codex/",
+    "/home/agent/other/../morpheus-codex",
+    "/home/agent/morpheus-codex/auth.json",
   ])("rejects target mount %s that shadows the managed Codex auth home", (containerPath) => {
     withTempDir((dir) => {
       const configPath = writeConfig(dir, {
@@ -403,7 +403,7 @@ describe("Morpheus config", () => {
         error: {
           kind: "schema_validation",
           message:
-            "container path /tmp/morpheus-codex-home is reserved for Morpheus-managed Codex auth",
+            "container path /home/agent/morpheus-codex is reserved for Morpheus-managed Codex auth",
         },
       });
     });

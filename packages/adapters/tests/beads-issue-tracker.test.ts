@@ -1120,6 +1120,64 @@ describe("BeadsIssueTracker", () => {
     ]);
   });
 
+  it("adopts a remote lifecycle advance instead of mirroring stale local state", async () => {
+    const imported = {
+      id: "morph-stale-controller",
+      title: "Import me",
+      description: "Ready for Morpheus.",
+      labels: ["agent:failed", "triaged"],
+      metadata: {
+        morpheus: {
+          gitlab: {
+            project: "group/project",
+            iid: 42,
+            webUrl: "https://gitlab.example.com/group/project/-/issues/42",
+            labels: ["agent:failed", "backend"],
+            lastSyncedAt: "2026-05-19T09:00:00.000Z",
+            title: "Import me",
+            description: "Ready for Morpheus.",
+          },
+        },
+      },
+    };
+    const processRunner = fakeProcessRunner([ok([imported]), ok([imported]), ok([])]);
+
+    const result = await runWithTracker(
+      processRunner.layer,
+      Effect.gen(function* () {
+        const tracker = yield* IssueTracker;
+        return yield* tracker.upsertImportedGitLabIssue({
+          syncedAt: "2026-05-19T10:00:00.000Z",
+          source: {
+            project: "group/project",
+            iid: 42,
+            title: "Import me",
+            description: "Ready for Morpheus.",
+            webUrl: "https://gitlab.example.com/group/project/-/issues/42",
+            labels: ["agent:review-candidate", "backend"],
+          },
+        });
+      }),
+    );
+
+    expect(result).toEqual({
+      status: "updated",
+      issueId: "morph-stale-controller",
+      addedReadyLabel: false,
+      lifecycleConflict: {
+        local: "agent:failed",
+        previousRemote: "agent:failed",
+        currentRemote: "agent:review-candidate",
+      },
+    });
+    expect(processRunner.calls.at(-1)?.args.slice(-4)).toEqual([
+      "--set-labels",
+      "triaged",
+      "--set-labels",
+      "agent:review-candidate",
+    ]);
+  });
+
   it("blocks an active imported issue when GitLab carries the stop label", async () => {
     const imported = {
       id: "morph-running",
