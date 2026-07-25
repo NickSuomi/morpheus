@@ -159,19 +159,22 @@ const implementationArtifact = JSON.stringify({
   mergeRequest: { reference: "!7", url: "https://gitlab.example/mr/7" },
 });
 
-const fakeRunLedger = () => {
+const fakeRunLedger = (initialRuns?: readonly RunSummary[]) => {
   let nextId = 1;
   const runs: RunSummary[] = [
-    {
-      id: "run_seed_impl",
-      issueId: "morph-review",
-      lane: "implementation",
-      status: "running",
-      summary: "morph-review",
-      startedAt: "2026-05-19T00:00:00.000Z",
-      artifactPath: "/tmp/implementation.json",
-      mergeRequestRef: "!7",
-    },
+    ...(initialRuns ?? [
+      {
+        id: "run_seed_impl",
+        issueId: "morph-review",
+        lane: "implementation",
+        status: "succeeded",
+        summary: "morph-review",
+        startedAt: "2026-05-19T00:00:00.000Z",
+        endedAt: "2026-05-19T00:00:01.000Z",
+        artifactPath: "/tmp/implementation.json",
+        mergeRequestRef: "!7",
+      },
+    ]),
   ];
   const artifacts = new Map<string, string>([["run_seed_impl", implementationArtifact]]);
   const service: RunLedgerService = {
@@ -689,6 +692,96 @@ describe("runDaemonOnce", () => {
     });
   });
 
+  it("mirrors a completed lane before another concurrent lane finishes", async () => {
+    const tracker = fakeIssueTracker({
+      "morph-gl-42": ["agent:ready"],
+      "morph-gl-43": ["agent:prepared"],
+    });
+    let implementationFinished = false;
+    const updates: Array<{
+      readonly project: string;
+      readonly iid: number;
+      readonly addLabels: readonly string[];
+      readonly removeLabels: readonly string[];
+      readonly duringImplementation: boolean;
+    }> = [];
+    const baseAgentRunner = fakeAgentRunnerService();
+    const agentRunner: AgentRunnerService = {
+      ...baseAgentRunner,
+      prepareIssue: () =>
+        Effect.promise(async () => {
+          await new Promise<void>((resolvePrepare) => setTimeout(resolvePrepare, 50));
+          return {
+            status: "prepared" as const,
+            contract,
+            transcript: "prepared",
+            artifact: { status: "prepared" },
+          };
+        }),
+      implementIssue: () =>
+        Effect.promise(async () => {
+          await new Promise<void>((resolveImplementation) =>
+            setTimeout(resolveImplementation, 250),
+          );
+          implementationFinished = true;
+          return {
+            status: "implemented" as const,
+            implementationEvidence: [
+              { summary: "Implemented by daemon.", files: ["src/index.ts"] },
+            ],
+            verificationEvidence: [{ command: "pnpm test", status: "passed" as const }],
+            transcript: "implemented",
+            artifact: { status: "implemented" },
+          };
+        }),
+    };
+    const layer = Layer.mergeAll(
+      tracker.layer,
+      supportLayer(
+        {},
+        [
+          {
+            project: "group/project",
+            iid: 42,
+            title: "Prepare imported issue",
+            description: "Ready for Morpheus.",
+            webUrl: "https://gitlab.example.com/group/project/-/issues/42",
+            labels: ["agent:ready"],
+          },
+          {
+            project: "group/project",
+            iid: 43,
+            title: "Implement imported issue",
+            description: "Prepared for Morpheus.",
+            webUrl: "https://gitlab.example.com/group/project/-/issues/43",
+            labels: ["agent:prepared"],
+          },
+        ],
+        {
+          agentRunner,
+          onUpdateIssueLabels: (input) =>
+            updates.push({ ...input, duringImplementation: !implementationFinished }),
+        },
+      ),
+    );
+
+    await Effect.runPromise(
+      runDaemonOnce({
+        project: "group/project",
+        readyLabel: "agent:ready",
+        syncedAt: "2026-05-19T00:00:00.000Z",
+      }).pipe(Effect.provide(layer)),
+    );
+
+    expect(updates).toContainEqual({
+      project: "group/project",
+      iid: 42,
+      addLabels: ["agent:prepared"],
+      removeLabels: ["agent:ready"],
+      duringImplementation: true,
+    });
+  });
+
   it("leaves blocked preparation terminal and does no work on next tick", async () => {
     const tracker = fakeIssueTracker({ "morph-blocked": ["agent:ready"] });
     const layer = Layer.mergeAll(tracker.layer, supportLayer({ prepare: "blocked" }));
@@ -753,6 +846,57 @@ describe("runDaemonOnce", () => {
     expect(first.executions[0]?.result.status).toBe("failed");
     expect(tracker.labelsOf("morph-impl-failed")).toEqual(["agent:failed"]);
     expect(second.executions).toEqual([]);
+  });
+
+  it("recovers an interrupted run before scheduling a later lane", async () => {
+    const tracker = fakeIssueTracker({ "morph-interrupted": ["agent:running"] });
+    const ledger = fakeRunLedger([
+      {
+        id: "run_interrupted",
+        issueId: "morph-interrupted",
+        lane: "implementation",
+        status: "running",
+        summary: "Interrupted implementation",
+        startedAt: "2026-05-19T00:00:00.000Z",
+      },
+    ]);
+    const layer = Layer.mergeAll(tracker.layer, supportLayer(), ledger);
+
+    const result = await Effect.runPromise(
+      runDaemonOnce({
+        project: "group/project",
+        readyLabel: "agent:ready",
+      }).pipe(Effect.provide(layer)),
+    );
+
+    expect(
+      (
+        result as typeof result & {
+          readonly recoveredRuns?: readonly {
+            readonly runId: string;
+            readonly issueId: string;
+            readonly lane: string;
+            readonly issueStateChanged: boolean;
+          }[];
+        }
+      ).recoveredRuns,
+    ).toEqual([
+      {
+        runId: "run_interrupted",
+        issueId: "morph-interrupted",
+        lane: "implementation",
+        issueStateChanged: true,
+      },
+    ]);
+    expect(result.executions).toEqual([]);
+    expect(tracker.labelsOf("morph-interrupted")).toEqual(["agent:failed"]);
+    expect(ledger.runsOf("morph-interrupted", "implementation")).toEqual([
+      expect.objectContaining({
+        id: "run_interrupted",
+        status: "failed",
+        failureKind: "runtime_error",
+      }),
+    ]);
   });
 
   it("fails preflight failures terminally and does no repeated work on next tick", async () => {

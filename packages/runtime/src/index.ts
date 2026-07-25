@@ -34,7 +34,7 @@ export const runtimeInfo: RuntimeInfo = {
   name: "MorpheusRuntime",
 };
 
-export const codexContainerAuthHome = "/tmp/morpheus-codex-home";
+export const codexContainerAuthHome = "/home/agent/morpheus-codex";
 
 export type ProcessResult = {
   readonly stdout: string;
@@ -411,6 +411,11 @@ export type UpsertImportedGitLabIssueResult =
       readonly status: "updated";
       readonly issueId: string;
       readonly addedReadyLabel: boolean;
+      readonly lifecycleConflict?: {
+        readonly local: AgentState;
+        readonly previousRemote: AgentState;
+        readonly currentRemote: AgentState;
+      };
     }
   | {
       readonly status: "skipped";
@@ -1426,7 +1431,11 @@ export const renderSyncGitLabIssuesResult = (result: SyncGitLabIssuesResult): st
     "Morpheus sync",
     `created=${result.created.length} updated=${result.updated.length} skipped=${result.skipped.length} failed=${result.failed.length}`,
     ...result.created.map((item) => `CREATED ${item.issueId}`),
-    ...result.updated.map((item) => `UPDATED ${item.issueId}`),
+    ...result.updated.map((item) =>
+      item.lifecycleConflict === undefined
+        ? `UPDATED ${item.issueId}`
+        : `UPDATED ${item.issueId} lifecycle-conflict local=${item.lifecycleConflict.local} previous-remote=${item.lifecycleConflict.previousRemote} current-remote=${item.lifecycleConflict.currentRemote} remote-wins`,
+    ),
     ...result.skipped.map((item) => {
       const duplicates =
         item.status === "skipped" &&
@@ -3275,6 +3284,20 @@ export const reviewIssue = (
     }
 
     const reviewResult = decodedResult.result;
+    if (
+      reviewResult.status === "passed" &&
+      reviewResult.findings.some((finding) => finding.severity === "error")
+    ) {
+      return yield* failReviewAfterStart(
+        tracker,
+        ledger,
+        issueId,
+        run.id,
+        "agent_contract_error",
+        "Contradictory review result: passed verdict contains error findings.",
+        reviewResult.findings,
+      );
+    }
     const artifactResult = yield* Effect.either(
       artifactToString(reviewArtifact(reviewResult, mergeRequest)),
     );
@@ -3442,10 +3465,18 @@ export type RunDaemonLoopInput = RunDaemonOnceInput & {
 };
 
 export type DaemonOnceResult = {
+  readonly recoveredRuns: readonly RecoveredInterruptedRun[];
   readonly sync: SyncGitLabIssuesResult;
   readonly gateAudits: readonly ReviewCandidateGateAudit[];
   readonly tick: DaemonTickPlan;
   readonly executions: readonly DaemonLaneExecution[];
+};
+
+export type RecoveredInterruptedRun = {
+  readonly runId: string;
+  readonly issueId: string;
+  readonly lane: RunnableLane;
+  readonly issueStateChanged: boolean;
 };
 
 export type ReviewCandidateGateAudit = {
@@ -3567,18 +3598,77 @@ const executeDaemonCommandWithLifecycleSync = (
   {
     readonly execution: DaemonLaneExecution;
     readonly startSync?: SyncGitLabIssuesResult;
+    readonly terminalSync: SyncGitLabIssuesResult;
   },
   never,
   IssueTracker | GitLabIssueSource | RunLedger | AgentRunner | WorkspaceRuntime | MergeRequestClient
 > =>
-  Effect.all([executeDaemonCommand(command), syncGitLabLifecycleAfterLaneStart(input, command)], {
-    concurrency: "unbounded",
-  }).pipe(
-    Effect.map(([execution, startSync]) => ({
+  Effect.gen(function* () {
+    const [execution, startSync] = yield* Effect.all(
+      [executeDaemonCommand(command), syncGitLabLifecycleAfterLaneStart(input, command)],
+      {
+        concurrency: "unbounded",
+      },
+    );
+    const terminalSync = yield* syncGitLabIssues({
+      ...input,
+      syncedAt: new Date().toISOString(),
+    });
+
+    return {
       execution,
       ...(startSync === undefined ? {} : { startSync }),
-    })),
-  );
+      terminalSync,
+    };
+  });
+
+const interruptedRunFailureEvents = {
+  preparation: "PreparationFailed",
+  implementation: "ImplementationFailed",
+  review: "ReviewFailed",
+} as const;
+
+const recoverInterruptedRuns = (): Effect.Effect<
+  readonly RecoveredInterruptedRun[],
+  IssueTrackerError | RunLedgerError,
+  IssueTracker | RunLedger
+> =>
+  Effect.gen(function* () {
+    const tracker = yield* IssueTracker;
+    const ledger = yield* RunLedger;
+    const runningRuns = (yield* ledger.listRuns()).filter((run) => run.status === "running");
+
+    return yield* Effect.forEach(
+      runningRuns,
+      (run) =>
+        Effect.gen(function* () {
+          const issue = yield* tracker.getIssue(run.issueId);
+          const event = interruptedRunFailureEvents[run.lane];
+          const transition = planAgentStateTransition(issue.labels, event);
+          let issueStateChanged = false;
+
+          if (transition.status === "planned") {
+            const applied = yield* tracker.applyAgentState(run.issueId, transition);
+            issueStateChanged = applied.status === "applied";
+          }
+
+          yield* ledger.finishRun(run.id, {
+            status: "failed",
+            failureKind: "runtime_error",
+            terminalEvent: event,
+            message: `Recovered interrupted ${run.lane} run after daemon restart.`,
+          });
+
+          return {
+            runId: run.id,
+            issueId: run.issueId,
+            lane: run.lane,
+            issueStateChanged,
+          };
+        }),
+      { concurrency: 1 },
+    );
+  });
 
 const latestMergeRequestForIssue = (
   runs: readonly RunSummary[],
@@ -3683,6 +3773,7 @@ export const runDaemonOnce = (
   IssueTracker | GitLabIssueSource | RunLedger | AgentRunner | WorkspaceRuntime | MergeRequestClient
 > =>
   Effect.gen(function* () {
+    const recoveredRuns = yield* recoverInterruptedRuns();
     const sync = yield* syncGitLabIssues(input);
     const gateAudits = yield* auditReviewCandidateMergeRequestGates();
     const tick = yield* scheduleLaneWork({ capacities: input.capacities });
@@ -3720,8 +3811,8 @@ export const runDaemonOnce = (
     const startSyncs = commandResults.flatMap((result) =>
       result.startSync === undefined ? [] : [result.startSync],
     );
-    const shouldSyncAfterWork = executions.length > 0 || gateAudits.some((audit) => audit.changed);
-    const postExecutionSync = !shouldSyncAfterWork
+    const terminalSyncs = commandResults.map((result) => result.terminalSync);
+    const postGateSync = !gateAudits.some((audit) => audit.changed)
       ? undefined
       : yield* syncGitLabIssues({
           ...input,
@@ -3729,10 +3820,12 @@ export const runDaemonOnce = (
         });
 
     return {
-      sync: [...startSyncs, ...(postExecutionSync === undefined ? [] : [postExecutionSync])].reduce(
-        mergeSyncGitLabIssuesResults,
-        sync,
-      ),
+      recoveredRuns,
+      sync: [
+        ...startSyncs,
+        ...terminalSyncs,
+        ...(postGateSync === undefined ? [] : [postGateSync]),
+      ].reduce(mergeSyncGitLabIssuesResults, sync),
       gateAudits,
       tick,
       executions,
@@ -3760,6 +3853,7 @@ export const renderDaemonOnceResult = (result: DaemonOnceResult): string => {
 
   return [
     "Morpheus daemon tick",
+    `recovered: ${result.recoveredRuns.length}`,
     `sync: created=${result.sync.created.length} updated=${result.sync.updated.length} skipped=${result.sync.skipped.length} failed=${result.sync.failed.length}`,
     ...(result.gateAudits.length === 0
       ? []

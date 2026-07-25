@@ -54,12 +54,14 @@ Interactive setup offers ChatGPT subscription or API key and completes the
 selected setup. Non-interactive setup never starts browser login implicitly;
 ChatGPT auth requires an explicit device-login flag.
 
-Subscription-backed containers receive the Morpheus Codex auth home as an
-internal read-write mount at `/tmp/morpheus-codex-home` and set `CODEX_HOME` to
-that path. OAuth tokens are never copied into target config or environment
-variables. Morpheus permits one active subscription-backed run per auth store.
-The lease is process-wide; multiple Morpheus processes sharing one auth store
-are unsupported in v1. API-key runs keep normal lane concurrency.
+Subscription-backed containers receive only the Morpheus-owned `auth.json` as
+an internal read-write mount at `/home/agent/morpheus-codex/auth.json` and set
+`CODEX_HOME` to `/home/agent/morpheus-codex`. Container-local sessions, state databases,
+and helper binaries remain ephemeral; only credential refreshes persist. OAuth
+tokens are never copied into target config or environment variables. Morpheus
+permits one active subscription-backed run per auth store. The lease is
+process-wide; multiple Morpheus processes sharing one auth store are unsupported
+in v1. API-key runs keep normal lane concurrency.
 
 ## Consequences
 

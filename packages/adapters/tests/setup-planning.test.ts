@@ -665,10 +665,10 @@ describe("setup planning", () => {
   });
 
   it.each([
-    "/tmp/morpheus-codex-home",
-    "/tmp/morpheus-codex-home/",
-    "/tmp/other/../morpheus-codex-home",
-    "/tmp/morpheus-codex-home/auth.json",
+    "/home/agent/morpheus-codex",
+    "/home/agent/morpheus-codex/",
+    "/home/agent/other/../morpheus-codex",
+    "/home/agent/morpheus-codex/auth.json",
   ])("rejects target mount %s that shadows the managed Codex auth home", (containerPath) => {
     const plan = planMorpheusSetup({
       currentWorkingDirectory: "/repos/app",
@@ -688,7 +688,7 @@ describe("setup planning", () => {
 
     expect(plan.configMutation.action).toBe("blocked");
     expect(plan.errors).toContain(
-      "Container path /tmp/morpheus-codex-home is reserved for Morpheus-managed Codex auth.",
+      "Container path /home/agent/morpheus-codex is reserved for Morpheus-managed Codex auth.",
     );
   });
 

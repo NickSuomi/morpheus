@@ -6,6 +6,7 @@ import {
   GitLabIssueSourceParseError,
   IssueTracker,
   IssueTrackerCommandError,
+  renderSyncGitLabIssuesResult,
   syncGitLabIssues,
   type GitLabIssueInput,
   type GitLabIssueSourceService,
@@ -79,6 +80,30 @@ const issueTrackerLayer = (service: Partial<IssueTrackerService>): Layer.Layer<I
   });
 
 describe("syncGitLabIssues", () => {
+  it("reports remote lifecycle ownership conflicts to the operator", () => {
+    expect(
+      renderSyncGitLabIssuesResult({
+        created: [],
+        updated: [
+          {
+            status: "updated",
+            issueId: "morph-stale-controller",
+            addedReadyLabel: false,
+            lifecycleConflict: {
+              local: "agent:failed",
+              previousRemote: "agent:failed",
+              currentRemote: "agent:review-candidate",
+            },
+          },
+        ],
+        skipped: [],
+        failed: [],
+      }),
+    ).toContain(
+      "lifecycle-conflict local=agent:failed previous-remote=agent:failed current-remote=agent:review-candidate remote-wins",
+    );
+  });
+
   it("reports created imports", async () => {
     const calls: UpsertImportedGitLabIssueInput[] = [];
     const result = await Effect.runPromise(
