@@ -1,0 +1,45 @@
+{
+  "build": {},
+  "cliPackageVersion": "4.5.4",
+  "config": { "dirs": ["./src/trigger"], "project": "proj_ldziqqaixobipoahkpak" },
+  "configPath": "/app/.worktrees/feature-nic-113-trigger-dev-dashboard/packages/trigger-observer/trigger.config.mjs",
+  "contentHash": "53bd8f588776eb945af3862a1e341af4",
+  "customConditions": [],
+  "deploy": {},
+  "environment": "prod",
+  "externals": [{ "name": "import-in-the-middle", "version": "3.0.1" }],
+  "files": [
+    {
+      "entry": "src/trigger/morpheus-execution-observer.ts",
+      "out": "/app/.worktrees/feature-nic-113-trigger-dev-dashboard/packages/trigger-observer/src/trigger/morpheus-execution-observer.mjs"
+    }
+  ],
+  "indexControllerEntryPoint": "/app/.prototypes/trigger-dev/node_modules/.pnpm/trigger.dev@4.5.4_typescript@6.0.3/node_modules/trigger.dev/dist/esm/entryPoints/managed-index-controller.mjs",
+  "indexWorkerEntryPoint": "/app/.prototypes/trigger-dev/node_modules/.pnpm/trigger.dev@4.5.4_typescript@6.0.3/node_modules/trigger.dev/dist/esm/entryPoints/managed-index-worker.mjs",
+  "otelImportHook": { "include": [] },
+  "outputHashes": {},
+  "outputPath": "/app/",
+  "packageVersion": "4.5.4",
+  "runControllerEntryPoint": "/app/.prototypes/trigger-dev/node_modules/.pnpm/trigger.dev@4.5.4_typescript@6.0.3/node_modules/trigger.dev/dist/esm/entryPoints/managed-run-controller.mjs",
+  "runWorkerEntryPoint": "/app/.prototypes/trigger-dev/node_modules/.pnpm/trigger.dev@4.5.4_typescript@6.0.3/node_modules/trigger.dev/dist/esm/entryPoints/managed-run-worker.mjs",
+  "runtime": "node-22",
+  "sources": {
+    "package.json": {
+      "contentHash": "3017f0e3f83351efb03e603df76db433",
+      "contents": "eJx1kMtqwzAQRff+ikHremwnbhZeJdB+iCNNbVFbEnqBCfn3IskthpKduPdo5jCPCoCpcSU2ALuu2pqZgmu8ldNEttZ3RzaSZW+Ji2Sd1CqhLXZ4bktsrIyjTxO8DZSjRXJSLg+9mZHPVJ9wp/1mcr5qERYqmeNWGu/YAI8KAIDdg1xEorzjUNdKf67SZxaACTKL3nJbNGFP9j5t4DPx71cD/oDha3S+UJP+j1Epo0wvsEGxCuCZjQUZUoIUl3TQvu5CKCg2TmSBHt+xP36MHy/+boZco7TI5zn12LXYHZXLlVJ5wRbPv1XRK6s6vORV1bP6AWuxhT8="
+    },
+    "src/trigger/morpheus-execution-observer.ts": {
+      "contentHash": "50e1296318c04c9b64e012a31014ce42",
+      "contents": "eJyVU01v2zAMvftXcMYOCeCq6NWei+VQYMUwbFgH7Fo1ZlI1tuRSVNKg8H8fJFt2siQYdvFBfHwfJK2a1hDDO9RmvUbKgKXdZLCTiqGDFZkG0s9MyhdFhdtrW23SIlFDWwJgnizSFuknWldzlgDwvkX4Pjz/IPOCS1ZGZ0kkFOK6MRXW4sWmRZLgWyALbd8Mtc/o7N0bLp3vijz3unUMZZAklJXR9T7YbI3SfF/lYJmUXheH9XYUz88YKpJuUl8abRmaS/JQhsnMvLyqckgj8goj9CpO4mp7k2bBBtM+h3do5NuCGZuWbQ430IWi0zlIu9dLmLVyXxtZ5f9IP4fyNuSHYVtC6ZWZpb+lYqXXsDIE0vGzIcWS1XaaJjBSo7SswbJkTOdFYOkzU1gclCDD1v1HrAz9MhvUn3q5/xipB3e3MZI42NC8SEJVrWD2oRcVZjOHKMHPZHagcQd3RIZm6eh+HPGB+rR7YNVgBcaxiMG65CDfmL3861Zn0YTj1rGYuAcWbzQ2i43SFZRlCelKqhqr9LLx4Rng8UyCvjuHj+8jtX9yhF+VrjrxmA3tx1GOFr44v+RJZGmatkb2LnsWQnakR8fxSvYHh5yCtP3EooNpIN5aDunpqZ82kdP+ZxzDTSQilCJOWevwEnIoRmwtNZ4H+kpExSAP/sTPw48gsQ+3qPkBXx3q5YW+I8iYFF+dIqy+uEbqxfBLnM19Cuw5Or+cLku6eZH8ASs/4rw="
+    },
+    "trigger.config.ts": {
+      "contentHash": "880b4b258489c2df468c1557bdff1acf",
+      "contents": "eJxtkEFPwkAQhe/7KyY9QVILYry0IdEAEkyMhnAzhizdaVlpd+vstKDY/25aqJHE027eN/vmvdV5YYnhCAoTbXBiTaJTqCEhm4N3x6TTFClQWA2c2nmRELE1jqEg+44xw7i5xehcgKYKVsvFfD5brl+Wz4+zyWq9nD1EQifQ+x0fj6E0p10Kvr87nyBDk/K25cM+HAUAb8nuweAeZkSWet4/5qAdEH6UmlABW1BYZPYTeItgNw6pQgKWbhd4/UjUQuChbaswkWXGF517zc5zGl8AUGlY5xiCZ6zCq9HIa1SlyYXw6gUDR/Hg/DveW4NyeZiWJFlbE8LNcNiaIJNGF7aFANDITYZqYaZYhZDIzKHfgnOgbq41u2fGvGAXwrXfqdqsdI625IV5asB6eNpzfnIBb//CRMZsKYRRJ5A0yub6Cy9y1M1R+6LuR+IHvuKnTw=="
+    },
+    "tsconfig.json": {
+      "contentHash": "6c40b8ec846a7f6f0d27bc3b3a2552f6",
+      "contents": "eJxVjrEKg1AMRff3FSGjSN7u3M79gNKhfaaSoi+SRBDEfy9Kl66Xcw9nSwDIa3DtHTtAokyUw4vWtwz0ejrTx7Vie4BFp1lGttscovU4bAkAAE01LmKn4UQBsOp1ksAOwhZOAPupkFrGpWfs4I5uJTdNbigcW8BgD/8bTIaBjX4x4fhIe/oCVuc0EA=="
+    }
+  },
+  "target": "deploy"
+}

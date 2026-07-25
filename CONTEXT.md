@@ -42,6 +42,12 @@ One Morpheus attempt to perform work in a lane for an issue. Runs have durable I
 
 Local SQLite-backed observability store. It records current run summaries and immutable run events. It mirrors Morpheus activity but does not own issue state.
 
+### Execution Dashboard Projection
+
+Optional, fail-open remote view of curated Morpheus run state. The projection
+uses opaque identifiers and never becomes a scheduler, worker, recovery system,
+command plane, or source of truth. Trigger.dev is the first adapter.
+
 ### Lane
 
 Scheduler category for work: preparation, implementation, review, or reconciliation. Each lane has independent concurrency.

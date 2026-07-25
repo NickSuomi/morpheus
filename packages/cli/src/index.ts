@@ -17,6 +17,9 @@ import {
   operatorHealthLayer,
   sandcastleAgentRunnerLayer,
   sqliteRunLedgerLayer,
+  createTriggerDevHttpClient,
+  triggerDevObservedRunLedgerLayer,
+  type TriggerDevObserverClient,
 } from "@morpheus/adapters";
 import {
   AgentAuth,
@@ -54,6 +57,7 @@ import {
   type SetupPlan,
   type SetupPlanningInput,
   type RunLedgerPersistenceError,
+  ExecutionObserverError,
   WorkspaceRuntime,
 } from "@morpheus/runtime";
 import pkg from "../package.json" with { type: "json" };
@@ -84,6 +88,7 @@ type LoadedCliConfig = {
   readonly lanes: MorpheusConfig["lanes"];
   readonly agentRunner: MorpheusConfig["agentRunner"];
   readonly verification: MorpheusConfig["verification"];
+  readonly executionObserver?: MorpheusConfig["executionObserver"];
   readonly promptPaths?: {
     readonly prepare?: string;
     readonly implement?: string;
@@ -118,8 +123,66 @@ const loadCliConfig = (pathOption: Option.Option<string>): LoadedCliConfig => {
     lanes: result.config.lanes,
     agentRunner: result.config.agentRunner,
     verification: result.config.verification,
+    executionObserver: result.config.executionObserver,
     promptPaths: result.config.prompts,
   };
+};
+
+const unavailableTriggerDevClient = (): TriggerDevObserverClient => {
+  const unavailable = (operation: string) =>
+    Effect.fail(
+      new ExecutionObserverError({
+        operation,
+        message: "Trigger.dev observer credentials are unavailable.",
+      }),
+    );
+
+  return {
+    createWaitpoint: () => unavailable("createWaitpoint"),
+    triggerObserver: () => unavailable("triggerObserver"),
+    updateRunMetadata: () => unavailable("updateRunMetadata"),
+    completeWaitpoint: () => unavailable("completeWaitpoint"),
+    retrieveRun: () => unavailable("retrieveRun"),
+  };
+};
+
+const runLedgerLayerForConfig = (
+  config: LoadedCliConfig,
+): Layer.Layer<RunLedger, RunLedgerPersistenceError> => {
+  const storage = {
+    ledgerPath: config.ledgerPath,
+    runsDirectory: resolve(config.configDirectory, ".morpheus", "runs"),
+  };
+  const observer = config.executionObserver;
+  if (observer === undefined || observer.kind === "disabled") {
+    return sqliteRunLedgerLayer(storage);
+  }
+
+  const secretKey = process.env[observer.secretKeyEnv]?.trim();
+  const correlationSecret = process.env[observer.correlationSecretEnv]?.trim();
+  const hasCredentials =
+    secretKey !== undefined &&
+    secretKey.length > 0 &&
+    correlationSecret !== undefined &&
+    correlationSecret.length > 0;
+
+  return triggerDevObservedRunLedgerLayer({
+    ...storage,
+    targetIdentity: config.gitlab.project,
+    environment: observer.environment,
+    taskIdentifier: observer.taskIdentifier,
+    correlationSecret: hasCredentials
+      ? correlationSecret
+      : "execution-observer-credentials-unavailable",
+    waitpointTimeout: observer.waitpointTimeout,
+    idempotencyKeyTTL: observer.idempotencyKeyTTL,
+    client: hasCredentials
+      ? createTriggerDevHttpClient({
+          secretKey,
+          baseUrl: observer.apiUrl,
+        })
+      : unavailableTriggerDevClient(),
+  });
 };
 
 const formatConfigSummary = (
@@ -138,10 +201,7 @@ const ledgerLayerFromConfig = (
   Effect.sync(() => {
     const config = loadCliConfig(pathOption);
 
-    return sqliteRunLedgerLayer({
-      ledgerPath: config.ledgerPath,
-      runsDirectory: resolve(config.configDirectory, ".morpheus", "runs"),
-    });
+    return runLedgerLayerForConfig(config);
   });
 
 const provideLedger = <A, E>(
@@ -165,10 +225,7 @@ const operatorLayerFromConfig = (
     });
 
     return Layer.mergeAll(
-      sqliteRunLedgerLayer({
-        ledgerPath: config.ledgerPath,
-        runsDirectory: resolve(config.configDirectory, ".morpheus", "runs"),
-      }),
+      runLedgerLayerForConfig(config),
       beadsIssueTrackerLayer.pipe(Layer.provide(processRunnerLayer)),
       operatorHealthLayer({
         cwd: config.targetRepo,
@@ -240,10 +297,7 @@ const prepareLayerFromConfig = (
     const issueTrackerLayer = beadsIssueTrackerLayer.pipe(Layer.provide(processRunnerLayer));
 
     return Layer.mergeAll(
-      sqliteRunLedgerLayer({
-        ledgerPath: config.ledgerPath,
-        runsDirectory: resolve(config.configDirectory, ".morpheus", "runs"),
-      }),
+      runLedgerLayerForConfig(config),
       issueTrackerLayer,
       sandcastleAgentRunnerLayer(agentRunnerOptionsFromConfig(config)).pipe(
         Layer.provide(processRunnerLayer),
@@ -273,10 +327,7 @@ const implementationLayerFromConfig = (
     });
 
     return Layer.mergeAll(
-      sqliteRunLedgerLayer({
-        ledgerPath: config.ledgerPath,
-        runsDirectory: resolve(config.configDirectory, ".morpheus", "runs"),
-      }),
+      runLedgerLayerForConfig(config),
       beadsIssueTrackerLayer.pipe(Layer.provide(processRunnerLayer)),
       gitWorkspaceRuntimeLayer({ targetBranch: config.gitlab.targetBranch }).pipe(
         Layer.provide(processRunnerLayer),
@@ -316,10 +367,7 @@ const reviewLayerFromConfig = (
     });
 
     return Layer.mergeAll(
-      sqliteRunLedgerLayer({
-        ledgerPath: config.ledgerPath,
-        runsDirectory: resolve(config.configDirectory, ".morpheus", "runs"),
-      }),
+      runLedgerLayerForConfig(config),
       beadsIssueTrackerLayer.pipe(Layer.provide(processRunnerLayer)),
       gitWorkspaceRuntimeLayer({ targetBranch: config.gitlab.targetBranch }).pipe(
         Layer.provide(processRunnerLayer),
@@ -362,10 +410,7 @@ const daemonLayerFromConfig = (
     });
 
     return Layer.mergeAll(
-      sqliteRunLedgerLayer({
-        ledgerPath: config.ledgerPath,
-        runsDirectory: resolve(config.configDirectory, ".morpheus", "runs"),
-      }),
+      runLedgerLayerForConfig(config),
       beadsIssueTrackerLayer.pipe(Layer.provide(processRunnerLayer)),
       glabIssueSourceLayer.pipe(Layer.provide(processRunnerLayer)),
       gitWorkspaceRuntimeLayer({ targetBranch: config.gitlab.targetBranch }).pipe(

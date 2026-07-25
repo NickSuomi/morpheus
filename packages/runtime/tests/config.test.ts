@@ -160,6 +160,60 @@ describe("Morpheus config", () => {
     });
   });
 
+  it("loads an opt-in Trigger.dev execution observer without inline secrets", () => {
+    withTempDir((dir) => {
+      const configPath = writeConfig(dir, {
+        ...validConfig,
+        executionObserver: {
+          kind: "trigger-dev",
+          environment: "production",
+          taskIdentifier: "morpheus-execution-observer-v1",
+          secretKeyEnv: "TRIGGER_SECRET_KEY",
+          correlationSecretEnv: "MORPHEUS_TRIGGER_CORRELATION_SECRET",
+          waitpointTimeout: "4w",
+          idempotencyKeyTTL: "30d",
+        },
+      });
+
+      expect(loadMorpheusConfig({ configPath })).toMatchObject({
+        status: "loaded",
+        config: {
+          executionObserver: {
+            kind: "trigger-dev",
+            environment: "production",
+            taskIdentifier: "morpheus-execution-observer-v1",
+            secretKeyEnv: "TRIGGER_SECRET_KEY",
+            correlationSecretEnv: "MORPHEUS_TRIGGER_CORRELATION_SECRET",
+            waitpointTimeout: "4w",
+            idempotencyKeyTTL: "30d",
+          },
+        },
+      });
+    });
+  });
+
+  it("rejects an execution observer with an inline Trigger.dev key", () => {
+    withTempDir((dir) => {
+      const configPath = writeConfig(dir, {
+        ...validConfig,
+        executionObserver: {
+          kind: "trigger-dev",
+          environment: "production",
+          taskIdentifier: "morpheus-execution-observer-v1",
+          secretKey: "tr_prod_private",
+          correlationSecretEnv: "MORPHEUS_TRIGGER_CORRELATION_SECRET",
+          waitpointTimeout: "4w",
+          idempotencyKeyTTL: "30d",
+        },
+      });
+
+      expect(loadMorpheusConfig({ configPath })).toMatchObject({
+        status: "error",
+        error: { kind: "schema_validation" },
+      });
+    });
+  });
+
   it("loads a valid config from the target repo root", () => {
     withTempDir((dir) => {
       const configPath = writeConfig(dir, validConfig);

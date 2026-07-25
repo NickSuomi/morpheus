@@ -1,0 +1,16 @@
+{
+  "name": "@morpheus/trigger-observer",
+  "version": "0.1.30",
+  "private": true,
+  "license": "Apache-2.0",
+  "type": "module",
+  "scripts": {},
+  "dependencies": {
+    "import-in-the-middle": "3.0.1"
+  },
+  "devDependencies": {},
+  "peerDependencies": {},
+  "trustedDependencies": [
+    "import-in-the-middle"
+  ]
+}

@@ -1,0 +1,6 @@
+{
+  "version": 3,
+  "sources": ["../../../../../../../.prototypes/trigger-dev/node_modules/.pnpm/@opentelemetry+resources@2.7.1_@opentelemetry+api@1.9.1/node_modules/@opentelemetry/resources/src/detectors/platform/node/machine-id/getMachineId-linux.ts"],
+  "mappings": ";;;;;;;;;;;;;;;;;;AAIA,QAAA,OAAA,UAAA,IAAA;AACA,QAAA,QAAA;AAEO,mBAAe,eAAY;AAChC,YAAM,QAAQ,CAAC,mBAAmB,0BAA0B;AAE5D,iBAAW,QAAQ,OAAO;AACxB,YAAI;AACF,gBAAM,SAAS,MAAM,KAAA,SAAG,SAAS,MAAM,EAAE,UAAU,OAAM,CAAE;AAC3D,iBAAO,OAAO,KAAI;iBACX,GAAG;AACV,gBAAA,KAAK,MAAM,6BAA6B,CAAC,EAAE;;;AAI/C,aAAO;IACT;AAbsB;AAAtB,YAAA,eAAA;;;",
+  "names": []
+}

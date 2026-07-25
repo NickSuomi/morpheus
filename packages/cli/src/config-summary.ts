@@ -15,6 +15,7 @@ export const formatConfigSummaryText = (input: {
     `gitlab: project=${config.gitlab.project} readyLabel=${config.gitlab.readyLabel} targetBranch=${config.gitlab.targetBranch}`,
     `daemon: pollIntervalSeconds=${config.daemon.pollIntervalSeconds}`,
     `mergeRequests: ${config.mergeRequests.kind}`,
+    `executionObserver: ${config.executionObserver?.kind ?? "disabled"}`,
     `agentRunner: ${config.agentRunner.kind}`,
     `agent: provider=${config.agentRunner.agent.provider} model=${config.agentRunner.agent.model} effort=${config.agentRunner.agent.effort} idleTimeoutSeconds=${config.agentRunner.agent.idleTimeoutSeconds ?? "default"}`,
     config.agentRunner.auth.kind === "chatgpt"

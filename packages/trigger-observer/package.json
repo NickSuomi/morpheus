@@ -1,0 +1,22 @@
+{
+  "name": "@morpheus/trigger-observer",
+  "version": "0.1.30",
+  "private": true,
+  "license": "Apache-2.0",
+  "type": "module",
+  "scripts": {
+    "build": "tsc --noEmit",
+    "deploy": "trigger deploy",
+    "typecheck": "tsc --noEmit",
+    "typecheck:fast": "tsgo --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@trigger.dev/sdk": "4.5.4"
+  },
+  "devDependencies": {
+    "@types/node": "24.10.1",
+    "typescript": "6.0.3",
+    "vitest": "4.1.6"
+  }
+}

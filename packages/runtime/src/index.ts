@@ -957,6 +957,89 @@ export class RunLedger extends Context.Tag("@morpheus/runtime/RunLedger")<
 
 export type RunLedgerService = Context.Tag.Service<typeof RunLedger>;
 
+export type ExecutionProjectionSnapshot = {
+  readonly schemaVersion: 1;
+  readonly runId: string;
+  readonly issueId: string;
+  readonly lane: RunnableLane;
+  readonly status: RunStatus;
+  readonly morpheusState: AgentState;
+  readonly eventSequence: number;
+  readonly startedAt: string;
+  readonly endedAt?: string;
+  readonly failureKind?: FailureKind;
+  readonly requiredHumanAction: "inspect-morpheus-run" | "review-in-gitlab" | null;
+};
+
+export type ExecutionObserverReconcileResult = {
+  readonly delivered: number;
+  readonly pending: number;
+};
+
+export class ExecutionObserverError extends EffectSchema.TaggedError<ExecutionObserverError>(
+  "ExecutionObserverError",
+)("ExecutionObserverError", {
+  operation: EffectSchema.String,
+  message: EffectSchema.String,
+}) {}
+
+export class ExecutionObserver extends Context.Tag("@morpheus/runtime/ExecutionObserver")<
+  ExecutionObserver,
+  {
+    readonly observe: (
+      snapshot: ExecutionProjectionSnapshot,
+    ) => Effect.Effect<void, ExecutionObserverError>;
+    readonly reconcile: (
+      snapshots?: readonly ExecutionProjectionSnapshot[],
+    ) => Effect.Effect<ExecutionObserverReconcileResult, ExecutionObserverError>;
+  }
+>() {}
+
+export type ExecutionObserverService = Context.Tag.Service<typeof ExecutionObserver>;
+
+const projectedMorpheusState = (run: RunSummary, events: readonly RunEvent[]): AgentState => {
+  if (run.status === "running") {
+    return run.lane === "preparation"
+      ? "agent:preparing"
+      : run.lane === "implementation"
+        ? "agent:running"
+        : "agent:reviewing";
+  }
+
+  const terminalEvent = events.at(-1)?.type;
+  if (run.status === "failed") {
+    return terminalEvent?.endsWith("Blocked") === true ? "agent:blocked" : "agent:failed";
+  }
+
+  return run.lane === "preparation"
+    ? "agent:prepared"
+    : run.lane === "implementation"
+      ? "agent:reviewing"
+      : "agent:review-candidate";
+};
+
+export const executionProjectionSnapshotFromRun = (
+  run: RunSummary,
+  events: readonly RunEvent[],
+): ExecutionProjectionSnapshot => ({
+  schemaVersion: 1,
+  runId: run.id,
+  issueId: run.issueId,
+  lane: run.lane,
+  status: run.status,
+  morpheusState: projectedMorpheusState(run, events),
+  eventSequence: events.at(-1)?.sequence ?? 0,
+  startedAt: run.startedAt,
+  ...(run.endedAt === undefined ? {} : { endedAt: run.endedAt }),
+  ...(run.failureKind === undefined ? {} : { failureKind: run.failureKind }),
+  requiredHumanAction:
+    run.status === "failed"
+      ? "inspect-morpheus-run"
+      : run.status === "succeeded" && run.lane === "review"
+        ? "review-in-gitlab"
+        : null,
+});
+
 export const renderRunList = (runs: readonly RunSummary[]): string => {
   if (runs.length === 0) {
     return "No Morpheus runs";
@@ -4222,6 +4305,23 @@ export const MorpheusConfigSchema = Schema.Struct({
   ledger: Schema.Struct({
     path: Schema.String,
   }),
+  executionObserver: Schema.optional(
+    Schema.Union(
+      Schema.Struct({
+        kind: Schema.Literal("disabled"),
+      }),
+      Schema.Struct({
+        kind: Schema.Literal("trigger-dev"),
+        environment: Schema.Literal("development", "staging", "production", "preview"),
+        taskIdentifier: Schema.NonEmptyString,
+        secretKeyEnv: Schema.NonEmptyString,
+        correlationSecretEnv: Schema.NonEmptyString,
+        waitpointTimeout: Schema.NonEmptyString,
+        idempotencyKeyTTL: Schema.NonEmptyString,
+        apiUrl: Schema.optional(Schema.NonEmptyString),
+      }),
+    ),
+  ),
   lanes: Schema.Struct({
     preparation: Schema.Struct({
       concurrency: LaneConcurrencySchema,

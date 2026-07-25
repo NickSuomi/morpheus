@@ -1,0 +1,6 @@
+{
+  "version": 3,
+  "sources": ["../../../../../../../.prototypes/trigger-dev/node_modules/.pnpm/@opentelemetry+resources@2.7.1_@opentelemetry+api@1.9.1/node_modules/@opentelemetry/resources/src/detectors/platform/node/machine-id/getMachineId-darwin.ts"],
+  "mappings": ";;;;;;;;;;;;;;;;;;;;AAKA,QAAA,cAAA;AACA,QAAA,QAAA;AAEO,mBAAe,eAAY;AAChC,UAAI;AACF,cAAM,SAAS,OAAM,GAAA,YAAA,WAAU,wCAAwC;AAEvE,cAAM,SAAS,OAAO,OACnB,MAAM,IAAI,EACV,KAAK,UAAQ,KAAK,SAAS,gBAAgB,CAAC;AAE/C,YAAI,CAAC,QAAQ;AACX,iBAAO;;AAGT,cAAM,QAAQ,OAAO,MAAM,OAAO;AAClC,YAAI,MAAM,WAAW,GAAG;AACtB,iBAAO,MAAM,CAAC,EAAE,MAAM,GAAG,EAAE;;eAEtB,GAAG;AACV,cAAA,KAAK,MAAM,6BAA6B,CAAC,EAAE;;AAG7C,aAAO;IACT;AArBsB;AAAtB,YAAA,eAAA;;;",
+  "names": []
+}

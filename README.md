@@ -47,6 +47,9 @@ Add the configured ready label, usually `agent:ready`, to a GitLab issue.
 Morpheus prepares the issue, implements it in an isolated worktree/container,
 runs an independent review, and updates the Draft MR with evidence.
 
+For an optional non-authoritative remote run view, see the
+[Trigger.dev execution dashboard guide](docs/product/trigger-dev-execution-dashboard.md).
+
 ## Codex Authentication
 
 Each target uses one auth source: ChatGPT subscription or OpenAI API key.

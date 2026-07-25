@@ -78,6 +78,23 @@ import type {
   ToolchainProbeConfig,
   WorkspaceRuntimeService,
 } from "@morpheus/runtime";
+
+export { createObservedRunLedger } from "./execution-observed-run-ledger.js";
+export {
+  createTriggerDevExecutionObserver,
+  type TriggerDevExecutionObserverOptions,
+  type TriggerDevObserverClient,
+  type TriggerDevProjection,
+  type TriggerDevRunStatus,
+} from "./trigger-dev-execution-observer.js";
+export {
+  createTriggerDevHttpClient,
+  type TriggerDevHttpClientOptions,
+} from "./trigger-dev-http-client.js";
+export {
+  triggerDevObservedRunLedgerLayer,
+  type TriggerDevObservedRunLedgerLayerOptions,
+} from "./trigger-dev-observed-run-ledger-layer.js";
 import { Effect, Layer } from "effect";
 export { createSqliteRunLedger, sqliteRunLedgerLayer } from "./sqlite-ledger/index.js";
 export type { SqliteRunLedgerOptions } from "./sqlite-ledger/index.js";

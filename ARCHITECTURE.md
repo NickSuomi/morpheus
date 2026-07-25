@@ -22,6 +22,7 @@ packages/
   runtime/
   adapters/
   cli/
+  trigger-observer/
 ```
 
 ### `packages/core`
@@ -53,6 +54,7 @@ Runtime service contracts:
 - `GitLabIssueSource`
 - `MergeRequestClient`
 - `RunLedger`
+- `ExecutionObserver`
 - `AgentRunner`
 - `WorkspaceRuntime`
 - `Clock`
@@ -91,6 +93,13 @@ Owns:
 - running runtime programs
 
 CLI must not duplicate runtime workflow logic.
+
+### `packages/trigger-observer`
+
+Deployed Trigger.dev wrapper task. It waits for Morpheus to complete a
+waitpoint and maps the redacted terminal projection to a dashboard success or
+failure. It has no Morpheus/GitLab credentials, scheduler, worker, state
+machine, or callback.
 
 ## Stack
 
@@ -179,6 +188,7 @@ Initial shape:
     }
   },
   "ledger": { "path": ".morpheus/ledger.sqlite" },
+  "executionObserver": { "kind": "disabled" },
   "lanes": {
     "preparation": { "concurrency": 1 },
     "implementation": { "concurrency": 1 },
@@ -215,6 +225,13 @@ run.
 
 `daemon.pollIntervalSeconds` is a positive integer polling interval for daemon
 ticks.
+
+`executionObserver` is optional. The `trigger-dev` variant names only
+environment-variable keys for the Trigger.dev API key and HMAC correlation
+secret. Morpheus commits ledger truth first, then a fail-open SQLite outbox
+projects opaque run snapshots into a deployed observer task. Trigger.dev state
+is never consumed by scheduling or the state machine. See
+[ADR 0009](docs/adr/0009-use-trigger-dev-as-non-authoritative-execution-projection.md).
 
 Commands touching target repo require valid config before side effects begin.
 
