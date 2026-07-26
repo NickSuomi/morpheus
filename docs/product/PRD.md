@@ -198,7 +198,9 @@ Target repo owns:
 - Auto-merge.
 - Auto-retry.
 - Uploading raw transcripts to GitLab.
-- Full dashboard UI.
+- Production dashboard implementation in the current ALPHA. A Morpheus-owned
+  operator dashboard is the selected future direction, but it must pass a
+  separate interactive-prototype decision before runtime implementation.
 - Metrics backend/alerting.
 - Backward compatibility with old repo-local agent runs.
 - Redaction system for transcripts.
@@ -219,4 +221,7 @@ Target repo owns:
 - ALPHA uses an anonymized fixture target plus private target signoff evidence kept outside Morpheus git.
 - Retention baseline: active runs retained until terminal; failed runs retained until manual prune; review-candidate runs retained until MR merged/closed or manual prune; completed intermediate runs retained for last 14 days or last 100 runs.
 - Required ADR: **Use GitLab MR as Morpheus review artifact while Beads remains issue state source**.
+- The Trigger.dev execution-dashboard spike was technically successful but
+  rejected for product adoption. See ADR 0009. Its layout remains a visual
+  reference for the Morpheus-owned operator-dashboard prototype.
 - Core product principle: **If it can't explain itself, it can't run.**
