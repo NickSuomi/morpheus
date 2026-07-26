@@ -147,6 +147,7 @@ Project docs:
 
 - [Product PRD](docs/product/PRD.md)
 - [ALPHA contract](docs/product/ALPHA.md)
+- [Trigger.dev dashboard spike verdict](docs/product/trigger-dev-execution-dashboard-spike.md)
 - [Context glossary](CONTEXT.md)
 - [Architecture](ARCHITECTURE.md)
 - [Architecture decisions](docs/adr/)

@@ -42,6 +42,14 @@ One Morpheus attempt to perform work in a lane for an issue. Runs have durable I
 
 Local SQLite-backed observability store. It records current run summaries and immutable run events. It mirrors Morpheus activity but does not own issue state.
 
+### Operator Dashboard
+
+Planned Morpheus-owned remote view of issue, run, evidence, recovery, and human-action state. The selected product direction is being explored through interactive HTML prototypes before backend, authentication, deployment, or control semantics are chosen.
+
+### Trigger.dev Dashboard Spike
+
+Completed NIC-113 experiment that projected real Morpheus lane runs into credential-free Trigger.dev observer wrappers. The spike is retained as technical and visual research but rejected as the product dashboard. Trigger.dev is not a supported Morpheus runtime dependency, command plane, recovery system, or source of truth.
+
 ### Lane
 
 Scheduler category for work: preparation, implementation, review, or reconciliation. Each lane has independent concurrency.
