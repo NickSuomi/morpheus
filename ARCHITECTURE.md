@@ -96,10 +96,12 @@ CLI must not duplicate runtime workflow logic.
 
 ### `packages/trigger-observer`
 
-Deployed Trigger.dev wrapper task. It waits for Morpheus to complete a
+Prototype-only deployed Trigger.dev wrapper task. It waits for Morpheus to complete a
 waitpoint and maps the redacted terminal projection to a dashboard success or
 failure. It has no Morpheus/GitLab credentials, scheduler, worker, state
-machine, or callback.
+machine, or callback. The completed spike was rejected for product adoption;
+this package is retained on the prototype branch and must not be ported to
+`main`.
 
 ## Stack
 
@@ -226,11 +228,13 @@ run.
 `daemon.pollIntervalSeconds` is a positive integer polling interval for daemon
 ticks.
 
-`executionObserver` is optional. The `trigger-dev` variant names only
+On this archived spike branch, `executionObserver` is optional. The
+`trigger-dev` variant names only
 environment-variable keys for the Trigger.dev API key and HMAC correlation
 secret. Morpheus commits ledger truth first, then a fail-open SQLite outbox
 projects opaque run snapshots into a deployed observer task. Trigger.dev state
-is never consumed by scheduling or the state machine. See
+is never consumed by scheduling or the state machine. This configuration is
+not part of the selected product architecture. See
 [ADR 0009](docs/adr/0009-use-trigger-dev-as-non-authoritative-execution-projection.md).
 
 Commands touching target repo require valid config before side effects begin.

@@ -1,8 +1,28 @@
-# Trigger.dev Execution Dashboard
+# Trigger.dev Execution Dashboard Spike
+
+## Final product verdict
+
+The remote prototype is complete and technically successful, but rejected for
+product adoption. Do not merge this integration into `main`, ship it in a
+release, or configure a production target to depend on it.
+
+The dashboard does not reduce operator noise, cannot present the full
+issue-centric Morpheus context, exposes wrapper infrastructure and irrelevant
+controls, and adds pricing and retention constraints. The branch and deployed
+task remain non-production research.
+
+Reusable visual references are the collapsible left navigation, central run
+timeline, collapsible or resizable right inspector, Overview/Detail/Context/
+Metadata tabs, and export affordance. A separate Morpheus-owned interactive
+HTML prototype will redesign the actual data, hierarchy, vocabulary, evidence,
+and controls.
 
 Trigger.dev can show real Morpheus lane runs remotely. It is optional and
 non-authoritative: GitLab owns operator intent/review/merge; Morpheus owns
 scheduling, execution, state, recovery, and truth.
+
+The remaining sections document how the archived spike was operated and
+verified. They are not current production setup instructions.
 
 ## Deploy the observer
 

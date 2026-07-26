@@ -2,7 +2,14 @@
 
 ## Status
 
-Accepted
+Rejected for product adoption after completed spike
+
+This ADR records the technically supported prototype architecture. The final
+product decision is not to merge or ship it. Trigger.dev reduced neither
+operator noise nor context fragmentation, imposed vendor retention and tariff
+constraints, exposed wrapper-specific infrastructure, and could not provide
+Morpheus-native controls. The branch and deployed task remain non-production
+research and visual references for a Morpheus-owned dashboard prototype.
 
 ## Context
 
@@ -16,7 +23,7 @@ Moving Morpheus lanes into Trigger.dev tasks would transfer scheduling,
 execution ownership, recovery, and source-of-truth state. That violates the
 product boundary.
 
-## Decision
+## Prototype Decision
 
 Trigger.dev is an optional projection only:
 
@@ -55,13 +62,22 @@ URLs, raw logs, transcripts, repository paths, and credentials are excluded.
 
 ## Consequences
 
+The prototype proved that Trigger.dev can remain isolated from authoritative
+Morpheus execution. It is not a supported product integration and must not be
+ported to `main` or configured as production infrastructure.
+
 Trigger.dev remains useful for remote filtering and visual inspection, but its
-run controls cannot be removed. Capability isolation, not UI policy, makes
-those controls harmless to Morpheus.
+run controls cannot be removed. Capability isolation, not UI policy, made
+those controls harmless to Morpheus during the spike.
 
 Trigger.dev wrapper status can temporarily disagree with Morpheus during an
 outage. The local ledger and Beads remain authoritative. Native Trigger.dev
 parent/child traces and external Morpheus log ingestion are not provided.
+
+Useful layout references are the collapsible left navigation, central timeline,
+collapsible or resizable right inspector, Overview/Detail/Context/Metadata tabs,
+and export affordance. Morpheus information architecture and controls require a
+separate prototype.
 
 The composition depends on documented task triggering, replace-style metadata,
 waitpoint completion, tags, and deployed tasks:

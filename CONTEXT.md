@@ -44,9 +44,11 @@ Local SQLite-backed observability store. It records current run summaries and im
 
 ### Execution Dashboard Projection
 
-Optional, fail-open remote view of curated Morpheus run state. The projection
-uses opaque identifiers and never becomes a scheduler, worker, recovery system,
-command plane, or source of truth. Trigger.dev is the first adapter.
+Prototype-only, fail-open remote view of curated Morpheus run state. The
+projection uses opaque identifiers and never becomes a scheduler, worker,
+recovery system, command plane, or source of truth. The Trigger.dev adapter was
+proven and rejected for product adoption; it remains only on the archived spike
+branch.
 
 ### Lane
 

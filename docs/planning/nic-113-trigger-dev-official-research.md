@@ -4,6 +4,16 @@ Research date: 2026-07-25
 
 Scope: current official Trigger.dev documentation and API reference only.
 
+## Final Product Decision
+
+The supported observer topology was implemented and proven with real remote
+runs. It is rejected as the Morpheus product dashboard.
+
+Trigger.dev remains a successful technical spike and layout reference. The
+observer code stays on its prototype branch and is not ported to `main`.
+Morpheus will explore its own operator dashboard through a separate interactive
+HTML prototype.
+
 ## Verdict
 
 **Direct external-run projection is not supported.**
