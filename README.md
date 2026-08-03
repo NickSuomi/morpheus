@@ -1,101 +1,59 @@
 # Morpheus
 
-[![Release](https://img.shields.io/github/v/release/NickSuomi/morpheus?include_prereleases&label=release)](https://github.com/NickSuomi/morpheus/releases)
-[![Release Artifacts](https://github.com/NickSuomi/morpheus/actions/workflows/release-artifacts.yml/badge.svg)](https://github.com/NickSuomi/morpheus/actions/workflows/release-artifacts.yml)
-[![ALPHA](https://img.shields.io/badge/status-ALPHA-6b46c1)](docs/product/ALPHA.md)
-[![License](https://img.shields.io/badge/license-Apache--2.0-blue)](LICENSE)
+Morpheus is agent operations for teams running AI work on real GitLab repositories. It turns a ready issue into an isolated, reviewable agent run, records evidence, updates a Draft merge request, and leaves the merge decision to a human.
 
-**Dream with no limits. Run with evidence.**
+Status: alpha.
 
-Morpheus is agent ops for operators running AI work on real repositories. It
-turns a ready GitLab issue into a prepared, isolated, reviewable agent run,
-records evidence, updates a Draft MR, and leaves the merge to a human.
+## What is Morpheus?
 
-> If it can't explain itself, it can't run.
+Morpheus is an operator-facing control plane for a bounded software-delivery flow. It connects issue intake, agent execution, independent review, and merge-request evidence without treating an autonomous run as permission to merge.
 
-![Morpheus evidence flow](assets/brand/morpheus-evidence-flow.svg)
+It operates against one configured target repository and stores its runtime artifacts locally under `.morpheus/`.
 
-## Quick Start
+## Why Morpheus?
 
-Install the latest release:
+- Agent work on production repositories needs a visible lifecycle, not an opaque background run.
+- An implementation result needs independent review and concise evidence before a human decides whether to merge it.
+- Authentication, repository state, unresolved decisions, and failed verification should stop work visibly rather than becoming implicit risk.
+
+Morpheus never auto-merges.
+
+## How it works
+
+1. A GitLab issue receives the configured ready label, usually `agent:ready`.
+2. Morpheus validates the Agent-Ready Contract and prepares an isolated workspace.
+3. An agent implements the bounded work item.
+4. An independent review evaluates the result.
+5. Morpheus updates the Draft merge request with curated evidence.
+6. A human reviews and merges, or resolves the visible blocker.
+
+## Quick start
+
+### Requirements
+
+- Git
+- authenticated `glab`
+- Docker-compatible runtime
+- Beads (`bd`) in the target repository
+- Codex CLI for ChatGPT subscription authentication
+
+### Install
 
 ```sh
 curl -fsSL https://github.com/NickSuomi/morpheus/releases/latest/download/install.sh | sh
 morpheus --version
 ```
 
-Set up a target repository:
+### Configure and run
 
 ```sh
 cd /path/to/target-repo
 morpheus setup
 morpheus doctor
+morpheus daemon --once
 ```
 
-`morpheus setup` guides you through GitLab, the container runtime, and Codex
-authentication. ChatGPT subscription login is the default; an OpenAI API key is
-also supported.
-
-Start Morpheus:
-
-```sh
-morpheus daemon --once # process one tick
-morpheus daemon        # keep watching
-```
-
-Add the configured ready label, usually `agent:ready`, to a GitLab issue.
-Morpheus prepares the issue, implements it in an isolated worktree/container,
-runs an independent review, and updates the Draft MR with evidence.
-
-## Codex Authentication
-
-Each target uses one auth source: ChatGPT subscription or OpenAI API key.
-
-### ChatGPT Subscription
-
-Interactive setup completes the login automatically:
-
-```sh
-morpheus setup
-```
-
-You can also manage it directly:
-
-```sh
-morpheus auth login codex
-morpheus auth login codex --device
-morpheus auth status
-morpheus auth logout codex
-```
-
-Morpheus keeps this login in its own private auth home. It does not read or
-modify your normal `~/.codex` login. Subscription-backed runs are serialized
-within one Morpheus process in the current ALPHA.
-
-For explicit non-interactive device login:
-
-```sh
-morpheus setup --yes \
-  --gitlab-project group/project \
-  --auth chatgpt \
-  --device-auth
-```
-
-### OpenAI API Key
-
-API-key mode is the better fit for CI and unattended environments:
-
-```sh
-morpheus setup --yes \
-  --gitlab-project group/project \
-  --auth api-key
-
-$EDITOR .morpheus/secrets/agent.env
-morpheus doctor
-```
-
-Add `OPENAI_API_KEY` to the generated, gitignored env file. Morpheus passes only
-the configured keys into agent runs.
+`morpheus setup` configures GitLab, the container runtime, and agent authentication. `morpheus doctor` checks the active target and prints recovery steps.
 
 ## Operate
 
@@ -108,48 +66,43 @@ morpheus logs <run-id>    # local transcript
 morpheus sync             # reconcile GitLab intake
 ```
 
-Normal flow:
+## Architecture
 
-1. GitLab issue receives `agent:ready`.
-2. Preparation builds and validates the Agent-Ready Contract.
-3. Implementation runs in an isolated target workspace.
-4. Independent review checks the result.
-5. The Draft MR receives curated evidence.
-6. A human reviews and merges.
+Morpheus keeps deterministic decisions separate from effectful runtime work:
 
-Morpheus never auto-merges. Weak intent, unresolved decisions, conflicting
-state, missing auth, or failed verification stop the flow visibly.
+- `packages/core` owns pure state, scheduling, and contract decisions.
+- `packages/runtime` owns Effect-based use cases and service contracts.
+- `packages/adapters` maps GitLab, Beads, SQLite, processes, and workspaces to those contracts.
+- `packages/cli` renders commands without duplicating workflow logic.
 
-## Requirements
+The run ledger combines a mutable current summary with an immutable ordered event trail. Read the [architecture](ARCHITECTURE.md) and [architecture decisions](docs/adr/) for the full contract.
 
-- Git
-- authenticated `glab`
-- Docker-compatible runtime
-- Beads (`bd`) in the target repository
-- Codex CLI for ChatGPT subscription auth
+## Known limitations
 
-`morpheus doctor` checks the active target and prints concrete recovery steps.
+- Morpheus is alpha; workflow and integration interfaces may change.
+- ChatGPT-subscription authentication is serialized within one Morpheus process in the current alpha.
+- A target repository needs the declared GitLab, Beads, container, and Codex prerequisites before side effects begin.
 
-## Development
+## Verify
 
 ```sh
 pnpm install
 pnpm check
 ```
 
-Run the CLI from source:
+For an installed target, run:
 
 ```sh
-pnpm --filter @morpheus/cli morpheus --help
+morpheus doctor
 ```
 
-Project docs:
+## Related documentation
 
-- [Product PRD](docs/product/PRD.md)
-- [ALPHA contract](docs/product/ALPHA.md)
+- [Product brief](docs/product/PRD.md)
+- [Alpha contract](docs/product/ALPHA.md)
 - [Context glossary](CONTEXT.md)
-- [Architecture](ARCHITECTURE.md)
-- [Architecture decisions](docs/adr/)
 - [Agent instructions](docs/agents/)
 
-Morpheus is [Apache-2.0](LICENSE) licensed with [NOTICE](NOTICE) attribution.
+## License
+
+Morpheus is licensed under [Apache-2.0](LICENSE). See [NOTICE](NOTICE) for attribution.
