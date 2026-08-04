@@ -1,4 +1,5 @@
 # Morpheus
+<!-- github-readme-standard: full -->
 
 Morpheus is agent operations for teams running AI work on real GitLab repositories. It turns a ready issue into an isolated, reviewable agent run, records evidence, updates a Draft merge request, and leaves the merge decision to a human.
 
