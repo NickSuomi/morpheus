@@ -1,0 +1,26 @@
+name: README contract
+
+on:
+  pull_request:
+    paths:
+      - README.md
+      - scripts/check-readme-contract.mjs
+      - .github/workflows/readme-contract.yml
+  push:
+    paths:
+      - README.md
+      - scripts/check-readme-contract.mjs
+      - .github/workflows/readme-contract.yml
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: node scripts/check-readme-contract.mjs README.md
