@@ -1315,7 +1315,19 @@ describe("SandcastleAgentRunner", () => {
     );
   });
 
-  it("constructs Codex provider and Docker sandbox from configured auth and container settings", async () => {
+  it.each([
+    { model: "gpt-6.1-sol", effort: "xhigh", agentConfig: undefined },
+    {
+      model: "gpt-5.4-mini",
+      effort: "low",
+      agentConfig: {
+        provider: "codex" as const,
+        model: "gpt-5.4-mini",
+        effort: "low" as const,
+        idleTimeoutSeconds: 1800,
+      },
+    },
+  ])("uses $model with $effort effort", async (settings) => {
     const dir = mkdtempSync(join(tmpdir(), "morpheus-sandcastle-"));
     writeFileSync(
       join(dir, "agent.env"),
@@ -1333,12 +1345,7 @@ describe("SandcastleAgentRunner", () => {
         profile: ".morpheus/container/Dockerfile",
         mounts: [{ hostPath: ".cache", containerPath: "/cache", readOnly: true }],
       },
-      agentConfig: {
-        provider: "codex",
-        model: "gpt-5.4-mini",
-        effort: "xhigh",
-        idleTimeoutSeconds: 1800,
-      },
+      agentConfig: settings.agentConfig,
       dockerFactory: (options) => {
         dockerOptions.push(options);
         return {
@@ -1371,8 +1378,8 @@ describe("SandcastleAgentRunner", () => {
     expect(commands[0]).toContain(
       `codex exec --json --dangerously-bypass-approvals-and-sandbox -m`,
     );
-    expect(commands[0]).toContain("gpt-5.4-mini");
-    expect(commands[0]).toContain('model_reasoning_effort="xhigh"');
+    expect(commands[0]).toContain(settings.model);
+    expect(commands[0]).toContain(`model_reasoning_effort="${settings.effort}"`);
     expect(stdins).toEqual(["prompt"]);
     expect(dockerOptions).toEqual([
       {

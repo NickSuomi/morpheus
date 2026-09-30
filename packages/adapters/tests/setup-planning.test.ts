@@ -145,6 +145,7 @@ describe("setup planning", () => {
       targetRepo: ".",
       gitlab: { project: "group/app", readyLabel: "agent:ready", targetBranch: "develop" },
       agentRunner: {
+        agent: { provider: "codex", model: "gpt-6.1-sol", effort: "xhigh" },
         auth: { kind: "chatgpt" },
         container: {
           image: "morpheus-agent:local",

@@ -2173,7 +2173,7 @@ const runSandcastlePhase = (
       const runner = options.run ?? sandcastleRun;
       const agentConfig = options.agentConfig ?? {
         provider: "codex" as const,
-        model: "gpt-5.4-mini",
+        model: "gpt-6.1-sol",
         effort: "xhigh" as const,
       };
       const auth = authConfigForOptions(options);
