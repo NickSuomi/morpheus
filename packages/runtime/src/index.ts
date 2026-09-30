@@ -4644,7 +4644,7 @@ const makeInitialConfig = (
     kind: "container",
     agent: {
       provider: "codex",
-      model: "gpt-5.4-mini",
+      model: "gpt-6.1-sol",
       effort: "xhigh",
       idleTimeoutSeconds: 1800,
     },
@@ -5165,7 +5165,7 @@ export const planMorpheusSetup = (input: SetupPlanningInput = {}): SetupPlan => 
     "main";
   const readyLabel = answers.readyLabel ?? existingConfig?.gitlab.readyLabel ?? "agent:ready";
   const agentModel =
-    answers.agentModel ?? existingConfig?.agentRunner.agent.model ?? "gpt-5.4-mini";
+    answers.agentModel ?? existingConfig?.agentRunner.agent.model ?? "gpt-6.1-sol";
   const agentEffort = answers.agentEffort ?? existingConfig?.agentRunner.agent.effort ?? "xhigh";
   const agentIdleTimeoutSeconds = existingConfig?.agentRunner.agent.idleTimeoutSeconds ?? 1800;
   const authKind = answers.authKind ?? existingConfig?.agentRunner.auth.kind ?? "chatgpt";
@@ -5394,7 +5394,7 @@ export const planMorpheusSetup = (input: SetupPlanningInput = {}): SetupPlan => 
     }),
     setupPrompt(
       "agentModel",
-      existingConfig?.agentRunner.agent.model ?? "gpt-5.4-mini",
+      existingConfig?.agentRunner.agent.model ?? "gpt-6.1-sol",
       agentModel,
       promptValidations[7],
       {

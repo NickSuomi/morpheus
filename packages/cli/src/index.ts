@@ -649,7 +649,7 @@ const collectSetupAnswers = async (
 
   const agentModel = prompts.get("agentModel");
   if (needsSetupAnswer(agentModel)) {
-    answers.agentModel = await promptValue(rl, "Agent model", agentModel?.value ?? "gpt-5.4-mini");
+    answers.agentModel = await promptValue(rl, "Agent model", agentModel?.value ?? "gpt-6.1-sol");
   }
 
   const agentEffort = prompts.get("agentEffort");

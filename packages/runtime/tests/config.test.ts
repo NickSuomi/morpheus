@@ -769,7 +769,7 @@ describe("Morpheus config", () => {
             kind: "container",
             agent: {
               provider: "codex",
-              model: "gpt-5.4-mini",
+              model: "gpt-6.1-sol",
               effort: "xhigh",
             },
             auth: { kind: "chatgpt" },
